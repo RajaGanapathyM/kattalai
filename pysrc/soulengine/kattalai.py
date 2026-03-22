@@ -1,9 +1,3 @@
-"""
-Claude Cowork — Terminal UI  v3
-Tabs: Chat · Space · Agent Mind · Terminal
-SoulEngine PyRuntime fully integrated with demo fallback.
-"""
-
 from __future__ import annotations
 import asyncio
 import os
