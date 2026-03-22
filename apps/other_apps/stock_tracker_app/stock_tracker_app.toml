@@ -1,0 +1,120 @@
+app_name="SOUL STOCK TRACKER"
+app_path="./apps/other_apps/stock_tracker_app/stock_tracker_app.py"
+app_start_command="python"
+app_start_args="./apps/other_apps/stock_tracker_app/stock_tracker_app.py"
+app_handle_name="stock_tracker"
+app_launch_mode="REPL"
+app_usage_guideline="""
+Use this app for:
+- Fetching live stock market quotes, prices, and daily ranges.
+- Retrieving company fundamentals (P/E, EPS, sector, market cap, dividend yield).
+- Fetching historical OHLCV (Open, High, Low, Close, Volume) data for any ticker.
+- Comparing the percentage change performance of two stocks over a timeframe.
+- Managing a local watchlist of favorite ticker symbols and fetching bulk quotes.
+- Setting, checking, and managing custom price alerts (e.g., crossing above/below target prices).
+- Searching for valid Yahoo Finance ticker symbols using company names.
+- Tracking top gainers and losers for specific index baskets (Nifty 50, Sensex, Crypto).
+
+Powered by `yfinance`. Note: Indian stock symbols usually require the `.NS` or `.BO` suffix (e.g., `RELIANCE.NS`, `TCS.NS`). Crypto uses `-USD` (e.g., `BTC-USD`).
+
+## Commands & Examples
+
+### Get Live Quote
+&stock_tracker quote RELIANCE.NS
+&stock_tracker quote AAPL
+
+### Get Company Info / Fundamentals
+&stock_tracker info HDFCBANK.NS
+&stock_tracker info TSLA
+
+### Get Historical Data (default 30 days)
+&stock_tracker history TCS.NS
+&stock_tracker history BTC-USD 7
+
+### Compare Two Stocks
+&stock_tracker compare INFY.NS TCS.NS
+&stock_tracker compare AAPL MSFT 90
+
+### Manage Watchlist
+&stock_tracker watchlist list
+&stock_tracker watchlist add SBIN.NS
+&stock_tracker watchlist rm SBIN.NS
+&stock_tracker watchlist quotes
+
+### Manage Price Alerts
+&stock_tracker alert set RELIANCE.NS above 3000
+&stock_tracker alert set BTC-USD below 60000
+&stock_tracker alert list
+&stock_tracker alert check
+&stock_tracker alert rm RELIANCE.NS
+
+### Search for Ticker Symbols
+&stock_tracker search Tata Motors
+&stock_tracker search NVIDIA
+
+### View Market Movers (Gainers & Losers)
+&stock_tracker movers
+&stock_tracker movers sensex
+&stock_tracker movers crypto
+
+## Output Behavior
+
+* All commands return a structured JSON response.
+* Numeric values are safely rounded to 2 decimal places. Large numbers (Volume, Market Cap, Revenue) are formatted cleanly with K/M/B suffixes.
+* `quote` returns current price, previous close, change, change percentage, day high/low, 52-week high/low, and market cap.
+* `info` returns sector, industry, P/E ratios, EPS, dividend yield, debt-to-equity, ROE, and a brief company description.
+* `history` returns a list of dictionaries with date, open, high, low, close, and volume, along with the overall period change percentage.
+* `compare` calculates the percentage change over the requested days for both symbols and declares a "winner".
+* `watchlist` and `alert` states are saved locally to `watchlist.json` and `price_alerts.json`.
+* `alert check` compares live prices against all set alerts and flags `"triggered": true` if conditions are met.
+* `movers` checks a hardcoded list of symbols for the specified basket and sorts them to return the top 3 gainers and bottom 3 losers.
+* Missing packages (like `yfinance`) or API failures return a clean `{"status": "error", "message": "..."}` response.
+"""
+
+[[app_command_signatures]]
+command = "quote"
+consumes = ["symbol","stock symbol","share price","stock market symbol","ticket symbol"]
+produces = ["quote_data"]
+action = "read"
+
+[[app_command_signatures]]
+command = "info"
+consumes = ["symbol","stock symbol","share price","stock market symbol","ticket symbol"]
+produces = ["fundamentals"]
+action = "read"
+
+[[app_command_signatures]]
+command = "history"
+consumes = ["symbol", "days?","stock symbol","share price","stock market symbol","ticket symbol"]
+produces = ["ohlcv_data"]
+action = "read"
+
+[[app_command_signatures]]
+command = "compare"
+consumes = ["symbol1", "symbol2", "days?","stock symbol","share price","stock market symbol","ticket symbol"]
+produces = ["comparison_data"]
+action = "read"
+
+[[app_command_signatures]]
+command = "watchlist"
+consumes = ["subcommand", "symbol?","stock symbol","share price","stock market symbol","ticket symbol"]
+produces = ["watchlist_status"]
+action = "write"
+
+[[app_command_signatures]]
+command = "alert"
+consumes = ["subcommand", "symbol?", "direction?", "price?","stock symbol","share price","stock market symbol","ticket symbol"]
+produces = ["alert_status"]
+action = "write"
+
+[[app_command_signatures]]
+command = "search"
+consumes = ["query","stock symbol","share price","stock market symbol","ticket symbol"]
+produces = ["search_results"]
+action = "read"
+
+[[app_command_signatures]]
+command = "movers"
+consumes = ["basket?","stock symbol","share price","stock market symbol","ticket symbol"]
+produces = ["movers_data"]
+action = "read"
