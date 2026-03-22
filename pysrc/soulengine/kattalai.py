@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 import asyncio
 import os
@@ -920,7 +921,7 @@ class KattalaiApp(App):
             return
         
         logging.info(f"Agent init to topic:{self._se_active_agent_id}")
-        if name not in self._se_agent_ids:
+        if name not in self._se_agent_ids or self._se_agent_ids.get(name) is None : 
             try:
                 self._se_agent_ids[name]=await self._se_runtime.deploy_agent(name)
             except Exception as e:
@@ -935,6 +936,7 @@ class KattalaiApp(App):
                 await self._se_runtime.remove_agent_from_topic(self._se_topic_id, self._se_active_agent_id)
                 self._log_term(f"[dim]agent {self._se_active_agent_name} removed from topic[/dim]")
                 self._se_active_agent_cursor_before=-1
+            
             await self._se_runtime.add_agent_to_topic(self._se_topic_id, agent_id)
             self._se_active_agent_id=self._se_agent_ids[name]
             self._se_active_agent_name=name
@@ -1076,6 +1078,8 @@ class KattalaiApp(App):
         # self.is_thinking = True
         self._log_term(f"[bold #f59e0b]$ runtime.insert_message(topic, user, ...)[/bold #f59e0b]")
         logging.info(f"se send:{self._se_active_agent_name}")
+        if self._se_active_agent_name is None:
+            self._se_active_agent_name=AGENTS[0]
         if not self._se_active_agent_id:
             logging.info(f"se send adding agent:{self._se_active_agent_name}")
             await self._add_agent_to_topic(self._se_active_agent_name)
