@@ -4,7 +4,8 @@
 > Core engine in Rust (`soulengine`), exposed to Python via PyO3/maturin, with a Textual TUI frontend.
 
 ---
-
+![kattalai banner](assets/banner_img_kattalai.png)
+---
 ## Table of Contents
 
 1. [What is kattalai?](#1-what-is-kattalai)
@@ -12,7 +13,7 @@
 3. [Prerequisites](#3-prerequisites)
 4. [Installation](#4-installation)
    - [Option A — Build from source (recommended for development)](#option-a--build-from-source)
-   - [Option B — Install from PyPI wheel](#option-b--install-from-pypi-wheel)
+   - [Option B — Install from PyPI wheel](#option-b--install-from-pypi-wheel)(Not Yet Done)
 5. [Configuration](#5-configuration)
    - [inference_config.toml](#inference_configtoml)
    - [agents_config.toml](#agents_configtoml)
@@ -142,9 +143,10 @@ cd kattalai
 # 2. Create and activate a virtual environment
 python -m venv .venv
 source .venv/bin/activate        # Linux/macOS
-# .venv\Scripts\activate         # Windows
+# \.venv\Scripts\activate.bat         # Windows
 
 # 3. Build and install the soulengine Python extension
+pip install maturin
 maturin develop --release
 
 # 4. Install Python dependencies for the TUI and apps
@@ -245,8 +247,9 @@ This is useful to verify your environment compiles and configs are valid before 
 `pysrc/soulengine/kattalai.py` is a self-contained Textual application. It imports `PyRuntime` from the compiled `soulengine` extension and falls back to a demo mode if the native module is unavailable.
 
 ```bash
-# From the repo root, with the virtual environment active
-python pysrc/soulengine/kattalai.py
+# From the repo root, with the virtual environment active type the command
+kattalai
+(This command will open the Textual App)
 ```
 
 The TUI has three tabs:
