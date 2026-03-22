@@ -152,7 +152,7 @@ maturin develop --release
 # 4. Install Python dependencies for the TUI and apps
 pip install textual yfinance playwright
 pip install torch==2.4.0
-pip install numpy
+pip install "numpy<2"
 
 # 5. (Optional) Install Playwright browser for the webpage reader app
 playwright install chromium
@@ -250,7 +250,7 @@ This is useful to verify your environment compiles and configs are valid before 
 
 ```bash
 # From the repo root, with the virtual environment active type the command
-kattalai
+kattalai or python ./pysrc/soulengine/kattalai.py
 (This command will open the Textual App)
 ```
 
