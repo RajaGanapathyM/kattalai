@@ -13,7 +13,7 @@
 3. [Prerequisites](#3-prerequisites)
 4. [Installation](#4-installation)
    - [Option A — Build from source (recommended for development)](#option-a--build-from-source)
-   - [Option B — Install from PyPI wheel](#option-b--install-from-pypi-wheel)
+   - [Option B — Install from PyPI wheel](#option-b--install-from-pypi-wheel)(Not Yet Done)
 5. [Configuration](#5-configuration)
    - [inference_config.toml](#inference_configtoml)
    - [agents_config.toml](#agents_configtoml)
