@@ -151,6 +151,8 @@ maturin develop --release
 
 # 4. Install Python dependencies for the TUI and apps
 pip install textual yfinance playwright
+pip install torch==2.4.0
+pip install numpy
 
 # 5. (Optional) Install Playwright browser for the webpage reader app
 playwright install chromium
