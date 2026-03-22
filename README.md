@@ -4,7 +4,8 @@
 > Core engine in Rust (`soulengine`), exposed to Python via PyO3/maturin, with a Textual TUI frontend.
 
 ---
-
+![kattalai banner](assets/banner.png)
+---
 ## Table of Contents
 
 1. [What is kattalai?](#1-what-is-kattalai)
