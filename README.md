@@ -143,9 +143,10 @@ cd kattalai
 # 2. Create and activate a virtual environment
 python -m venv .venv
 source .venv/bin/activate        # Linux/macOS
-# .venv\Scripts\activate         # Windows
+# \.venv\Scripts\activate.bat         # Windows
 
 # 3. Build and install the soulengine Python extension
+pip install maturin
 maturin develop --release
 
 # 4. Install Python dependencies for the TUI and apps
