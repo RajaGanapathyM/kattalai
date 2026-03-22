@@ -1,0 +1,37 @@
+[package]
+name = "soulengine"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "soulengine"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+chrono = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+env_logger = "0.9"
+anyhow = "1.0"
+thiserror = "1.0"
+tokio = { version = "1.0", features = ["full","rt-multi-thread", "macros"] }
+uuid = { version = "1.0", features = ["v7"] }
+crossbeam = "0.8"
+arc-swap = "1.5"
+reqwest = { version = "0.11", features = ["blocking", "json"] }
+regex="1"
+async-trait = "0.1"
+toml = "0.8"
+fastembed = "5.12.1"
+deadpool = "0.13.0"
+strsim = "0.11.1"
+petgraph = "0.8.3"
+rust-bert = "0.23.0"
+nlprule = "0.6.4"
+whatlang = "0.18.0"
+nlprule-build = "0.6.4"
+futures = "0.3.32"
+itertools = "0.14.0"
+pyo3 = { version = "0.20", features = ["extension-module"] }
+pyo3-asyncio = { version = "0.20", features = ["tokio-runtime"] }
