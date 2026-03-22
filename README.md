@@ -246,8 +246,9 @@ This is useful to verify your environment compiles and configs are valid before 
 `pysrc/soulengine/kattalai.py` is a self-contained Textual application. It imports `PyRuntime` from the compiled `soulengine` extension and falls back to a demo mode if the native module is unavailable.
 
 ```bash
-# From the repo root, with the virtual environment active
-kattalai <-This command will open the Textual App
+# From the repo root, with the virtual environment active type the command
+kattalai
+(This command will open the Textual App)
 ```
 
 The TUI has three tabs:
