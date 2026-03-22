@@ -1,0 +1,32 @@
+[build-system]
+requires = ["maturin>=1.4"]
+build-backend = "maturin"
+
+[project]
+name = "kattalai"
+version = "0.1.0"
+description = "Sirapana Ai Engine"
+requires-python = ">=3.8"
+# Torch 2.4 and Numpy added as dependencies
+dependencies = [
+    "torch>=2.4.0",
+    "numpy>=1.20.0",
+]
+
+[project.scripts]
+# This assumes kattalai.py has a 'def main():' function
+kattalai = "soulengine.kattalai:main"
+
+[tool.maturin]
+# Points to your python code directory
+python-source = "pysrc"
+module-name = "soulengine" 
+
+# Includes your two asset folders located outside src. 
+# The '**/*' syntax ensures all subfolders/files inside them are captured.
+include = [
+    "apps/**/*",
+    "configs/**/*",
+    "model_assets/**/*",
+    "prompts/**/*",
+]
