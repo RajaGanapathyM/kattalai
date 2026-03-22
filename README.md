@@ -247,7 +247,7 @@ This is useful to verify your environment compiles and configs are valid before 
 
 ```bash
 # From the repo root, with the virtual environment active
-python pysrc/soulengine/kattalai.py
+kattalai <-This command will open the Textual App
 ```
 
 The TUI has three tabs:
