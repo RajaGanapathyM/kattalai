@@ -1027,7 +1027,7 @@ class KattalaiApp(App):
         #     self.call_after_refresh(lambda: asyncio.ensure_future())
         
         logging.info(f"watch_active_agentActive Agent:{val}")
-        self._se_active_agent_name=val
+        # self._se_active_agent_name=val
         asyncio.create_task(self._add_agent_to_topic(val))
 
     # ── Thinking indicator ────────────────────────────────────
