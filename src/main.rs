@@ -98,6 +98,7 @@ async fn main() {
     se_runtime.insert_message(&topic_id, &demo_user_id, "Say Booo".to_string()).await;
     let topic_len=se_runtime.get_topic_history_len(&topic_id.clone()).await.unwrap();
     println!("Memory sequence length: {}", topic_len);
+    
     // /
     // / build a model instance qwen3:4b llama3.2:3b deepseek-r1:1.5b phi3:mini phi4:mini
     // let ollama = OllamaConfig::new(
@@ -157,6 +158,7 @@ async fn main() {
     // Agent::ping(&first_agent,AgentPulse::AddMemory(MemoryNode::new(&demo_user, "Call demo app and update me once demo app execution completed".to_string(), None, MemoryNodeType::Thought),None)).await;
     se_runtime.add_agent_to_topic(&topic_id, &agent_id).await;
     sleep(Duration::from_secs(3));
+    se_runtime.remove_agent_from_topic(&topic_id, &agent_id).await;
     
 
     let my_msg="wait for 5 sec and get stock price of HDFCBANK.NS and analyse".to_string();

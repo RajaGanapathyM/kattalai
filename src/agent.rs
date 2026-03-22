@@ -8,6 +8,8 @@ use crate::inference::{ inference_api_trait,invoke_type};
 use crate::embeddings::embedder;
 use crate::tool::App;
 use core::error;
+
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::hash::Hash;
 use std::mem;
 use std::process::Output;
@@ -348,7 +350,7 @@ impl Agent{
                         // info!("Agent locked for episode:{}",episode_id);
                         continue;
                     }
-                    if *episode.episode_memory._kill_switch.load_full(){
+                    if episode.episode_memory._kill_switch.load(Ordering::Relaxed){
                         continue;
                     }
                     // info!("Tick every 1 seconds episode_id {}",episode_id);
@@ -659,9 +661,11 @@ impl Agent{
         
         let episodes=self.episodes.read().await;
         if episodes.contains_key(&episode_id){
+            info!("{} detaching",episode_id);
             episodes.get(&episode_id).unwrap().episode_memory.kill_memory();
 
         }
+        
         else{
             info!("Episode not found in agent:{}",episode_id);
         }

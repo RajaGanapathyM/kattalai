@@ -15,7 +15,7 @@ use crate::source::{self, Role};
 use crate::source::Source;
 use crate::agent::PromptStyle;
 use crate::embeddings::GLOBAL_EMBEDDER;
-
+use std::sync::atomic::{AtomicBool, Ordering};
 use futures::executor::block_on;
 
 use pyo3::prelude::*;
@@ -187,7 +187,7 @@ pub struct Memory {
     _memory_store: Arc<MemoryStore>,
     _branch_id: String,
     _memory_tx: channel::Sender<MemoryNode>,
-    pub _kill_switch:Arc<ArcSwap<bool>>
+    pub _kill_switch:Arc<AtomicBool>
 }
 
 impl Memory {
@@ -199,7 +199,7 @@ impl Memory {
             _memory_store: MemoryStore::new(),
             _branch_id: Uuid::now_v7().to_string(),
             _memory_tx: tx,
-            _kill_switch:Arc::new(ArcSwap::from_pointee(false))
+            _kill_switch:Arc::new(AtomicBool::new(false))
         });
 
         let rx_clone = rx.clone();
@@ -209,8 +209,9 @@ impl Memory {
             info!("Memory thread started. Memory ID: {}, Branch ID: {}", arc_memory_clone._memory_id, arc_memory_clone._branch_id);
             while let Ok(new_node) = rx_clone.recv() {
                 // print!("Inserting Memory Node: {:?}", new_node);
-                let kill_switch = arc_memory_clone._kill_switch.load_full();
-                if *kill_switch{
+                let kill_switch = arc_memory_clone._kill_switch.load(Ordering::Relaxed);
+                // println!("kill{:?}",kill_switch);
+                if kill_switch{
                     info!("Killing Memory ID:{}", arc_memory_clone._memory_id);
                     break
                 }
@@ -257,8 +258,8 @@ impl Memory {
         Some(self._memory_tx.clone())
     }   
     pub fn kill_memory(&self){
-        let kill_switch=self._kill_switch.load_full();
-        self._kill_switch.store(Arc::new(false));
+        // let kill_switch=self._kill_switch.load_full();
+        let kill_ac=self._kill_switch.store(true,Ordering::Relaxed);
 
     }  
     
@@ -303,7 +304,7 @@ impl Memory {
             _memory_store: self._memory_store.clone(),
             _branch_id: Uuid::now_v7().to_string(),
             _memory_tx: self._memory_tx.clone(),
-            _kill_switch:Arc::new(ArcSwap::from_pointee(false))
+            _kill_switch:Arc::new(AtomicBool::new(false))
         })
     }
 

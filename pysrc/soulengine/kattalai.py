@@ -1273,5 +1273,5 @@ def main():
     asyncio.run(load_run_time())
     KattalaiApp().run()
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()

@@ -2,3 +2,5 @@
 /.venv
 *.pyd
 *.pdb
+*.pyc
+*.log
