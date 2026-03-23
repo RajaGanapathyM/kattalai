@@ -4,10 +4,12 @@
 > Core engine in Rust (`soulengine`), exposed to Python via PyO3/maturin, with a Textual TUI frontend.
 
 ### To be precise :Like Anthropic’s Claude for teamwork—build your Python apps, give them to Kattalai, and it figures out how to use them.
+
+
+### Join our discord server for active discussions: https://discord.com/invite/T9bsnJSg7
 ---
 ![kattalai banner](assets/banner_img_kattalai.png)
 
-Join our discord server for active discussions: https://discord.com/invite/T9bsnJSg7
 ---
 ## Table of Contents
 
