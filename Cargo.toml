@@ -36,3 +36,10 @@ itertools = "0.14.0"
 pyo3 = { version = "0.20", features = ["extension-module"] }
 pyo3-asyncio = { version = "0.20", features = ["tokio-runtime"] }
 hf-hub = "0.5.0"
+
+[profile.release]
+opt-level = "z"       # optimize for size
+lto = true            # link-time optimization removes dead code
+codegen-units = 1     # better optimization at cost of compile time
+strip = true          # strip debug symbols from binary
+panic = "abort"       # smaller panic handler
