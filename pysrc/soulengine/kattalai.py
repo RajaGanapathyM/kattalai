@@ -1282,9 +1282,9 @@ def open_folder():
     if sys.platform == "win32":
         subprocess.Popen(f'explorer "{folder}"')
     elif sys.platform == "darwin":
-        subprocess.Popen(["open", folder])
+        subprocess.Popen(["open", str(folder)])
     else:
-        subprocess.Popen(["xdg-open", folder])
+        subprocess.Popen(["xdg-open", str(folder)])
 
 def setup():
     base = Path(__file__).parent
@@ -1326,6 +1326,7 @@ def setup():
     print("Setup complete. Run 'kattalai' to start.")
 
 def main():
+    os.chdir(Path(__file__).parent)
     setup()
     asyncio.run(load_run_time())
     KattalaiApp().run()

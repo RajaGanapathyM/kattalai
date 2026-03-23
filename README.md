@@ -3,22 +3,63 @@
 > **An AI agent runtime that builds and executes Python apps to act as a coworker.**
 > Core engine in Rust (`soulengine`), exposed to Python via PyO3/maturin, with a Textual TUI frontend.
 
-### To be precise :Like Anthropic’s Claude for teamwork—build your Python apps, give them to Kattalai, and it figures out how to use them.
-
+### To be precise: Like Anthropic's Claude for teamwork—build your Python apps, give them to Kattalai, and it figures out how to use them.
 
 ### Join our discord server for active discussions: https://discord.com/invite/T9bsnJSg7
+
 ---
 ![kattalai banner](assets/banner_img_kattalai.png)
 
 ---
+
+## ⚡ Quick Install (PyPI)
+
+```bash
+pip3 install kattalai
+```
+
+> **⚠️ PATH Warning:** After install, pip may show a warning like:
+> ```
+> WARNING: The script kattalai is installed in 'C:\Users\<you>\AppData\Local\...\Scripts'
+> which is not on PATH.
+> ```
+> Copy that Scripts path from the warning and add it to your PATH, then open a new terminal. The `kattalai` command will work after that.
+>
+> **Windows quick fix:**
+> ```bash
+> setx PATH "%PATH%;<paste the Scripts path from the warning here>"
+> ```
+
+Once installed, run the first-time setup to download apps, configs, prompts, and model assets from GitHub:
+
+```bash
+kattalai-setup
+```
+
+Then launch the agent:
+
+```bash
+kattalai
+```
+
+To view or edit your configs, apps, and prompts — open the install folder directly in your file explorer:
+
+```bash
+kattalai-folder
+```
+
+> **Note:** `torch` and `numpy` are installed automatically as dependencies (~2 GB). On Windows, PyTorch is required to fix DLL loading for `soulengine`.
+
+---
+
 ## Table of Contents
 
 1. [What is kattalai?](#1-what-is-kattalai)
 2. [Repository Structure](#2-repository-structure)
 3. [Prerequisites](#3-prerequisites)
 4. [Installation](#4-installation)
-   - [Option A — Build from source (recommended for development)](#option-a--build-from-source)
-   - [Option B — Install from PyPI wheel](#option-b--install-from-pypi-wheel)(Not Yet Done)
+   - [Option A — Install from PyPI (recommended)](#option-a--install-from-pypi-recommended)
+   - [Option B — Build from source (for development)](#option-b--build-from-source)
 5. [Configuration](#5-configuration)
    - [inference_config.toml](#inference_configtoml)
    - [agents_config.toml](#agents_configtoml)
@@ -111,17 +152,10 @@ kattalai/
 
 | Dependency | Version | Purpose |
 |---|---|---|
-| Rust + Cargo | ≥ 1.85 (edition 2024) | Build the `soulengine` crate |
-| Python | 3.10 – 3.12 | TUI and app scripts |
-| maturin | ≥ 1.x | Build the PyO3 Python extension |
+| Python | 3.9 – 3.13 | TUI and app scripts |
 | Ollama *(optional)* | latest | Local LLM inference |
-| PyTorch *(optional)* | latest | Required on Windows to fix DLL loading for soulengine |
-
-Install maturin:
-
-```bash
-pip install maturin
-```
+| Rust + Cargo *(source only)* | ≥ 1.85 (edition 2024) | Build the `soulengine` crate |
+| maturin *(source only)* | ≥ 1.x | Build the PyO3 Python extension |
 
 Install Ollama (for local inference without API keys):
 
@@ -140,6 +174,64 @@ ollama pull qwen3:0.6b
 
 ## 4. Installation
 
+### Option A — Install from PyPI (recommended)
+
+```bash
+pip3 install kattalai
+```
+
+> **⚠️ PATH Warning:** After install, pip may print a warning such as:
+> ```
+> WARNING: The script kattalai is installed in 'C:\Users\<you>\AppData\Local\...\Scripts'
+> which is not on PATH.
+> ```
+> Copy the Scripts path shown in the warning and add it to your system PATH. Open a new terminal after doing so.
+>
+> **Windows quick fix:**
+> ```bash
+> setx PATH "%PATH%;<paste the Scripts path from the warning here>"
+> ```
+> Then open a new terminal and the `kattalai` command will work.
+
+Run the first-time setup to download apps, configs, prompts, and model assets from GitHub:
+
+```bash
+kattalai-setup
+```
+
+This downloads everything kattalai needs into the install directory. You only need to do this once.
+
+To view or edit your configs, apps, and prompts, open the install folder in your file explorer:
+
+```bash
+kattalai-folder
+```
+
+This opens the kattalai install directory — `configs/`, `apps/`, `prompts/`, and `model_assets/` will all be there after running `kattalai-setup`.
+
+Install the remaining Python dependencies:
+
+```bash
+pip3 install textual yfinance playwright
+pip3 install torch>=2.4.0
+pip3 install "numpy<2"
+
+# Optional: for the webpage reader app
+playwright install chromium
+```
+
+Then launch:
+
+```bash
+kattalai
+```
+
+---
+
+### Option B — Build from source
+
+For development or if you want to modify the Rust core:
+
 ```bash
 # 1. Clone the repo
 git clone https://github.com/RajaGanapathyM/kattalai.git
@@ -148,28 +240,36 @@ cd kattalai
 # 2. Create and activate a virtual environment
 python -m venv .venv
 source .venv/bin/activate        # Linux/macOS
-# \.venv\Scripts\activate.bat         # Windows
+# .venv\Scripts\activate.bat     # Windows
 
 # 3. Build and install the soulengine Python extension
-pip install maturin
+pip3 install maturin
 maturin develop --release
 
 # 4. Install Python dependencies for the TUI and apps
-pip install textual yfinance playwright
-pip install torch==2.4.0
-pip install "numpy<2"
+pip3 install textual yfinance playwright
+pip3 install torch==2.4.0
+pip3 install "numpy<2"
 
 # 5. (Optional) Install Playwright browser for the webpage reader app
 playwright install chromium
 ```
 
-> **Note for Windows users:** If you hit DLL loading errors at startup, ensure PyTorch is installed (`pip install torch`) so that `kattalai.py` can add its lib directory to the DLL search path automatically.
+> **Note for Windows users:** If you hit DLL loading errors at startup, ensure PyTorch is installed (`pip3 install torch`) so that `kattalai.py` can add its lib directory to the DLL search path automatically.
 
-After running `maturin develop`, the `soulengine` module is importable from your virtual environment as a native Python extension.
+When building from source, `apps/`, `configs/`, `prompts/`, and `model_assets/` are already present in the cloned repo — no need to run `kattalai-setup`.
+
+To open the project folder in your file explorer:
+
+```bash
+kattalai-folder
+```
+
+---
 
 ## 5. Configuration
 
-All configuration lives in `configs/`. These files must be present in the working directory from which you launch the runtime (i.e., the repo root).
+All configuration lives in `configs/`. If you installed from PyPI, run `kattalai-folder` to open the install directory and navigate to `configs/` from there. If you cloned from source, the configs are at `./configs/` in the repo root.
 
 ### `inference_config.toml`
 
@@ -254,9 +354,10 @@ This is useful to verify your environment compiles and configs are valid before 
 `pysrc/soulengine/kattalai.py` is a self-contained Textual application. It imports `PyRuntime` from the compiled `soulengine` extension and falls back to a demo mode if the native module is unavailable.
 
 ```bash
-# From the repo root, with the virtual environment active type the command
-kattalai or python ./pysrc/soulengine/kattalai.py
-(This command will open the Textual App)
+# With the virtual environment active:
+kattalai
+# or
+python ./pysrc/soulengine/kattalai.py
 ```
 
 The TUI has three tabs:
@@ -312,7 +413,7 @@ These apps are loaded by default and cover fundamental system utilities.
 
 ### Other Apps
 
-These are optional and may require additional Python dependencies.(Not yet completely tested)
+These are optional and may require additional Python dependencies. (Not yet completely tested)
 
 | Handle | Mode | Description |
 |---|---|---|
@@ -343,7 +444,7 @@ The `prompts/` directory contains Markdown files that define the agent's reasoni
 | `AGENT_RESPONSE_REPAIR_PROMPT.md` | Repair prompt for malformed structured responses |
 | `CONTEXT_TAGGING_PROMPT.md` | Context labelling for multi-turn handoffs |
 
-To customise agent behaviour, edit these files directly. The agent picks them up on next initialisation (no recompile required since they are loaded at runtime, not baked into the binary).
+To customise agent behaviour, edit these files directly. Run `kattalai-folder` to open the install directory and find them under `prompts/`. The agent picks up changes on next initialisation — no recompile required.
 
 ---
 
