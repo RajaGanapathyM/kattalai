@@ -3,7 +3,7 @@
 > **An AI agent runtime that builds and executes Python apps to act as a coworker.**
 > Core engine in Rust (`soulengine`), exposed to Python via PyO3/maturin, with a Textual TUI frontend.
 
-To be short: It is like claue cowork. you build your python apps give it Kattalai, it will figure out how to use it!!
+## To be short: It is like claue cowork. you build your python apps give it Kattalai, it will figure out how to use it!!
 ---
 ![kattalai banner](assets/banner_img_kattalai.png)
 ---
