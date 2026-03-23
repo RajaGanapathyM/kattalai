@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "kattalai"
-version = "0.2.0"
+version = "0.3.0"
 description = "Sirapana Ai Engine"
 requires-python = ">=3.8"
 dependencies = [
@@ -15,6 +15,7 @@ dependencies = [
 [project.scripts]
 kattalai = "soulengine.kattalai:main"
 kattalai-folder = "soulengine.kattalai:open_folder"
+kattalai-setup = "soulengine.kattalai:setup"
 
 [tool.maturin]
 python-source = "pysrc"

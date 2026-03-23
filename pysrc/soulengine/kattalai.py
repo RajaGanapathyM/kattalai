@@ -9,6 +9,12 @@ import logging
 import json
 import subprocess
 from pathlib import Path
+import urllib.request
+import zipfile
+import shutil
+
+GITHUB_REPO = "RajaGanapathyM/kattalai"
+BRANCH = "main"
 # Setup a basic logger
 logging.basicConfig(filename="newdebug.log", level=logging.INFO)
 # ── SoulEngine import (Windows DLL fix + graceful fallback) ─────────────────
@@ -1280,8 +1286,47 @@ def open_folder():
     else:
         subprocess.Popen(["xdg-open", folder])
 
-def main():
+def setup():
+    base = Path(__file__).parent
+    folders = ["apps", "configs", "model_assets", "prompts"]
     
+    # Check if already downloaded
+    if all((base / f).exists() for f in folders):
+        print("Already set up.")
+        return
+
+    print("Downloading assets from GitHub...")
+    
+    url = f"https://github.com/{GITHUB_REPO}/archive/refs/heads/{BRANCH}.zip"
+    zip_path = base / "temp.zip"
+    
+    urllib.request.urlretrieve(url, zip_path)
+    
+    with zipfile.ZipFile(zip_path, "r") as z:
+        for folder in folders:
+            for file in z.namelist():
+                if file.startswith(f"kattalai-{BRANCH}/{folder}/"):
+                    z.extract(file, base / "temp_extract")
+    
+    # Move extracted folders to package dir
+    extract_root = base / "temp_extract" / f"kattalai-{BRANCH}"
+    for folder in folders:
+        src = extract_root / folder
+        dst = base / folder
+        if src.exists():
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+            print(f"  ✓ {folder}")
+        else:
+            print(f"  ✗ {folder} not found in repo")
+    
+    # Cleanup
+    zip_path.unlink()
+    shutil.rmtree(base / "temp_extract")
+    
+    print("Setup complete. Run 'kattalai' to start.")
+
+def main():
+    setup()
     asyncio.run(load_run_time())
     KattalaiApp().run()
 
