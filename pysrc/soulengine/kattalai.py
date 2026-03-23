@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import Optional
 import logging
 import json
+import subprocess
+from pathlib import Path
 # Setup a basic logger
 logging.basicConfig(filename="newdebug.log", level=logging.INFO)
 # ── SoulEngine import (Windows DLL fix + graceful fallback) ─────────────────
@@ -1267,6 +1269,16 @@ class KattalaiApp(App):
                 self.query_one("#user-input", Input).focus()
         except NoMatches:
             pass
+
+
+def open_folder():
+    folder = Path(__file__).parent
+    if sys.platform == "win32":
+        subprocess.Popen(f'explorer "{folder}"')
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", folder])
+    else:
+        subprocess.Popen(["xdg-open", folder])
 
 def main():
     
