@@ -529,7 +529,7 @@ fn find_matching_toml_dirs(root: &str, matches: &mut Vec<String>) {
                         matches.push(toml_file.to_string_lossy().to_string());
                     }
 
-                    println!("{}-addpdirs", dir_name);
+                    // println!("{}-addpdirs", dir_name);
 
                     if let Some(sub_path_str) = path.to_str() {
                         find_matching_toml_dirs(sub_path_str, matches);
