@@ -593,74 +593,129 @@ action   = "read"
 
 ### Step 3 — Write the Python script
 
-The script communicates with the Rust terminal layer through a structured message protocol on stdin/stdout. Import the base class from `apps/se_app_utils/soulengine.py`:
+The script communicates with the Rust terminal layer through a structured message protocol on stdin/stdout. The `soul_engine_app` helper from `se_app_utils` manages the REPL loop and protocol framing for you.
+
+**Import pattern:**
 
 ```python
+import json
 import sys
-import os
-sys.stdout.reconfigure(encoding="utf-8")   # required on Windows
-sys.stderr.reconfigure(encoding="utf-8")
+import asyncio
+from pathlib import Path
 
-# Adjust the path if your app is in a subdirectory
-sys.path.append(os.path.join(os.path.dirname(__file__), "../../se_app_utils"))
-from soulengine import soul_engine_app, soul_engine_interface
+# Walk up to the apps/ root so se_app_utils is importable
+apps_path = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(apps_path))
+
+import se_app_utils
+from se_app_utils.soulengine import soul_engine_app
 ```
+
+> `Path(__file__).resolve().parent.parent.parent` assumes the script is three levels deep under `apps/` (e.g. `apps/core_apps/my_app/my_app.py`). Adjust `.parent` count if your layout differs.
 
 **Minimal REPL app skeleton:**
 
 ```python
-import sys, os, json
-sys.stdout.reconfigure(encoding="utf-8")
-sys.path.append(os.path.join(os.path.dirname(__file__), "../../se_app_utils"))
-from soulengine import soul_engine_app, soul_engine_interface
+import json
+import sys
+import asyncio
+from pathlib import Path
 
-class WeatherApp(soul_engine_app):
+apps_path = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(apps_path))
+import se_app_utils
+from se_app_utils.soulengine import soul_engine_app
 
-    def __init__(self):
-        super().__init__()
-        # initialise any state here
 
-    def handle_command(self, command: str, args: dict) -> str:
-        """
-        Called by the base class REPL loop for every inbound command.
-        Return a plain string — the base class wraps it in the protocol message.
-        """
-        if command == "current":
-            city = args.get("city_name", "unknown")
-            # Replace with real implementation
-            return f"Weather in {city}: 28°C, partly cloudy, humidity 65%"
+async def process_command(se_interface, args):
+    """
+    Called by soul_engine_app for every inbound invocation.
 
-        elif command == "forecast":
-            city = args.get("city_name", "unknown")
-            days = args.get("days", 3)
-            return f"3-day forecast for {city}: Mon 28°C, Tue 27°C, Wed 29°C"
+    Args:
+        se_interface  – messaging handle; call se_interface.send_message(json_str) to reply
+        args          – list of string tokens from the agent's command invocation;
+                        args[0] is typically the subcommand, args[1:] are parameters
+    """
+    if not args:
+        se_interface.send_message(json.dumps({
+            "status": "error",
+            "message": "No command provided"
+        }))
+        return
 
-        else:
-            return f"Unknown command: {command}"
+    command = args[0]
+
+    if command == "current":
+        city = args[1] if len(args) > 1 else "unknown"
+        # Replace with real implementation
+        se_interface.send_message(json.dumps({
+            "status": "ok",
+            "city": city,
+            "temperature": "28°C",
+            "conditions": "partly cloudy",
+            "humidity": "65%"
+        }))
+
+    elif command == "forecast":
+        city = args[1] if len(args) > 1 else "unknown"
+        se_interface.send_message(json.dumps({
+            "status": "ok",
+            "city": city,
+            "forecast": ["Mon 28°C", "Tue 27°C", "Wed 29°C"]
+        }))
+
+    else:
+        se_interface.send_message(json.dumps({
+            "status": "error",
+            "message": f"Unknown command: {command}"
+        }))
 
 
 if __name__ == "__main__":
-    WeatherApp().run()
+    soul_app = soul_engine_app(app_name="Weather App")
+    soul_app.run_repl(main_fn=process_command)
 ```
 
-**What the base class does for you:**
+**What `soul_engine_app` does for you:**
 
 - Reads JSON-encoded commands from stdin in the format the Rust terminal layer sends.
-- Calls `handle_command(command, args)` with the parsed values.
-- Writes the response back to stdout wrapped in `[#APP_MESSAGE>...]` protocol markers that the Rust layer reads.
+- Calls your `process_command(se_interface, args)` coroutine with a messaging handle and the parsed argument list.
 - Keeps the process alive in a loop for `REPL` mode.
+- `se_interface.send_message(json_str)` writes the response back to stdout wrapped in the `[#APP_MESSAGE>...]` protocol markers that the Rust layer reads.
 
-**Protocol message format (for reference — handled by base class automatically):**
+**Protocol message format (for reference — handled by `soul_engine_app` automatically):**
 
 ```
 # Inbound (Rust → Python, on stdin):
-[#APP_INVOKE>{"command": "current", "args": {"city_name": "Chennai"}}]
+[#APP_INVOKE>{"command": "current", "args": ["Chennai"]}]
 
 # Outbound (Python → Rust, on stdout):
-[#APP_MESSAGE>{"result": "Weather in Chennai: 32°C, sunny"}]
+[#APP_MESSAGE>{"status": "ok", "temperature": "32°C", "conditions": "sunny"}]
 ```
 
-You only need to interact with the protocol directly if you are not using the `soul_engine_app` base class.
+You only need to interact with the protocol directly if you are not using `soul_engine_app`.
+
+**Async support:** `process_command` is an `async def` — you can `await asyncio.sleep(...)` or any other coroutine inside it. This is particularly useful for timer-based apps that need to send an acknowledgement, wait, then fire a follow-up message:
+
+```python
+async def process_command(se_interface, args):
+    # ... parse and validate args ...
+
+    # Send acknowledgement immediately
+    se_interface.send_message(json.dumps({
+        "status": "alarm_set",
+        "fires_at": target_str,
+        "message": alarm_msg
+    }))
+
+    await asyncio.sleep(seconds)   # non-blocking wait
+
+    # Fire the follow-up after the delay
+    se_interface.send_message(json.dumps({
+        "status": "alarm_fired",
+        "message": alarm_msg
+    }))
+```
 
 ---
 
@@ -741,40 +796,105 @@ action   = "read"
 **`apps/core_apps/calculator_app/calculator_app.py`:**
 
 ```python
-import sys, os
-sys.stdout.reconfigure(encoding="utf-8")
-sys.path.append(os.path.join(os.path.dirname(__file__), "../../se_app_utils"))
-from soulengine import soul_engine_app
+import json
+import sys
+import asyncio
+from pathlib import Path
 
-class CalculatorApp(soul_engine_app):
+apps_path = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(apps_path))
+import se_app_utils
+from se_app_utils.soulengine import soul_engine_app
 
-    def __init__(self):
-        super().__init__()
-        self._vars: dict = {}
+_vars: dict = {}   # persistent variable store across REPL calls
 
-    def handle_command(self, command: str, args: dict) -> str:
-        if command == "calculate":
-            expr = args.get("expression", "")
-            try:
-                result = eval(expr, {"__builtins__": {}}, self._vars)
-                return str(result)
-            except Exception as e:
-                return f"Error: {e}"
 
-        elif command == "store":
-            name  = args.get("variable_name", "")
-            value = args.get("value", 0)
-            self._vars[name] = value
-            return f"Stored {name} = {value}"
+async def process_command(se_interface, args):
+    """
+    Commands:
+      calculate <expression>         → evaluate expression (may reference stored vars)
+      store <variable_name> <value>  → store a named variable
+      recall <variable_name>         → retrieve a stored variable
+    """
+    if not args:
+        se_interface.send_message(json.dumps({
+            "status": "error",
+            "message": "No command provided. Use: calculate | store | recall"
+        }))
+        return
 
-        elif command == "recall":
-            name = args.get("variable_name", "")
-            return str(self._vars.get(name, f"Variable '{name}' not found"))
+    command = args[0]
 
-        return f"Unknown command: {command}"
+    if command == "calculate":
+        expr = " ".join(args[1:]).strip()
+        if not expr:
+            se_interface.send_message(json.dumps({
+                "status": "error",
+                "message": "No expression provided."
+            }))
+            return
+        try:
+            result = eval(expr, {"__builtins__": {}}, _vars)
+            se_interface.send_message(json.dumps({
+                "status": "ok",
+                "expression": expr,
+                "result": result
+            }))
+        except Exception as e:
+            se_interface.send_message(json.dumps({
+                "status": "error",
+                "message": str(e)
+            }))
+
+    elif command == "store":
+        if len(args) < 3:
+            se_interface.send_message(json.dumps({
+                "status": "error",
+                "message": "Usage: store <variable_name> <value>"
+            }))
+            return
+        name  = args[1]
+        value = args[2]
+        try:
+            _vars[name] = eval(value, {"__builtins__": {}}, _vars)
+        except Exception:
+            _vars[name] = value   # store as string if eval fails
+        se_interface.send_message(json.dumps({
+            "status": "ok",
+            "stored": name,
+            "value": _vars[name]
+        }))
+
+    elif command == "recall":
+        if len(args) < 2:
+            se_interface.send_message(json.dumps({
+                "status": "error",
+                "message": "Usage: recall <variable_name>"
+            }))
+            return
+        name = args[1]
+        if name in _vars:
+            se_interface.send_message(json.dumps({
+                "status": "ok",
+                "variable": name,
+                "value": _vars[name]
+            }))
+        else:
+            se_interface.send_message(json.dumps({
+                "status": "error",
+                "message": f"Variable '{name}' not found."
+            }))
+
+    else:
+        se_interface.send_message(json.dumps({
+            "status": "error",
+            "message": f"Unknown command: {command}"
+        }))
+
 
 if __name__ == "__main__":
-    CalculatorApp().run()
+    soul_app = soul_engine_app(app_name="Calculator App")
+    soul_app.run_repl(main_fn=process_command)
 ```
 
 ---
@@ -788,7 +908,9 @@ Before testing your new app end-to-end with the runtime:
 - [ ] `app_path` is relative to the **runtime working directory** (repo/install root), not to the app folder
 - [ ] `app_usage_guideline` clearly describes *when* to use the app — this is embedded for semantic search
 - [ ] At least one `[[app_command_signatures]]` block defined
-- [ ] Python script imports `soul_engine_app` from `se_app_utils`
-- [ ] `sys.stdout.reconfigure(encoding="utf-8")` at the top (essential on Windows)
+- [ ] Python script resolves `apps_path` via `Path(__file__).resolve().parent.parent.parent` and appends it to `sys.path`
+- [ ] Python script imports `soul_engine_app` from `se_app_utils.soulengine`
+- [ ] Entry point is `async def process_command(se_interface, args)` — all replies via `se_interface.send_message(json.dumps({...}))`
+- [ ] Script bottom is `soul_engine_app(app_name="...").run_repl(main_fn=process_command)`
 - [ ] `app_handle_name` added to `default_apps` in `agents_config.toml` for the relevant agent
 - [ ] Restart runtime and confirm the app appears in Logs tab
