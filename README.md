@@ -5,7 +5,10 @@
 
 ### To be precise: Like Anthropic's Claude for teamwork—build your Python apps, give them to Kattalai, and it figures out how to use them.
 
-### Join our discord server for active discussions: https://discord.com/invite/T9bsnJSg7
+### Join our WA community or discord server for active discussions:
+https://chat.whatsapp.com/GpOBwFIloGE93LV7prsoxS?mode=gi_t
+
+https://discord.com/invite/T9bsnJSg7
 
 ---
 ![kattalai banner](assets/banner_img_kattalai.png)
