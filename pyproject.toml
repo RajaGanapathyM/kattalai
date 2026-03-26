@@ -11,6 +11,8 @@ dependencies = [
     "torch>=2.4.0",
     "numpy>=1.20.0",
 ]
+readme = "PYREADME.md"
+authors = [{ name = "RajaganapathyM", email = "rganapathy6@gmail.com" }]
 
 [project.scripts]
 kattalai = "soulengine.kattalai:main"
