@@ -13,6 +13,11 @@ dependencies = [
 ]
 readme = "PYREADME.md"
 authors = [{ name = "RajaganapathyM", email = "rganapathy6@gmail.com" }]
+license = { text = "Dual licensed under AGPL-3.0-or-later OR Commercial License" }
+
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+]
 
 [project.scripts]
 kattalai = "soulengine.kattalai:main"
