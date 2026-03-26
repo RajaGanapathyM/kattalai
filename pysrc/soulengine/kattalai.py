@@ -1287,6 +1287,8 @@ def open_folder():
         subprocess.Popen(["xdg-open", str(folder)])
 
 def setup():
+    
+    os.chdir(Path(__file__).parent)
     base = Path(__file__).parent
     folders = ["apps", "configs", "model_assets", "prompts"]
     

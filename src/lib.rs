@@ -8,6 +8,7 @@ mod embeddings;
 mod appstore;
 mod model;
 mod config;
+mod server;
 use anyhow::Error;
 use chrono::Local;
 use itertools::Itertools;
