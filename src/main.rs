@@ -1,11 +1,12 @@
-use soulengine::Runtime;
+use soulengine::{Runtime,init_tracing};
 use std::thread::sleep;
 use tokio::time::{ Duration};
-
+use env_logger;
 #[tokio::main]
 async fn main() {
+    init_tracing();
 
-    let mut se_runtime=Runtime::new().await;
+    let se_runtime=Runtime::new(Some("127.0.0.1:3076".to_string())).await;
 
 
     
@@ -79,24 +80,29 @@ async fn main() {
 
 
     // build a memory instance asynchronously
-    let demo_user_id=se_runtime.create_user("Alice".to_string()).await;
-    let topic_id=se_runtime.create_topic_thread().await;
-    let agent_id=se_runtime.deploy_agent("DIA".to_string()).await;
+    let mut se_write_runtime=se_runtime.write().await;
+    let demo_user_id=se_write_runtime.create_user("Alice".to_string()).await;
+    let topic_id=se_write_runtime.create_topic_thread().await;
+    let agent_id=se_write_runtime.deploy_agent("DIA".to_string()).await;
     println!("Memory instance created...");
+    drop(se_write_runtime);
+    let se_read_runtime=se_runtime.read().await;
 
-    se_runtime.insert_message(&topic_id, &demo_user_id, "Hello, Whst is your name.".to_string()).await.unwrap();
+
+
+    se_read_runtime.insert_message(&topic_id, &demo_user_id, "Hello, Whst is your name.".to_string()).await.unwrap();
     
-    let agent_stat=se_runtime.is_agent_working_on_topic(&topic_id,&agent_id).await.unwrap();
+    let agent_stat=se_read_runtime.is_agent_working_on_topic(&topic_id,&agent_id).await.unwrap();
     println!("Agent Status:{}",agent_stat);
-    // let topic_len=se_runtime.get_topic_history_len(&topic_id.clone()).await.unwrap();
+    // let topic_len=se_read_runtime.get_topic_history_len(&topic_id.clone()).await.unwrap();
     println!("Main thread sleeping");
 
     //sleep for 3 seconds to simulate time gap between interactions
     sleep(Duration::from_secs(2));
     
     
-    se_runtime.insert_message(&topic_id, &demo_user_id, "Say Booo".to_string()).await;
-    let topic_len=se_runtime.get_topic_history_len(&topic_id.clone()).await.unwrap();
+    se_read_runtime.insert_message(&topic_id, &demo_user_id, "Say Booo".to_string()).await;
+    let topic_len=se_read_runtime.get_topic_history_len(&topic_id.clone()).await.unwrap();
     println!("Memory sequence length: {}", topic_len);
     
     // /
@@ -156,19 +162,25 @@ async fn main() {
     
 
     // Agent::ping(&first_agent,AgentPulse::AddMemory(MemoryNode::new(&demo_user, "Call demo app and update me once demo app execution completed".to_string(), None, MemoryNodeType::Thought),None)).await;
-    se_runtime.add_agent_to_topic(&topic_id, &agent_id).await;
+    // drop(se_read_runtime);
+    
+    // let se_write_runtime=se_runtime.write().await;
+
+    se_read_runtime.add_agent_to_topic(&topic_id, &agent_id).await;
     sleep(Duration::from_secs(3));
-    se_runtime.remove_agent_from_topic(&topic_id, &agent_id).await;
+    se_read_runtime.remove_agent_from_topic(&topic_id, &agent_id).await;
     
 
     let my_msg="wait for 5 sec and get stock price of HDFCBANK.NS and analyse".to_string();
 
     
-    se_runtime.insert_message(&topic_id, &demo_user_id, my_msg).await.unwrap();
+    se_read_runtime.insert_message(&topic_id, &demo_user_id, my_msg).await.unwrap();
     
+    // drop(se_write_runtime);
+    // let se_read_runtime=se_runtime.read().await;
     println!("Final Interface Memory");
 
-    let mem_iter=se_runtime.iter_topic(&topic_id, 0).await.unwrap();
+    let mem_iter=se_read_runtime.iter_topic(&topic_id, 0).await.unwrap();
     for mem in mem_iter{
         println!("{}:{}",mem.get_source_name(),mem.get_content());
     }
@@ -176,11 +188,11 @@ async fn main() {
 
     
     println!("Final Agent Memory");
-    let mem_iter=se_runtime.iter_agent_memory(&topic_id, &agent_id,0).await.unwrap();
+    let mem_iter=se_read_runtime.iter_agent_memory(&topic_id, &agent_id,0).await.unwrap();
     for mem in mem_iter{
         println!("{}:{}",mem.get_source_name(),mem.get_content());
     }
-    sleep(Duration::from_secs(3));
+    // sleep(Duration::from_secs(3));
 
     // println!("Agent Memory");
     // let locked_Agent=first_agent.read().unwrap();
@@ -188,13 +200,15 @@ async fn main() {
     // drop(locked_Agent);
     // Agent::ping(&first_agent,AgentPulse::Invoke(None)).await;
     // sleep(Duration::from_secs(100));
-    sleep(Duration::from_secs(200000));
+    
     println!("Final Interface Memory");
     
-    let mem_iter=se_runtime.iter_topic(&topic_id, 0).await.unwrap();
+    let mem_iter=se_read_runtime.iter_topic(&topic_id, 0).await.unwrap();
     for mem in mem_iter{
         println!("{}:{}",mem.get_source_name(),mem.get_content());
     }
+    drop(se_read_runtime);
+    sleep(Duration::from_secs(200000));
         
 
 

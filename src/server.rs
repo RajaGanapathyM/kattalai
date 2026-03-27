@@ -14,39 +14,7 @@ use crate::memory::MemoryNode;
 
 pub type SharedRuntime = Arc<RwLock<Runtime>>;
 
-// ── Request / Response types ────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct CreateUserReq {
-    pub user_name: String,
-}
-
-
-#[derive(Deserialize)]
-pub struct TopicIdReq {
-    pub topic_id: String,
-}
-
-
-
-#[derive(Deserialize)]
-pub struct InsertMessageReq {
-    pub topic_id: String,
-    pub user_id: String,
-    pub message: String,
-}
-
-
-
-#[derive(Deserialize)]
-pub struct IterTopicReq {
-    pub topic_id: String,
-    pub start_index: usize,
-}
-
-
-
-// Generic API response envelope
 #[derive(Serialize)]
 pub struct ApiResponse<T: Serialize> {
     pub ok: bool,
@@ -78,14 +46,61 @@ impl<T: Serialize> ApiResponse<T> {
     }
 }
 
+pub struct RuntimeServer;
+
+impl RuntimeServer {
+
+    pub async fn serve(rt: SharedRuntime, addr:String) {
+        // let addr = format!("0.0.0.0:{}", port);
+        let router = RuntimeServer::build_router(rt);
+
+        let listener = tokio::net::TcpListener::bind(&addr)
+            .await
+            .expect("Failed to bind API port");
+
+        info!("Runtime API listening on http://{}", addr);
+        println!("Runtime API listening on http://{}", addr);
 
 
-/// POST /topic/create
-async fn handle_create_topic(
-    State(rt): State<SharedRuntime>,
-) -> impl IntoResponse {
-    let topic_id = rt.write().await.create_topic_thread().await;
-    ApiResponse::ok(topic_id)
+        tokio::spawn(async move {
+            
+            axum::serve(listener, router)
+                .await
+                .expect("Axum server error");
+        });
+    }
+
+    pub fn build_router(rt:SharedRuntime) -> Router {
+        Router::new()
+            // agents
+            .route("/agents/list",              post(handle_get_agents_list))
+            .route("/agent/deploy",             post(handle_deploy_agent))
+            .route("/agent/episode-history-len",post(handle_agent_episode_history_len))
+            .route("/agent/working-status",     post(handle_is_agent_working))
+            .route("/agent/iter-memory",        post(handle_iter_agent_memory))
+            // topics
+            .route("/topic/create",             post(handle_create_topic))
+            .route("/topic/history-len",        post(handle_topic_history_len))
+            .route("/topic/add-agent",          post(handle_add_agent_to_topic))
+            .route("/topic/remove-agent",       post(handle_remove_agent_from_topic))
+            .route("/topic/iter",               post(handle_iter_topic))
+            // users
+            .route("/user/create",              post(handle_create_user))
+            // messages
+            .route("/message/insert",           post(handle_insert_message))
+            .with_state(rt)
+    }
+
+}
+
+
+//API handlers
+
+
+//############### MESSAGE & USER API ##################
+#[derive(Deserialize)]
+pub struct CreateUserReq {
+    pub user_name: String,
 }
 
 /// POST /user/create
@@ -96,18 +111,6 @@ async fn handle_create_user(
     let user_id = rt.write().await.create_user(req.user_name).await;
     ApiResponse::ok(user_id)
 }
-
-/// POST /topic/history-len
-async fn handle_topic_history_len(
-    State(rt): State<SharedRuntime>,
-    Json(req): Json<TopicIdReq>,
-) -> impl IntoResponse {
-    match rt.read().await.get_topic_history_len(&req.topic_id).await {
-        Ok(len) => ApiResponse::ok(len).into_response(),
-        Err(e) => ApiResponse::<()>::err(e).into_response(),
-    }
-}
-
 
 
 /// POST /message/insert
@@ -126,7 +129,57 @@ async fn handle_insert_message(
     }
 }
 
+
+//############### TOPICS API ########################
+
+
+/// POST /topic/create
+
+async fn handle_create_topic(
+    State(rt): State<SharedRuntime>,
+) -> impl IntoResponse {
+    let topic_id = rt.write().await.create_topic_thread().await;
+    ApiResponse::ok(topic_id)
+}
+
+/// POST /topic/history-len
+
+#[derive(Deserialize)]
+pub struct TopicIdReq {
+    pub topic_id: String,
+}
+
+async fn handle_topic_history_len(
+    State(rt): State<SharedRuntime>,
+    Json(req): Json<TopicIdReq>,
+) -> impl IntoResponse {
+    match rt.read().await.get_topic_history_len(&req.topic_id).await {
+        Ok(len) => ApiResponse::ok(len).into_response(),
+        Err(e) => ApiResponse::<()>::err(e).into_response(),
+    }
+}
+
+
+
 /// POST /topic/add-agent
+
+
+#[derive(Deserialize)]
+pub struct InsertMessageReq {
+    pub topic_id: String,
+    pub user_id: String,
+    pub message: String,
+}
+
+
+
+#[derive(Deserialize)]
+pub struct AgentTopicReq {
+    pub topic_id: String,
+    pub agent_id: String,
+}
+
+
 async fn handle_add_agent_to_topic(
     State(rt): State<SharedRuntime>,
     Json(req): Json<AgentTopicReq>,
@@ -161,8 +214,12 @@ async fn handle_remove_agent_from_topic(
 
 
 /// POST /topic/iter
-/// Returns collected memory nodes as a JSON array.
-/// MemoryNode must derive Serialize for this to work.
+#[derive(Deserialize)]
+pub struct IterTopicReq {
+    pub topic_id: String,
+    pub start_index: usize,
+}
+
 async fn handle_iter_topic(
     State(rt): State<SharedRuntime>,
     Json(req): Json<IterTopicReq>,
@@ -174,64 +231,12 @@ async fn handle_iter_topic(
         .await
     {
         Ok(iter) => {
-            let nodes: Vec<MemoryNode> = iter.collect();
+            let nodes: Vec<serde_json::Value>= iter.map(|n|n.get_json()).collect();
             ApiResponse::ok(nodes).into_response()
         }
         Err(e) => ApiResponse::<()>::err(e).into_response(),
     }
 }
-
-
-
-struct RuntimeServer;
-
-impl RuntimeServer {
-
-    pub async fn serve(rt: Arc<RwLock<Runtime>>, port: u16) {
-        let addr = format!("0.0.0.0:{}", port);
-        let router = RuntimeServer::build_router(rt);
-
-        let listener = tokio::net::TcpListener::bind(&addr)
-            .await
-            .expect("Failed to bind API port");
-
-        info!("Runtime API listening on http://{}", addr);
-
-
-        tokio::spawn(async move {
-            
-            axum::serve(listener, router)
-                .await
-                .expect("Axum server error");
-        });
-    }
-
-    pub fn build_router(rt:Arc<RwLock<Runtime>>) -> Router {
-        Router::new()
-            // agents
-            .route("/agents/list",              post(handle_get_agents_list))
-            .route("/agent/deploy",             post(handle_deploy_agent))
-            .route("/agent/episode-history-len",post(handle_agent_episode_history_len))
-            .route("/agent/working-status",     post(handle_is_agent_working))
-            .route("/agent/iter-memory",        post(handle_iter_agent_memory))
-            // topics
-            .route("/topic/create",             post(handle_create_topic))
-            .route("/topic/history-len",        post(handle_topic_history_len))
-            .route("/topic/add-agent",          post(handle_add_agent_to_topic))
-            .route("/topic/remove-agent",       post(handle_remove_agent_from_topic))
-            .route("/topic/iter",               post(handle_iter_topic))
-            // users
-            .route("/user/create",              post(handle_create_user))
-            // messages
-            .route("/message/insert",           post(handle_insert_message))
-            .with_state(rt)
-    }
-
-}
-
-
-//API handlers
-
 //############### AGENTS API ########################
 
 // POST: /agents/list --------
@@ -286,12 +291,6 @@ async fn handle_agent_episode_history_len(
 }
 
 /// POST /agent/working-status
-
-#[derive(Deserialize)]
-pub struct AgentTopicReq {
-    pub topic_id: String,
-    pub agent_id: String,
-}
 
 async fn handle_is_agent_working(
     State(rt): State<SharedRuntime>,

@@ -1,0 +1,93 @@
+app_name="Webpage Reader"
+app_path="./apps/other_apps/webpage_reader_app/webpage_reader_app.py"
+app_start_command="C:\\Users\\RG\\anaconda3\\python.exe"
+app_start_args="./apps/other_apps/webpage_reader_app/webpage_reader_app.py"
+app_handle_name="webpage_reader"
+app_launch_mode="REPL"
+app_usage_guideline="""
+Use this app for:
+- Fetching and reading any public webpage as clean LLM-ready markdown
+- Extracting article or documentation text from URLs for summarization or analysis
+- Fetching JS-heavy / SPA pages that plain HTTP requests cannot render
+- Saving pruned page snapshots to local markdown files for offline reference
+- Targeted extraction: pull only sections relevant to a specific query using BM25 filtering
+
+Powered by Playwright + html2text — JavaScript pages are handled automatically.
+
+## Commands & Examples
+
+### Read a Webpage (LLM-ready pruned markdown)
+&webpage_reader read https://example.com
+&webpage_reader read https://docs.rust-lang.org/book/ch01-00-getting-started.html
+
+### Read with Query-Focused Extraction (BM25 filter — pulls only relevant sections)
+&webpage_reader read https://example.com --query "pricing plans"
+&webpage_reader read https://docs.rust-lang.org/book/ch04-01-what-is-ownership.html --query "move semantics"
+
+### Read and Save to File
+&webpage_reader save https://example.com
+&webpage_reader save https://example.com --out ./output/example.md
+&webpage_reader save https://example.com --query "installation steps" --out ./output/install.md
+
+### Fetch Raw HTML (no markdown conversion — for custom pipelines)
+&webpage_reader raw https://example.com
+
+### Fetch Page Metadata (title, description, og tags, canonical URL)
+&webpage_reader meta https://example.com
+
+### Extract All Links from a Page
+&webpage_reader links https://example.com
+&webpage_reader links https://example.com --internal-only
+&webpage_reader links https://example.com --external-only
+
+### Extract All Images from a Page
+&webpage_reader images https://example.com
+
+## Output Behavior
+
+* `read` returns pruned LLM-ready markdown via html2text + paragraph-length pruning (min 10 words).
+* `--query` on `read`/`save` switches to BM25 filtering (rank_bm25) — only the top 40% of paragraphs ranked by query relevance are returned, in original reading order.
+* `save` writes markdown to a local file; defaults to `<BASE_DIR>/webpage_reader_saves/<sanitized_url>.md`.
+* `raw` returns the full browser-rendered HTML (post-JS execution) with no further processing.
+* `meta` parses `<meta name/property>` tags and `<link rel="canonical">` via BeautifulSoup into a flat key-value block.
+* `links` returns `internal_count`, `external_count`, and a flat `links` list with `href` + `text`; filterable by flag.
+* `images` returns a list of images with `src` (absolute), `alt`, `width`, `height`; lazy-loaded `data-src` is also captured.
+* HTTP errors, JS timeouts, and navigation failures are returned as `{"status": "error", "message": "..."}`.
+* No separate `extract` command — `read` already runs full content isolation (Playwright render + pruning).
+"""
+
+[[app_command_signatures]]
+command = "read"
+consumes = ["url", "query?","webpage"]
+produces = ["markdown"]
+action = "read"
+
+[[app_command_signatures]]
+command = "save"
+consumes = ["url", "out?", "query?","webpage"]
+produces = ["markdown_file"]
+action = "write"
+
+[[app_command_signatures]]
+command = "raw"
+consumes = ["url","webpage"]
+produces = ["html"]
+action = "read"
+
+[[app_command_signatures]]
+command = "meta"
+consumes = ["url","webpage"]
+produces = ["metadata"]
+action = "read"
+
+[[app_command_signatures]]
+command = "links"
+consumes = ["url", "filter?"]
+produces = ["link_list"]
+action = "read"
+
+[[app_command_signatures]]
+command = "images"
+consumes = ["url","webpage"]
+produces = ["image_list"]
+action = "read"

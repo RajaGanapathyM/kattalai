@@ -38,6 +38,7 @@ pyo3-asyncio = { version = "0.20", features = ["tokio-runtime"] }
 hf-hub = "0.5.0"
 axum = "0.8.8"
 tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
 
 [profile.release]
 opt-level = "z"       # optimize for size

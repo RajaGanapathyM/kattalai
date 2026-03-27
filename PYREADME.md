@@ -22,12 +22,12 @@ from soulengine import PyRuntime
 
 ## Initialisation
 
-### `PyRuntime.create()` → `PyRuntime`
+### `PyRuntime.create(bind="127.0.0.1:3077")` → `PyRuntime`
 
 Creates and returns a new `PyRuntime` instance. This is the **only** constructor — do not call `PyRuntime()` directly.
-
+Also this launches the api server of the runtime
 ```python
-runtime = await PyRuntime.create()
+runtime = await PyRuntime.create(bind="127.0.0.1:3077")
 ```
 
 This is a `staticmethod` and must be awaited. It initialises the internal Rust `Runtime` and wraps it in an async-safe `Arc<RwLock<>>`.

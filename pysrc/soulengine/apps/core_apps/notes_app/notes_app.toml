@@ -1,0 +1,132 @@
+app_name="Notes App"
+app_path="./apps/core_apps/notes_app/notes_app.py"
+app_start_command="python"
+app_start_args="./apps/core_apps/notes_app/notes_app.py"
+app_handle_name="notes_app"
+app_launch_mode="ONE_SHOT"
+app_usage_guideline="""
+Use this app for:
+- Quickly capturing ideas while working in the terminal
+- Logging short thoughts or reminders
+- Recording commands or debugging notes
+- Maintaining a lightweight developer scratchpad with tags, search, and backups
+
+Inline tags are supported: any word starting with # in your note becomes a tag.
+
+## Commands & Examples
+
+### Add a Note
+&notes_app Buy groceries after work
+&notes_app Fix bug in API authentication #bug #api
+&notes_app Observed memory spike when loading large dataset #perf
+
+### Read Notes
+&notes_app read                      # show all notes
+&notes_app read 10                   # show last 10 notes
+&notes_app read --tag bug            # filter by tag
+
+### Search
+&notes_app search memory spike       # keyword search across all notes
+
+### Update a Note
+&notes_app update 4 New corrected text for note four
+
+### Delete a Note
+&notes_app delete 4
+
+### Tag a Note
+&notes_app tag 3 important
+
+### Backup
+&notes_app backup                    # create timestamped backup
+&notes_app backup list               # list all backups
+&notes_app restore notes_backup_20250101_120000.json
+
+### Clear All Notes
+&notes_app clear                     # prompts confirmation, auto-backups first
+
+### Export
+&notes_app export                    # exports notes to a plain .txt file
+
+### Stats
+&notes_app stats
+
+## Output Behavior
+
+* Notes are saved to a local JSON file (~/.notes_app/notes.json).
+* Each entry includes a timestamp and auto-detected inline tags.
+* Backups are stored in ~/.notes_app/backups/.
+* clear and restore auto-create a safety backup before destructive operations.
+* A status message is returned after every operation.
+"""
+[[app_command_signatures]]
+command = "add_note"
+consumes = ["text"]
+produces = ["notes"]
+action = "write"
+
+[[app_command_signatures]]
+command = "read"
+consumes = ["limit?", "tag?"]
+produces = ["notes"]
+action = "read"
+
+[[app_command_signatures]]
+command = "search"
+consumes = ["query"]
+produces = ["notes"]
+action = "search"
+
+[[app_command_signatures]]
+command = "update"
+consumes = ["id", "text"]
+produces = ["notes"]
+action = "mutate"
+
+[[app_command_signatures]]
+command = "delete"
+consumes = ["id"]
+produces = ["status"]
+action = "delete"
+
+[[app_command_signatures]]
+command = "tag"
+consumes = ["id", "tag"]
+produces = ["status"]
+action = "mutate"
+
+[[app_command_signatures]]
+command = "backup"
+consumes = ["ping"]
+produces = ["backup_file"]
+action = "backup"
+
+[[app_command_signatures]]
+command = "backup_list"
+consumes = ["ping"]
+produces = ["backup_list"]
+action = "read"
+
+[[app_command_signatures]]
+command = "restore"
+consumes = ["backup_file"]
+produces = ["notes"]
+action = "restore"
+
+[[app_command_signatures]]
+command = "clear"
+consumes = ["ping"]
+produces = ["status"]
+action = "delete"
+
+[[app_command_signatures]]
+command = "export"
+consumes = ["ping"]
+produces = ["export_file"]
+action = "export"
+
+[[app_command_signatures]]
+command = "stats"
+consumes = ["ping"]
+produces = ["stats"]
+action = "read"
