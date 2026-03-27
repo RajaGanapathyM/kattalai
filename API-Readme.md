@@ -7,7 +7,7 @@ An streamlit demo app is attached to /demo/server_demo.py
 http://127.0.0.1:3077
 ```
 
-⚠️ Important: kattalai app by default spins up a server at 127.0.0.1. if you don't want server set bind=None while launching the runtime.
+⚠️ Important: kattalai app by default spins up a server at 127.0.0.1. if you don't want server set bind=None in pysrc/soulengine/kattalai.py before launching the runtime.
 
 Binding to public ports:
 Do not expose this service to the public internet without proper security controls (such as authentication, HTTPS, and firewall rules). Failure to secure it may result in unauthorized access, data breaches, or system compromise.
