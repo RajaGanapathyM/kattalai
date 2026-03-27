@@ -17,7 +17,7 @@ import torch, os
 os.add_dll_directory(os.path.join(os.path.dirname(torch.__file__), "lib"))
 from soulengine import PyRuntime
 ```
-⚠️ Important: kattalai app by default spins up a server at 127.0.0.1. if you don't want server set bind=None in pysrc/soulengine/kattalai.py or before launching the runtime.
+⚠️ Important: soulengine module by default spins up a server at 127.0.0.1. if you don't want server set bind=None in pysrc/soulengine/kattalai.py or before launching the runtime.
 
 Binding to public ports:
 Do not expose this service to the public internet without proper security controls (such as authentication, HTTPS, and firewall rules). Failure to secure it may result in unauthorized access, data breaches, or system compromise.
