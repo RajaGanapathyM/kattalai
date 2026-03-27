@@ -37,6 +37,7 @@ pyo3 = { version = "0.20", features = ["extension-module","generate-import-lib"]
 pyo3-asyncio = { version = "0.20", features = ["tokio-runtime"] }
 hf-hub = "0.5.0"
 axum = "0.8.8"
+tracing = "0.1.44"
 
 [profile.release]
 opt-level = "z"       # optimize for size
