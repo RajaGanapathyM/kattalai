@@ -452,7 +452,7 @@ impl AppStore{
             self.add_app(app_path);
         }
         
-        println!("Infering toolchain...");
+        println!("Infering appchain...");
         self.infer_toolchain().await;
     }
 

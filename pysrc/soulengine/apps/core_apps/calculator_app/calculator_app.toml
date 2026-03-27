@@ -1,0 +1,90 @@
+app_name="Calculator App"
+app_path="./apps/core_apps/calculator_app/calculator_app.py"
+app_start_command="python"
+app_start_args="./apps/core_apps/calculator_app/calculator_app.py"
+app_handle_name="calculator_app"
+app_launch_mode="REPL"
+app_usage_guideline="""
+Use this app for
+- Evaluating arithmetic and mathematical expressions quickly
+- Performing unit conversions from the terminal
+- Computing percentages, powers, and roots inline
+- Storing and recalling named variables across calculations
+
+The first argument is the expression or command, followed by optional flags.
+
+## Expression Formats
+  2 + 3                -> basic arithmetic
+  (12 * 4) / 6        -> grouped expressions
+  2 ** 8               -> exponentiation
+  sqrt(144)            -> square root
+  15% of 200           -> percentage of a value
+  5! or factorial(5)   -> factorial
+  log(1000)            -> base-10 logarithm
+  sin(90deg)           -> trig with degree input
+
+## Variable Storage
+  x = 42               -> store result in variable x
+  ans                  -> recall last result
+  vars                 -> list all stored variables
+  clear vars           -> wipe all stored variables
+
+## Unit Conversions
+  100 km to miles
+  32 fahrenheit to celsius
+  5 kg to lbs
+  1 hour to seconds
+
+## Examples
+Basic math            -> &calculator_app (3 + 5) * 2
+Percentage            -> &calculator_app 18% of 2500
+Power                 -> &calculator_app 2 ** 10
+Square root           -> &calculator_app sqrt(256)
+Store variable        -> &calculator_app tax_rate = 8.5
+Use variable          -> &calculator_app 1200 + tax_rate% of 1200
+Unit convert          -> &calculator_app 100 miles to km
+Recall last           -> &calculator_app ans * 2
+List variables        -> &calculator_app vars
+
+## Output Behavior
+* Every expression returns the **result**, the **expression as parsed**, and the **unit** (if applicable).
+* Variable assignments confirm the **name** and **stored value**.
+* Unit conversions return both the **input value with unit** and the **converted result**.
+* Errors return a clear **reason** (e.g. division by zero, unknown variable, parse failure).
+"""
+
+[[app_command_signatures]]
+command = "evaluate"
+consumes = ["expression"]
+produces = ["result", "parsed_expression"]
+action = "compute"
+
+[[app_command_signatures]]
+command = "convert"
+consumes = ["value", "source_unit", "target_unit"]
+produces = ["converted_result"]
+action = "convert"
+
+[[app_command_signatures]]
+command = "store_variable"
+consumes = ["variable_name", "expression"]
+produces = ["variable_name", "stored_value"]
+action = "write"
+
+[[app_command_signatures]]
+command = "recall_variable"
+consumes = ["variable_name"]
+produces = ["variable_name", "stored_value"]
+action = "read"
+
+[[app_command_signatures]]
+command = "list_variables"
+consumes = ["ping"]
+produces = ["variable_map"]
+action = "read"
+
+[[app_command_signatures]]
+command = "clear_variables"
+consumes = ["ping"]
+produces = ["confirmation"]
+action = "delete"

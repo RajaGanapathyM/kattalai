@@ -45,10 +45,10 @@ from textual.events import Key
 # ────────────────────────────────────────────────────────────
 
 AGENTS=[]
-
+se_bind="127.0.0.1:3077"
 async def load_run_time():
     global AGENTS,GLOBAL_SE_RUNTIME
-    GLOBAL_SE_RUNTIME=await PyRuntime.create()
+    GLOBAL_SE_RUNTIME=await PyRuntime.create(bind=se_bind)
 
     AGENTS = await GLOBAL_SE_RUNTIME.get_agent_list()
     print("Loaded Agents:",AGENTS)
@@ -625,7 +625,7 @@ class KattalaiApp(App):
         with Container(id="topbar"):
             # Left group
             with Container(id="topbar-left"):
-                yield Label("Kattal.ai", id="logo")
+                yield Label("Kattalai", id="logo")
                 yield Label(" / Ai Coworker", id="logo-sub")
 
             # Center: tab bar stretches
@@ -638,7 +638,7 @@ class KattalaiApp(App):
             # Right group
             with Container(id="topbar-right"):
                 yield Label("SE: init...", id="se-badge", classes="stat warn")
-                yield Label(datetime.now().strftime("%a %d %b  %H:%M"), id="clock")
+                # yield Label(datetime.now().strftime("%a %d %b  %H:%M"), id="clock")
 
 
         # ── CHAT ──────────────────────────────────────
@@ -839,7 +839,7 @@ class KattalaiApp(App):
                 # await asyncio.sleep(1) # Wait for engine to provide a thread
                 return self._se_active_agent_cursor_before#continue
             agent_status=await self._se_runtime.is_agent_working_on_topic(self._se_topic_id,self._se_active_agent_id)
-            logging.info(f"se thnk:{agent_status}")
+            # logging.info(f"se thnk:{agent_status}")
             self.is_thinking=agent_status==True
             # if agennt_first_pass:
             #     logging.info("Agent monitor first pass")
@@ -898,7 +898,7 @@ class KattalaiApp(App):
             self._update_stat("stat-topic", f"topic: {str(self._se_topic_id)[:8]}")
 
             self.se_ready = True
-            self._set_badge("SE: live", "ok")
+            self._set_badge(f"Live: http://{se_bind}", "ok")
             log("[#4ade80]--- SoulEngine ready ---[/#4ade80]")
             
             # # 5. Add active agent to topic
@@ -1287,6 +1287,8 @@ def open_folder():
         subprocess.Popen(["xdg-open", str(folder)])
 
 def setup():
+    
+    os.chdir(Path(__file__).parent)
     base = Path(__file__).parent
     folders = ["apps", "configs", "model_assets", "prompts"]
     

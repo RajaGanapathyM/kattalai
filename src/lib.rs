@@ -8,12 +8,14 @@ mod embeddings;
 mod appstore;
 mod model;
 mod config;
+mod server;
 use anyhow::Error;
 use chrono::Local;
 use itertools::Itertools;
 use memory::Memory;
 use serde_json::Value;
 
+use env_logger;
 use std::sync::{Arc};
 use inference::{OLLAMA,Gemini,HuggingFace};
 use inference::{OllamaConfig,GeminiConfig,HuggingFaceConfig};
@@ -29,13 +31,39 @@ use crate::appstore::AppStore;
 use crate::memory::{MemoryNode,MemoryNodeType};
 use crate::model::PosModel;
 use std::fs;
-
+use crate::server::RuntimeServer;
 use pyo3::prelude::*;
 use pyo3_asyncio::tokio::future_into_py;
 use tokio::sync::RwLock;
 use crate::source::Source;
 use config::InferenceStore;
 use log::{info, warn, error, debug, trace};
+use std::fs::OpenOptions;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, filter::LevelFilter};
+use tracing_subscriber::Layer;
+pub fn init_tracing() {
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("kattalai_rust.log")
+        .unwrap();
+
+    let level_filter = LevelFilter::DEBUG;
+
+    let file_layer = fmt::layer()
+        .with_writer(file)
+        .with_ansi(false)
+        .with_filter(level_filter);
+
+    // let console_layer = fmt::layer()
+    //     .with_target(false) 
+    //     .compact()
+    //     .with_filter(level_filter);
+
+    let _ = tracing_subscriber::registry()
+        .with(file_layer)
+        .try_init(); 
+}
 
 pub struct Runtime{
     topics:HashMap<String,Arc<Memory>>,
@@ -48,13 +76,13 @@ pub struct Runtime{
 }
 
 impl Runtime{
-    pub async fn new()->Self{
+    pub async fn new(bind:Option<String>)->Arc<RwLock<Self>>{
         let embedder=embedder::new("./model_assets/bge-small-en-v1.5".to_string()).await;
         let app_store=AppStore::new("./apps/".to_string(),embedder.clone()).await;
         let inference_store=InferenceStore::load_configs("./configs/inference_config.toml");
         let agent_store=AgentStore::load_agents("./configs/agents_config.toml", inference_store.clone(), app_store.clone());
 
-        Self{
+        let sharedruntime= Arc::new(RwLock::new(Self{
             topics:HashMap::new(),
             users:HashMap::new(),
             agents:HashMap::new(),
@@ -62,7 +90,17 @@ impl Runtime{
             app_store,
             inference_store,
             agent_store:Arc::new(agent_store)
+        }));
+
+        if let Some(addr)=bind{
+            RuntimeServer::serve(sharedruntime.clone(), addr).await;
         }
+
+
+        sharedruntime
+
+
+
     }
 
     pub async fn get_agents_list(&self)->Vec<String>{
@@ -233,14 +271,17 @@ pub struct PyRuntime {
 impl PyRuntime {
 
     #[staticmethod]
-    fn create(py: Python<'_>) -> PyResult<&PyAny> {
+    fn create(py: Python<'_>,bind:Option<String>) -> PyResult<&PyAny> {
+
         future_into_py(py, async move {
 
-            let rt = block_on(Runtime::new());
+            init_tracing();
+            // env_logger::init();
+            let rt = block_on(Runtime::new(bind));
 
             Python::with_gil(|py| {
                 Py::new(py, PyRuntime {
-                    inner: Arc::new(RwLock::new(rt)),
+                    inner: rt,
                 })
             })
         })

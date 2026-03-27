@@ -5,10 +5,8 @@
 
 ### To be precise: Like Anthropic's Claude for teamwork—build your Python apps, give them to Kattalai, and it figures out how to use them.
 
-### Join our WA community or discord server for active discussions:
+### Join our WA community for active discussions:
 https://chat.whatsapp.com/GpOBwFIloGE93LV7prsoxS?mode=gi_t
-
-https://discord.com/invite/T9bsnJSg7
 
 ---
 ![kattalai banner](assets/banner_img_kattalai.png)
@@ -369,8 +367,9 @@ The TUI has three tabs:
 - **Agent Thoughts** — live view of the agent's internal reasoning episode for the current topic.
 - **Logs** — raw terminal output from app subprocesses.
 
-On startup it calls `PyRuntime.create()`, which runs the same initialisation sequence as the Rust binary (embedder → app store → inference store → agent store).
+On startup it calls `PyRuntime.create(bind="127.0.0.1:3077")`, which runs the same initialisation sequence as the Rust binary (embedder → app store → inference store → agent store).
 
+Check out the [API Doc](API-Readme.md) for more details on the api usage flow.
 ---
 
 ## 8. Apps System
