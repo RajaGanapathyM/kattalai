@@ -1,11 +1,11 @@
 # ⬡ Kattalai Runtime API
 Once kattalai app is launched the runtime launches along with an HTTP Server in the below url
 
-An streamlit demo app is attached to /demo/server_demo.py
-
 ```bash
 http://127.0.0.1:3077
 ```
+
+An streamlit demo app is attached to /demo/server_demo.py
 
 ⚠️ Important: kattalai app by default spins up a server at 127.0.0.1. if you don't want server set bind=None in pysrc/soulengine/kattalai.py before launching the runtime.
 
