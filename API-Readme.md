@@ -7,6 +7,15 @@ An streamlit demo app is attached to /demo/server_demo.py
 http://127.0.0.1:3077
 ```
 
+⚠️ Important: kattalai app by default spins up a server at 127.0.0.1. if you don't want server set bind=None while launching the runtime.
+
+Binding to public ports:
+Do not expose this service to the public internet without proper security controls (such as authentication, HTTPS, and firewall rules). Failure to secure it may result in unauthorized access, data breaches, or system compromise.
+
+For safe usage, bind the service to localhost (127.0.0.1) during development.
+
+⚠️ Advisory: While binding to localhost restricts access to your machine, it is not completely risk-free. Make sure there is no malicious local applications. Always run in a trusted environment and avoid unintentionally exposing local ports to public (e.g., via tunneling or port forwarding tools).
+
 # Core Concepts
 
 | Concept     | Description                            |
