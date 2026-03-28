@@ -6,8 +6,7 @@
 ### To be precise: Like Anthropic's Claude for teamwork—build your Python apps, give them to Kattalai, and it figures out how to use them.
 
 ### Join our WA community for active discussions:
-https://chat.whatsapp.com/GpOBwFIloGE93LV7prsoxS?mode=gi_t
-
+https://chat.whatsapp.com/FCkBvQ91q0YCYpE6jiQ3Cp
 ---
 ![kattalai banner](assets/banner_img_kattalai.png)
 
