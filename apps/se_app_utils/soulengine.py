@@ -22,9 +22,8 @@ class soul_engine_interface:
         sys.stdout.write(f"[#APP_INVOKE>episode_id:{self.episode_id}|invocation_id:{self.invocation_id}]{msg}\n")
         sys.stdout.flush()
         
-class soul_engine_app:
+class soul_engine_app():
     def __init__(self,app_name):
-        self.main_fn = None
         self.app_name=app_name
     def parse_line(self,line):
         try:
@@ -55,14 +54,13 @@ class soul_engine_app:
         sys.stdout.flush()
         result=""
         try:
-            result = await self.main_fn(self.get_interface(args,self.app_name),remaining)
+            result = await self.process_command(self.get_interface(args,self.app_name),remaining)
 
             # if result is not None:
             sys.stdout.write(f"[#APP_EXECUTION_SUCCESS>episode_id:{args.episode_id}|invocation_id:{args.invocation_id}]{result}\n")
             sys.stdout.flush()
         except Exception as e:
             sys.stdout.write(f"[#APP_EXECUTION_ERROR>episode_id:{args.episode_id}|invocation_id:{args.invocation_id}]ERROR:{str(e)}\n")
-
 
     async def _loop(self):
         loop = asyncio.get_running_loop()
@@ -85,19 +83,13 @@ class soul_engine_app:
 
             asyncio.create_task(self._process_line(line))
 
-
     def get_interface(self,args,app_name):
         return soul_engine_interface(args,app_name)
 
-
-
-    def run_one_shot(self,main_fn):
+    def run_one_shot(self):
         try:
-            if not inspect.iscoroutinefunction(main_fn):
-                raise TypeError("main_fn must be an async function")
-            
-            
-            self.main_fn=main_fn
+            if not inspect.iscoroutinefunction(self.process_command):
+                raise TypeError("self.process_command must be an async function")
             
             line = sys.argv
             if len(line)>0:
@@ -109,11 +101,10 @@ class soul_engine_app:
         except Exception as e:
             sys.stdout.write(f"[#APP_ERROR>{str(e)}]")
 
-    def run_repl(self,main_fn):
+    def run_repl(self):
         try:
-            if not inspect.iscoroutinefunction(main_fn):
-                raise TypeError("main_fn must be an async function")
-            self.main_fn=main_fn
+            if not inspect.iscoroutinefunction(self.process_command):
+                raise TypeError("self.process_command must be an async function")
             print(f"Launching App: {self.app_name}")
             asyncio.run(self._loop())
         except Exception as e:

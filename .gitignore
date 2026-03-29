@@ -5,3 +5,10 @@
 *.pyc
 *.log
 *.5
+apps/core_apps/notes_app/notes.json
+*.pyc
+apps/core_apps/calculator_app/calc_vars.json
+apps/core_apps/calculator_app/calc_vars.json
+apps/core_apps/calculator_app/calc_vars.json
+apps/core_apps/calculator_app/calc_vars.json
+*.pyc
