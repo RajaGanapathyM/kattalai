@@ -1,6 +1,7 @@
 /target
 /.venv
 *.pyd
+*.so
 *.pdb
 *.pyc
 *.log
