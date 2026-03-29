@@ -30,6 +30,12 @@ User intent  →  LLM reasoning  →  App selection  →  Python app  →  Resul
 ---
 ![kattalai banner](assets/banner_img_kattalai.png)
 ---
+<div align="center">
+
+**[PyPI](https://pypi.org/project/kattalai/)** · **[HTTP API](API-Readme.md)** · **[Python API](PYREADME.md)** · **[WhatsApp Community](https://chat.whatsapp.com/GpOBwFIloGE93LV7prsoxS?mode=gi_t)**
+
+</div
+---
 ## Table of Contents
 
 - [Quick Start](#quick-start)
@@ -51,12 +57,7 @@ User intent  →  LLM reasoning  →  App selection  →  Python app  →  Resul
 - [License](#license)
 
 ---
-<div align="center">
 
-**[PyPI](https://pypi.org/project/kattalai/)** · **[HTTP API](API-Readme.md)** · **[Python API](PYREADME.md)** · **[WhatsApp Community](https://chat.whatsapp.com/GpOBwFIloGE93LV7prsoxS?mode=gi_t)**
-
-</div
-  --=
 ## Quick Start
 
 ```bash
