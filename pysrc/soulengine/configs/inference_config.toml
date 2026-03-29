@@ -1,12 +1,11 @@
 [[ollama_config]]
 chat_api_url="http://localhost:11434/api/chat"
-generate_api_url= "http://localhost:11434/api/generate"
+generate_api_url="http://localhost:11434/api/generate"
 temperature=0.1
 
 [[gemini_config]]
 api_key=""
 temperature=0.1
-
 
 [[huggingface_config]]
 api_key="dsfdfcsdfsdf"
