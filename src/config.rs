@@ -3,8 +3,8 @@ use std::fs;
 
 use log::{info, warn, error, debug, trace};
 use std::sync::{Arc, RwLock};
-use crate::inference::{Gemini, HuggingFace, OLLAMA, SarvamConfig};
-use crate::inference::{OllamaConfig,GeminiConfig,HuggingFaceConfig};
+use crate::inference::{Gemini, HuggingFace, OLLAMA, SarvamConfig, OpenAI};
+use crate::inference::{OllamaConfig,GeminiConfig,HuggingFaceConfig,OpenAIConfig};
 use crate::inference::inference_api_trait;
 use crate::terminal::Terminal;
 use crate::tool::{App,AppType};
@@ -41,11 +41,21 @@ pub struct SarvamConfigLoader {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct OpenAIConfigLoader {
+    pub api_key: String,
+    pub max_tokens: u32,
+    pub temperature: f32,
+    pub auth_token_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct InferenceConfig {
     pub ollama_config: Vec<OllamaConfigLoader>,
     pub gemini_config: Vec<GeminiConfigLoader>,
     pub huggingface_config: Vec<HuggingFaceConfigLoader>,
     pub sarvam_config: Vec<SarvamConfigLoader>,
+    #[serde(default)]
+    pub openai_config: Vec<OpenAIConfigLoader>,
 }
 
 pub struct InferenceStore{
@@ -128,7 +138,25 @@ impl InferenceStore {
                 panic!("Sarvam Config not found");
             }
         }
-        else{            
+        else if inference_provider=="openai"{
+            if self.config.openai_config.len()>0{
+                let openai_config=&self.config.openai_config[0];
+                OpenAIConfig::new(
+                    openai_config.api_key.clone(),
+                    openai_config.auth_token_path.clone(),
+                    vec![source::Role::User, source::Role::Agent,source::Role::App].into_iter().collect(),
+                    vec![source::Role::User, source::Role::Agent].into_iter().collect(),
+                    false,
+                    Some(openai_config.temperature),
+                    None,
+                    Some(openai_config.max_tokens.clone())
+                ).get_model(model_id.clone())
+            }
+            else{
+                panic!("OpenAI Config not found");
+            }
+        }
+        else{
             panic!("Inference Config not found");
         }
 

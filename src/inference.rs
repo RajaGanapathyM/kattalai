@@ -7,6 +7,7 @@ use crate::source::{Role, Source};
 use std::sync::Arc;
 use async_trait::async_trait;
 use uuid::Uuid;
+use std::fs;
 pub enum invoke_type {
     Chat,
     Generate,
@@ -883,6 +884,334 @@ impl inference_api_trait for SarvamAI {
             .send()
             .await
             .expect("Sarvam API Request failed")
+            .text()
+            .await
+            .expect("Failed to read response body");
+
+        self.parse_response(response, invoke_type).await
+    }
+}
+
+
+//OpenAI Integrations (via Codex/ChatGPT Responses API)
+
+
+/// Expand ~ in paths to $HOME
+fn expand_home(path: &str) -> String {
+    if path.starts_with("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            return format!("{}/{}", home, &path[2..]);
+        }
+    }
+    path.to_string()
+}
+
+/// Read the access_token from a Codex CLI auth.json file.
+fn read_codex_auth_token(path: &str) -> Option<String> {
+    let content = fs::read_to_string(&expand_home(path)).ok()?;
+    let parsed: Value = serde_json::from_str(&content).ok()?;
+    parsed["tokens"]["access_token"]
+        .as_str()
+        .map(|s| s.to_string())
+}
+
+/// Read the account_id from a Codex CLI auth.json file.
+fn read_codex_account_id(path: &str) -> Option<String> {
+    let content = fs::read_to_string(&expand_home(path)).ok()?;
+    let parsed: Value = serde_json::from_str(&content).ok()?;
+    parsed["tokens"]["account_id"]
+        .as_str()
+        .map(|s| s.to_string())
+}
+
+/// Parse SSE stream response from the Codex Responses API.
+/// Extracts the output text from the response.completed event.
+fn parse_sse_response(sse_body: &str) -> String {
+    for line in sse_body.lines() {
+        if let Some(data) = line.strip_prefix("data: ") {
+            if let Ok(parsed) = serde_json::from_str::<Value>(data) {
+                if parsed["type"].as_str() == Some("response.completed") {
+                    // Extract text from response.output[0].content[0].text
+                    if let Some(text) = parsed["response"]["output"][0]["content"][0]["text"].as_str() {
+                        return text.to_string();
+                    }
+                }
+            }
+        }
+    }
+    String::new()
+}
+
+
+pub struct OpenAIConfig {
+    pub api_key: String,
+    pub auth_token_path: Option<String>,
+    pub allowed_roles: HashSet<Role>,
+    pub non_tool_roles: HashSet<Role>,
+    pub stream_response: bool,
+    pub temperature: Option<f32>,
+    pub top_p: Option<f32>,
+    pub max_tokens: Option<u32>,
+}
+
+impl OpenAIConfig {
+    pub fn new(
+        api_key: String,
+        auth_token_path: Option<String>,
+        allowed_roles: HashSet<Role>,
+        non_tool_roles: HashSet<Role>,
+        stream_response: bool,
+        temperature: Option<f32>,
+        top_p: Option<f32>,
+        max_tokens: Option<u32>,
+    ) -> Self {
+        Self {
+            api_key,
+            auth_token_path,
+            allowed_roles,
+            non_tool_roles,
+            stream_response,
+            temperature,
+            top_p,
+            max_tokens,
+        }
+    }
+
+    pub fn get_model(&self, model_id: String) -> Arc<OpenAI> {
+        OpenAI::new(
+            model_id,
+            self.api_key.clone(),
+            self.auth_token_path.clone(),
+            self.allowed_roles.clone(),
+            self.non_tool_roles.clone(),
+            self.stream_response,
+            self.temperature,
+            self.top_p,
+            self.max_tokens,
+        )
+    }
+}
+
+
+pub struct OpenAI {
+    pub model_id: String,
+    pub api_key: String,
+    pub auth_token_path: Option<String>,
+    pub allowed_roles: HashSet<Role>,
+    pub non_tool_roles: HashSet<Role>,
+    pub stream_response: bool,
+    pub temperature: Option<f32>,
+    pub top_p: Option<f32>,
+    pub max_tokens: Option<u32>,
+}
+
+impl OpenAI {
+    pub fn new(
+        model_id: String,
+        api_key: String,
+        auth_token_path: Option<String>,
+        allowed_roles: HashSet<Role>,
+        non_tool_roles: HashSet<Role>,
+        stream_response: bool,
+        temperature: Option<f32>,
+        top_p: Option<f32>,
+        max_tokens: Option<u32>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            model_id,
+            api_key,
+            auth_token_path,
+            allowed_roles,
+            non_tool_roles,
+            stream_response,
+            temperature,
+            top_p,
+            max_tokens,
+        })
+    }
+
+    pub fn get_api_url(&self) -> String {
+        if self.api_key.is_empty() {
+            // Codex/ChatGPT subscription: use Responses API
+            "https://chatgpt.com/backend-api/codex/responses".to_string()
+        } else {
+            // Standard API key: use Chat Completions
+            "https://api.openai.com/v1/chat/completions".to_string()
+        }
+    }
+
+    /// Whether we're using Codex/ChatGPT auth (Responses API) vs standard API key
+    pub fn is_codex_auth(&self) -> bool {
+        self.api_key.is_empty() && self.auth_token_path.is_some()
+    }
+
+    /// Resolve the Bearer token: prefer api_key if set, else read from codex auth file.
+    pub fn resolve_auth_token(&self) -> String {
+        if !self.api_key.is_empty() {
+            return format!("Bearer {}", self.api_key);
+        }
+        if let Some(ref path) = self.auth_token_path {
+            if let Some(token) = read_codex_auth_token(path) {
+                return format!("Bearer {}", token);
+            }
+        }
+        panic!("OpenAI: No api_key and no valid auth_token_path configured");
+    }
+
+    /// Get the ChatGPT Account ID for Codex auth
+    pub fn resolve_account_id(&self) -> Option<String> {
+        self.auth_token_path.as_ref().and_then(|path| read_codex_account_id(path))
+    }
+}
+
+#[async_trait]
+impl inference_api_trait for OpenAI {
+
+    async fn chat(
+        &self,
+        memory: Arc<Memory>,
+        system_prompt: String,
+        invocation_id: Option<String>,
+    ) -> String {
+        self._chat_invoke(
+            &self.get_api_url(),
+            memory,
+            system_prompt,
+            invocation_id,
+            &self.allowed_roles,
+            &self.non_tool_roles,
+        )
+        .await
+    }
+
+    async fn generate(&self, prompt: String) -> String {
+        let mut history = vec![json!({
+            "role": "user",
+            "content": prompt
+        })];
+        let payload = self.request_payload_builder(&mut history, "You are a helpful assistant.".to_string()).await;
+        self.invoke(&self.get_api_url(), payload, invoke_type::Chat).await
+    }
+
+    async fn request_payload_builder(
+        &self,
+        message_history: &mut Vec<Value>,
+        system_prompt: String,
+    ) -> Value {
+        if self.is_codex_auth() {
+            // Codex Responses API format
+            let mut input: Vec<Value> = Vec::new();
+
+            for msg in message_history.iter() {
+                let role = match msg["role"].as_str().unwrap_or("user") {
+                    "system" => continue, // system prompt goes in instructions field
+                    "tool" | "app" => "assistant",
+                    other => other,
+                };
+                input.push(json!({
+                    "role": role,
+                    "content": msg["content"].as_str().unwrap_or("")
+                }));
+            }
+
+            let instructions = if system_prompt.is_empty() {
+                "You are a helpful assistant.".to_string()
+            } else {
+                system_prompt
+            };
+
+            json!({
+                "model": self.model_id,
+                "instructions": instructions,
+                "input": input,
+                "stream": true,
+                "store": false
+            })
+        } else {
+            // Standard Chat Completions API format
+            let mut messages: Vec<Value> = Vec::new();
+
+            if !system_prompt.is_empty() {
+                messages.push(json!({
+                    "role": "system",
+                    "content": system_prompt
+                }));
+            }
+
+            for msg in message_history.iter() {
+                let role = msg["role"].as_str().unwrap_or("user");
+                if role == "system" {
+                    continue;
+                }
+                if role == "tool" {
+                    messages.push(json!({
+                        "role": role,
+                        "tool_call_id": Uuid::now_v7().to_string(),
+                        "content": msg["content"].as_str().unwrap_or("")
+                    }));
+                    continue;
+                }
+                messages.push(json!({
+                    "role": role,
+                    "content": msg["content"].as_str().unwrap_or("")
+                }));
+            }
+
+            json!({
+                "model": self.model_id,
+                "messages": messages,
+                "temperature": self.temperature.unwrap_or(1.0),
+                "top_p": self.top_p.unwrap_or(1.0),
+                "max_tokens": self.max_tokens.unwrap_or(4096),
+                "stream": false
+            })
+        }
+    }
+
+    async fn parse_response(&self, response: String, _invoke_type: invoke_type) -> String {
+        if self.is_codex_auth() {
+            // Parse SSE stream from Responses API
+            let text = parse_sse_response(&response);
+            if text.is_empty() {
+                panic!("OpenAI Codex: No output text found in response. Raw: '{}'",
+                    &response[..response.len().min(500)]);
+            }
+            text
+        } else {
+            // Standard Chat Completions JSON
+            let parsed: Value = match serde_json::from_str(&response) {
+                Ok(v) => v,
+                Err(e) => {
+                    panic!("OpenAI: Invalid JSON:\n  Error: {}\n  Raw: '{}'", e, response);
+                }
+            };
+            parsed["choices"][0]["message"]["content"]
+                .as_str()
+                .expect("OpenAI: Response parsing failed — could not find choices[0].message.content")
+                .to_string()
+        }
+    }
+
+    async fn invoke(&self, api_url: &str, payload: Value, invoke_type: invoke_type) -> String {
+        let client = Client::new();
+
+        let mut request = client
+            .post(api_url)
+            .header("Authorization", self.resolve_auth_token())
+            .header("Content-Type", "application/json");
+
+        // Add ChatGPT-Account-Id header for Codex auth
+        if self.is_codex_auth() {
+            if let Some(account_id) = self.resolve_account_id() {
+                request = request.header("ChatGPT-Account-Id", account_id);
+            }
+        }
+
+        let response = request
+            .json(&payload)
+            .send()
+            .await
+            .expect("OpenAI API Request failed")
             .text()
             .await
             .expect("Failed to read response body");

@@ -23,11 +23,11 @@ GLOBAL_SE_RUNTIME=None
 try:
     import torch
     _torch_lib = os.path.join(os.path.dirname(torch.__file__), "lib")
-    if os.path.exists(_torch_lib):
+    if os.path.exists(_torch_lib) and hasattr(os, "add_dll_directory"):
         os.add_dll_directory(_torch_lib)
     from soulengine import PyRuntime
     SE_AVAILABLE = True
-    
+
 except Exception  as e:
     print(str(e))
     pass  # Falls through to DEMO mode automatically

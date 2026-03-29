@@ -113,9 +113,27 @@ impl App {
         pub fn get_cmd_signatures(&self)->std::slice::Iter<'_,CmdSignature>{
             self.app_command_signatures.iter()
         }
+        fn resolve_command(cmd: &str) -> String {
+            if cmd == "python" {
+                // Try common Python command names in order of preference
+                for candidate in &["python", "python3", "py3", "py"] {
+                    if let Ok(output) = std::process::Command::new(candidate).arg("--version").output() {
+                        if output.status.success() {
+                            return candidate.to_string();
+                        }
+                    }
+                }
+                // None found, return original and let it fail with a clear error
+                cmd.to_string()
+            } else {
+                cmd.to_string()
+            }
+        }
+
         fn _launch_kernel(&self,cmd_args:String)->Child{
             info!("Kernel launched");
-            let app_child = Command::new(&self.app_start_command)
+            let resolved_cmd = Self::resolve_command(&self.app_start_command);
+            let app_child = Command::new(&resolved_cmd)
             .args(cmd_args.split_whitespace())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
