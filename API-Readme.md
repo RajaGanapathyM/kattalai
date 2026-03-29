@@ -1,52 +1,59 @@
-# ⬡ Kattalai Runtime API
-Once kattalai app is launched the runtime launches along with an HTTP Server in the below url
+# Kattalai HTTP API
 
-An streamlit demo app is attached to /demo/server_demo.py
+Once the kattalai runtime is running, it exposes a REST API at:
 
-```bash
+```
 http://127.0.0.1:3077
 ```
 
-# Core Concepts
+All endpoints use `POST` with `Content-Type: application/json`. A [Streamlit demo app](demo/server_demo.py) is included in the repo.
 
-| Concept     | Description                            |
-| ----------- | -------------------------------------- |
-| **User**    | The person interacting with the system |
-| **Topic**   | A conversation thread                  |
-| **Agent**   | Processing unit (AI / logic engine)    |
-| **Message** | User input                             |
-| **Memory**  | Agent output (streamed chunks)         |
+> **⚠️ Security Note:** The runtime binds to `127.0.0.1` (localhost only) by design. **Do not expose this port to the public internet or a shared network.** There is no authentication layer — anyone who can reach this port has full control over your agents, topics, and messages. If you need remote access, place it behind a secure authenticated proxy.
 
 ---
 
-# Base URL
+## Contents
 
-```bash
-http://127.0.0.1:3077
-```
-
-All APIs use:
-
-```bash
-POST
-Content-Type: application/json
-```
+- [Core Concepts](#core-concepts)
+- [Response Format](#response-format)
+- [Correct API Flow](#correct-api-flow)
+- [Endpoints](#endpoints)
+  - [User](#user)
+  - [Topic](#topic)
+  - [Agent](#agent)
+  - [Messaging](#messaging)
+  - [Agent Execution](#agent-execution)
+- [Polling Pattern](#polling-pattern)
+- [Minimal Working Example](#minimal-working-example)
+- [Common Mistakes](#common-mistakes)
 
 ---
 
-# Response Format
+## Core Concepts
 
-### Success
+| Concept | Description |
+|---|---|
+| **User** | The person interacting with the system |
+| **Topic** | A conversation thread |
+| **Agent** | AI processing unit attached to a topic |
+| **Message** | User input sent to a topic |
+| **Memory** | Agent output — streamed as episode chunks |
 
+---
+
+## Response Format
+
+All responses follow a consistent envelope:
+
+**Success**
 ```json
 {
   "ok": true,
-  "data": ...
+  "data": "..."
 }
 ```
 
-### Error
-
+**Error**
 ```json
 {
   "ok": false,
@@ -54,56 +61,47 @@ Content-Type: application/json
 }
 ```
 
+Always check `"ok"` before using `"data"`.
+
 ---
 
-# Correct API Flow (IMPORTANT)
+## Correct API Flow
 
-```text
-1. Create User
-2. Create Topic
-3. Deploy Agent
-4. Attach Agent to Topic
-5. Send Message
-6. Poll Agent Status
-7. Fetch Agent Memory (Response)
+The runtime is **asynchronous**. Follow this sequence exactly:
+
+```
+1.  POST /user/create          → user_id
+2.  POST /topic/create         → topic_id
+3.  POST /agent/deploy         → agent_id
+4.  POST /topic/add-agent      (attach agent to topic)
+5.  POST /message/insert       (send a message)
+6.  POST /agent/working-status (poll until false)
+7.  POST /agent/iter-memory    (fetch agent response)
 ```
 
----
-
-# 🔄 Flow Diagram
-
-```text
+```
 User
-  ↓
-Topic (thread)
-  ↓
-Attach Agent
-  ↓
+  ↓  create user
+Topic
+  ↓  create topic + attach agent
 Send Message
   ↓
 Agent processing
-  ↓
-Poll (/agent/working-status)
-  ↓
-Fetch (/agent/iter-memory)
+  ↓  poll /agent/working-status
+Fetch /agent/iter-memory
 ```
 
 ---
 
-# API Reference
+## Endpoints
 
----
+### User
 
-## 👤 User
+#### `POST /user/create`
 
-### Create User
-
-```http
-POST /user/create
-```
+Register a new user identity.
 
 **Request**
-
 ```json
 {
   "user_name": "raja"
@@ -111,218 +109,296 @@ POST /user/create
 ```
 
 **Response**
-
 ```json
 {
   "ok": true,
-  "data": "user_id"
+  "data": "<user_id>"
 }
 ```
 
 ---
 
-## 🧵 Topic
+### Topic
 
-### Create Topic
+#### `POST /topic/create`
 
-```http
-POST /topic/create
-```
+Create a new conversation thread.
 
 **Request**
-
 ```json
 {}
 ```
 
----
-
-### Topic History Length
-
-```http
-POST /topic/history-len
-```
-
+**Response**
 ```json
 {
-  "topic_id": "topic_id"
+  "ok": true,
+  "data": "<topic_id>"
 }
 ```
 
 ---
 
-### Iterate Topic
+#### `POST /topic/history-len`
 
-```http
-POST /topic/iter
-```
+Return the total number of messages in a thread. Use this to track a cursor for incremental fetching.
 
+**Request**
 ```json
 {
-  "topic_id": "topic_id",
-  "start_index": 0
-}
-```
-
----
-
-## Agent
-
-### List Agents
-
-```http
-POST /agents/list
-```
-
----
-
-### Deploy Agent
-
-```http
-POST /agent/deploy
-```
-
-```json
-{
-  "agent_name": "agent_name"
-}
-```
-
----
-
-### Attach Agent
-
-```http
-POST /topic/add-agent
-```
-
-```json
-{
-  "topic_id": "topic_id",
-  "agent_id": "agent_id"
-}
-```
-
----
-
-### Detach Agent
-
-```http
-POST /topic/remove-agent
-```
-
----
-
-## Messaging
-
-### Send Message
-
-```http
-POST /message/insert
-```
-
-```json
-{
-  "topic_id": "topic_id",
-  "user_id": "user_id",
-  "message": "Hello agent"
-}
-```
-
----
-
-## Agent Execution
-
-### Check Working Status
-
-```http
-POST /agent/working-status
-```
-
-```json
-{
-  "topic_id": "topic_id",
-  "agent_id": "agent_id"
+  "topic_id": "<topic_id>"
 }
 ```
 
 **Response**
-
 ```json
 {
   "ok": true,
-  "data": true
+  "data": 4
 }
 ```
 
-* `true` → still working
-* `false` → finished
-
 ---
 
-### Fetch Agent Memory (Response)
+#### `POST /topic/iter`
 
-```http
-POST /agent/iter-memory
-```
+Fetch messages from a thread starting at `start_index`.
 
+**Request**
 ```json
 {
-  "topic_id": "topic_id",
-  "agent_id": "agent_id",
+  "topic_id": "<topic_id>",
   "start_index": 0
 }
 ```
 
----
-
-### Episode History Length
-
-```http
-POST /agent/episode-history-len
+**Response**
+```json
+{
+  "ok": true,
+  "data": [
+    { "name": "raja",  "role": "user",      "content": "Hello!" },
+    { "name": "DIA",   "role": "assistant",  "content": "```output\nHi! How can I help?\n```" }
+  ]
+}
 ```
 
 ---
 
-# Polling Pattern (CRITICAL)
+#### `POST /topic/add-agent`
 
-Kattalai is **asynchronous**.
+Attach a deployed agent to a topic thread. The agent will respond to new messages in that topic.
 
-After sending a message:
+**Request**
+```json
+{
+  "topic_id": "<topic_id>",
+  "agent_id": "<agent_id>"
+}
+```
+
+> Attach an agent before sending any messages. Only one agent should be active on a topic at a time.
+
+---
+
+#### `POST /topic/remove-agent`
+
+Detach an agent from a topic thread.
+
+**Request**
+```json
+{
+  "topic_id": "<topic_id>",
+  "agent_id": "<agent_id>"
+}
+```
+
+---
+
+### Agent
+
+#### `POST /agents/list`
+
+Return all agent names defined in `agents_config.toml`.
+
+**Request**
+```json
+{}
+```
+
+**Response**
+```json
+{
+  "ok": true,
+  "data": ["DIA", "Researcher", "Coder"]
+}
+```
+
+---
+
+#### `POST /agent/deploy`
+
+Deploy a named agent and return its ID.
+
+**Request**
+```json
+{
+  "agent_name": "DIA"
+}
+```
+
+**Response**
+```json
+{
+  "ok": true,
+  "data": "<agent_id>"
+}
+```
+
+---
+
+### Messaging
+
+#### `POST /message/insert`
+
+Insert a user message into a topic thread. Triggers the attached agent to begin processing.
+
+**Request**
+```json
+{
+  "topic_id": "<topic_id>",
+  "user_id":  "<user_id>",
+  "message":  "Hello agent"
+}
+```
+
+---
+
+### Agent Execution
+
+#### `POST /agent/working-status`
+
+Check whether an agent is currently processing a message.
+
+**Request**
+```json
+{
+  "topic_id": "<topic_id>",
+  "agent_id": "<agent_id>"
+}
+```
+
+**Response**
+```json
+{
+  "ok":   true,
+  "data": true
+}
+```
+
+| `data` value | Meaning |
+|---|---|
+| `true` | Agent is still processing |
+| `false` | Agent has finished — safe to fetch memory |
+
+---
+
+#### `POST /agent/iter-memory`
+
+Fetch agent episode entries (internal working memory) from `start_index` onward.
+
+**Request**
+```json
+{
+  "topic_id":    "<topic_id>",
+  "agent_id":    "<agent_id>",
+  "start_index": 0
+}
+```
+
+**Response**
+```json
+{
+  "ok": true,
+  "data": [
+    {
+      "name":    "DIA",
+      "role":    "assistant",
+      "content": "```thoughts\nUser is greeting...\n```\n```output\nHello! How can I help?\n```"
+    }
+  ]
+}
+```
+
+---
+
+#### `POST /agent/episode-history-len`
+
+Return the number of entries in the agent's episode memory for a given topic.
+
+**Request**
+```json
+{
+  "topic_id": "<topic_id>",
+  "agent_id": "<agent_id>"
+}
+```
+
+---
+
+## Polling Pattern
+
+The runtime processes messages asynchronously. After sending a message you **must** poll before fetching the response:
 
 ```python
-import time
+import time, requests
 
-while True:
-    working = api("/agent/working-status", {...})
-    
-    if not working:
-        break
-    
+BASE = "http://127.0.0.1:3077"
+
+def api(path, body=None):
+    r = requests.post(BASE + path, json=body or {})
+    j = r.json()
+    if j["ok"]:
+        return j["data"]
+    raise Exception(j["error"])
+
+# Send message
+api("/message/insert", {
+    "topic_id": topic_id,
+    "user_id":  user_id,
+    "message":  "Hello!"
+})
+
+# Poll until done
+while api("/agent/working-status", {"topic_id": topic_id, "agent_id": agent_id}):
     time.sleep(1.5)
 
-# Then fetch response
-memory = api("/agent/iter-memory", {...})
+# Fetch response
+memory = api("/agent/iter-memory", {
+    "topic_id":    topic_id,
+    "agent_id":    agent_id,
+    "start_index": 0
+})
 ```
 
----
-
-# Memory Handling
-
-Agent responses come as **nodes**:
+**Extracting content from memory nodes:**
 
 ```python
-text = (
-    node.get("content") or
-    node.get("message") or
-    node.get("text") or
-    str(node)
-)
+for node in memory:
+    text = (
+        node.get("content") or
+        node.get("message") or
+        node.get("text") or
+        str(node)
+    )
+    print(text)
 ```
 
 ---
 
-# Minimal Working Example
+## Minimal Working Example
+
+Complete end-to-end flow in Python:
 
 ```python
 import requests
@@ -330,56 +406,51 @@ import time
 
 BASE = "http://127.0.0.1:3077"
 
+
 def api(path, body=None):
-    r = requests.post(BASE + path, json=body)
+    r = requests.post(BASE + path, json=body or {})
     j = r.json()
     if j["ok"]:
         return j["data"]
-    else:
-        raise Exception(j["error"])
+    raise Exception(j["error"])
 
-# Setup
-user_id = api("/user/create", {"user_name": "raja"})
+
+# 1. Setup
+user_id  = api("/user/create",  {"user_name": "raja"})
 topic_id = api("/topic/create")
-agent_id = api("/agent/deploy", {"agent_name": "agent1"})
+agent_id = api("/agent/deploy", {"agent_name": "DIA"})
 
-api("/topic/add-agent", {
-    "topic_id": topic_id,
-    "agent_id": agent_id
-})
+api("/topic/add-agent", {"topic_id": topic_id, "agent_id": agent_id})
 
-# Send message
+# 2. Send a message
 api("/message/insert", {
     "topic_id": topic_id,
-    "user_id": user_id,
-    "message": "Hello!"
+    "user_id":  user_id,
+    "message":  "Hello!"
 })
 
-# Poll
-while api("/agent/working-status", {
-    "topic_id": topic_id,
-    "agent_id": agent_id
-}):
+# 3. Poll until the agent finishes
+while api("/agent/working-status", {"topic_id": topic_id, "agent_id": agent_id}):
     time.sleep(1.5)
 
-# Fetch response
-response = api("/agent/iter-memory", {
-    "topic_id": topic_id,
-    "agent_id": agent_id,
+# 4. Fetch and print the response
+memory = api("/agent/iter-memory", {
+    "topic_id":    topic_id,
+    "agent_id":    agent_id,
     "start_index": 0
 })
 
-print(response)
+for node in memory:
+    print(node.get("content") or node.get("message") or str(node))
 ```
 
 ---
 
-# Mistakes to avoid
+## Common Mistakes
 
-* Not attaching agent before sending message
-* Expecting immediate response (no polling)
-* Ignoring `start_index` (duplicates)
-* Not checking `"ok"` in response
-
----
-
+| Mistake | Fix |
+|---|---|
+| Sending a message before attaching an agent | Always call `/topic/add-agent` first |
+| Expecting an immediate response | Always poll `/agent/working-status` after every `/message/insert` |
+| Passing `start_index: 0` every time | Track a cursor to avoid receiving duplicate messages |
+| Not checking `"ok"` in the response | Check `ok` before accessing `data` |
