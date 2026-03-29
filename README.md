@@ -34,7 +34,7 @@ User intent  →  LLM reasoning  →  App selection  →  Python app  →  Resul
 
 **[PyPI](https://pypi.org/project/kattalai/)** · **[HTTP API](API-Readme.md)** · **[Python API](PYREADME.md)** · **[WhatsApp Community](https://chat.whatsapp.com/GpOBwFIloGE93LV7prsoxS?mode=gi_t)**
 
-</div
+</div>
 ---
 ## Table of Contents
 
