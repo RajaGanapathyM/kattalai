@@ -324,43 +324,58 @@ Follow the schema above. The `app_usage_guideline` is the primary signal the age
 #### 3. Write the Python script
 
 ```python
-import json
-import sys
-import asyncio
-from pathlib import Path
-
-# Resolve apps/ root so se_app_utils is importable
-apps_path = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(apps_path))
-
-import se_app_utils
-from se_app_utils.soulengine import soul_engine_app
 
 
-async def process_command(se_interface, args):
-    """
-    Called for every inbound invocation.
-    args[0]  → subcommand
-    args[1:] → parameters
-    Reply via se_interface.send_message(json.dumps({...}))
-    """
-    if not args:
-        se_interface.send_message(json.dumps({"status": "error", "message": "No command provided"}))
-        return
+class NotesApp(soul_engine_app):
+    def __init__(self):
+        super().__init__(app_name="SOUL NOTE TAKER")
 
-    command = args[0]
+        script_directory = Path(__file__).parent
+        self._notes_file = script_directory / "notes.json"
+        self._backup_dir = script_directory / "notes_backups"
 
-    if command == "my_command":
-        se_interface.send_message(json.dumps({"status": "ok", "result": "..."}))
-    else:
-        se_interface.send_message(json.dumps({"status": "error", "message": f"Unknown command: {command}"}))
+        self._commands = {
+            "read":    self._handle_read,
+            "search":  self._handle_search,
+            "update":  self._handle_update,
+            "delete":  self._handle_delete,
+            "backup":  self._handle_backup,
+            "restore": self._handle_restore,
+            "clear":   self._handle_clear,
+            "stats":   self._handle_stats,
+        }
+    ...
+    ...   
+    # ------------------------------------------------------------------ main entry
+    async def process_command(self, se_interface, args):
+        if not args:
+            se_interface.send_message(json.dumps({
+                "status":  "error",
+                "message": "No command or note provided.",
+                "usage":   (
+                    "notes_app <text> | read | search <q> | "
+                    "update <id> <text> | delete <id> | "
+                    "backup | restore <file> | clear | stats"
+                ),
+            }))
+            return
+
+        cmd = args[0].lower()
+        if cmd in self._commands:
+            result = self._commands[cmd](args[1:])
+        else:
+            result = self._handle_add(args)
+
+        se_interface.send_message(json.dumps(result, ensure_ascii=False))
+
 
 
 if __name__ == "__main__":
-    soul_engine_app(app_name="My App").run_repl(main_fn=process_command)
+    app = NotesApp()
+    app.run_one_shot()
 ```
 
-`soul_engine_app` handles the REPL loop, stdin parsing, and the `[#APP_MESSAGE>...]` / `[#APP_INVOKE>...]` protocol framing. You only need to implement `process_command`.
+`soul_engine_app` handles the REPL loop or One shot loop, stdin parsing, and the `[#APP_MESSAGE>...]` / `[#APP_INVOKE>...]` protocol framing. You only need to implement `process_command`.
 
 #### 4. Register in `agents_config.toml`
 
