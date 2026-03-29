@@ -54,9 +54,13 @@ impl RuntimeServer {
         // let addr = format!("0.0.0.0:{}", port);
         let router = RuntimeServer::build_router(rt);
 
-        let listener = tokio::net::TcpListener::bind(&addr)
-            .await
-            .expect("Failed to bind API port");
+        let listener = match tokio::net::TcpListener::bind(&addr).await {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("Warning: Could not bind API port {}: {}. API server disabled.", addr, e);
+                return;
+            }
+        };
 
         info!("Runtime API listening on http://{}", addr);
         println!("Runtime API listening on http://{}", addr);
