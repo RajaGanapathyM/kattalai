@@ -931,9 +931,10 @@ class KattalaiApp(App):
             logging.info("2 failed")
             return
         
-        logging.info(f"Agent init to topic:{self._se_active_agent_id}")
+        logging.info(f"Agent init to topic:{name}")
         if name not in self._se_agent_ids or self._se_agent_ids.get(name) is None : 
             try:
+                logging.info(f"Deploying agent:{name}")
                 self._se_agent_ids[name]=await self._se_runtime.deploy_agent(name)
             except Exception as e:
                 self._log_term(f"[#f87171]Deploying agent error: {e}[/#f87171]")
@@ -947,7 +948,7 @@ class KattalaiApp(App):
                 await self._se_runtime.remove_agent_from_topic(self._se_topic_id, self._se_active_agent_id)
                 self._log_term(f"[dim]agent {self._se_active_agent_name} removed from topic[/dim]")
                 self._se_active_agent_cursor_before=-1
-            
+            logging.info(f"Adding agent {name}-{agent_id} to topic:{self._se_topic_id}")
             await self._se_runtime.add_agent_to_topic(self._se_topic_id, agent_id)
             self._se_active_agent_id=self._se_agent_ids[name]
             self._se_active_agent_name=name

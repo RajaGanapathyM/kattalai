@@ -177,6 +177,7 @@ impl AgentStore{
                 );
 
             for dapp in &aconfig.default_apps{
+                info!("Attaching default app:{} to agent:{}",dapp,agent_name);
                 block_on(Agent::ping(&first_agent,AgentPulse::AttachApp(self.app_store.clone_app(dapp.clone()))));
             }
             
