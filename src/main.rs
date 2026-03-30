@@ -178,7 +178,7 @@ async fn main() {
     
     se_read_runtime.insert_message(&topic_id, &demo_user_id, my_msg).await.unwrap();
     
-    // drop(se_write_runtime);
+    // drop(se_write_runtime);//
     // let se_read_runtime=se_runtime.read().await;
     println!("Final Interface Memory");
 
