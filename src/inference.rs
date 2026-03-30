@@ -20,17 +20,17 @@ pub trait inference_api_trait {
     
     async fn invoke(&self,api_url: &str, payload: Value, invoke_type: invoke_type) -> String {
         let client = Client::new();
-        // info!("{}",payload);
-        let response = client
+        let response = match client
             .post(api_url)
             .json(&payload)
             .send()
-            .await  
-            .expect("Inference Request failed")
-            .text()
-            .await
-            .expect("Failed to read response");
-        // print!("Raw Response: {:?}", response);
+            .await {
+                Ok(resp) => match resp.text().await {
+                    Ok(text) => text,
+                    Err(e) => return format!("[ERROR] Failed to read response: {}", e),
+                },
+                Err(e) => return format!("[ERROR] Inference request failed: {}. Check if the provider is running.", e),
+            };
         self.parse_response(response, invoke_type).await
     }
     async fn parse_response(&self, response: String, invoke_type: invoke_type) -> String {

@@ -113,18 +113,20 @@ impl App {
         pub fn get_cmd_signatures(&self)->std::slice::Iter<'_,CmdSignature>{
             self.app_command_signatures.iter()
         }
-        fn _launch_kernel(&self,cmd_args:String)->Child{
+        fn _launch_kernel(&self,cmd_args:String)->Option<Child>{
             info!("Kernel launched");
-            let app_child = Command::new(&self.app_start_command)
-            .args(cmd_args.split_whitespace())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("Failed to start the application");
-
-            app_child
-
+            match Command::new(&self.app_start_command)
+                .args(cmd_args.split_whitespace())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn() {
+                    Ok(child) => Some(child),
+                    Err(e) => {
+                        eprintln!("Warning: Failed to start app '{}': {}. App disabled.", self.app_start_command, e);
+                        None
+                    }
+                }
         }
         
         pub fn get_guidelines(&self)->String{
@@ -138,7 +140,7 @@ impl App {
                     let app_child=self._launch_kernel(self.app_start_args.clone());
 
                     let mut guard = self.app_process.lock().await;
-                    *guard = Some(app_child);
+                    *guard = app_child;
                 },
                 AppType::ONE_SHOT => info!("Launching app in ONE_SHOT mode..."),
             }
@@ -219,8 +221,14 @@ impl App {
                 AppType::ONE_SHOT=>{
                     let combined_args=format!("{} {}",self.app_start_args,command_str);
                     info!("Combined Args {}",combined_args);
-                    let mut app_child=self._launch_kernel(combined_args);
-                    let stdout=app_child.stdout.take().expect("App child is none");
+                    let mut app_child = match self._launch_kernel(combined_args) {
+                        Some(child) => child,
+                        None => return,
+                    };
+                    let stdout = match app_child.stdout.take() {
+                        Some(out) => out,
+                        None => return,
+                    };
                     let app_card=self.app_card.clone();
                     let mem_tx_guard=self._mem_tx.lock().await;
                     let mem_tx_clone=match &*mem_tx_guard {
