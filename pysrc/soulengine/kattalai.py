@@ -12,8 +12,6 @@ from pathlib import Path
 import urllib.request
 import zipfile
 import shutil
-import subprocess
-import sys
 
 GITHUB_REPO = "RajaGanapathyM/kattalai"
 BRANCH = "main"
@@ -25,14 +23,19 @@ GLOBAL_SE_RUNTIME=None
 try:
     import torch
     _torch_lib = os.path.join(os.path.dirname(torch.__file__), "lib")
-    if os.path.exists(_torch_lib):
+    if os.path.exists(_torch_lib) and hasattr(os, "add_dll_directory"):
         os.add_dll_directory(_torch_lib)
     from soulengine import PyRuntime
     SE_AVAILABLE = True
-    
+
 except Exception  as e:
     print(str(e))
     pass  # Falls through to DEMO mode automatically
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib  # type: ignore[no-redef]
 
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -40,18 +43,159 @@ from textual.binding import Binding
 from textual.containers import Container, ScrollableContainer
 from textual.css.query import NoMatches
 from textual.reactive import reactive
-from textual.widgets import Input, Label, RichLog, Select, Static,TextArea
+from textual.screen import Screen, ModalScreen
+from textual.widgets import Button, Input, Label, RichLog, Select, Static, TextArea
 from textual.events import Key
 # ─────────────────────────────────────────────────────────────
 # Static data (used in demo mode + Space/Mind tabs seed)
 # ────────────────────────────────────────────────────────────
+
+# ── Provider config helpers ───────────────────────────────────────────────────
+
+PROVIDER_DEFAULTS = {
+    "ollama":      {"model": "qwen3:4b",        "nlp": "qwen3:0.6b",      "needs_key": False},
+    "openai":      {"model": "gpt-5.4-mini",    "nlp": "gpt-5.4-mini",    "needs_key": False},
+    "gemini":      {"model": "gemini-2.5-flash", "nlp": "gemini-2.5-flash","needs_key": True},
+    "huggingface": {"model": "",                 "nlp": "",                 "needs_key": True},
+    "sarvam":      {"model": "sarvam-30b",       "nlp": "sarvam-30b",      "needs_key": True},
+}
+
+AGENTS_CONFIG_TEMPLATE = '''configured = true
+
+[[agent_config]]
+agent_name="DIA"
+agent_goal="To assist user with their queries"
+backstory="You are Ai assistant"
+reasoning_model={{inference_provider="{provider}",model_id="{model_id}"}}
+nlp_model={{inference_provider="{nlp_provider}",model_id="{nlp_model_id}"}}
+default_apps=["clock_app"]
+
+[[agent_config]]
+agent_name="NOVA"
+agent_goal="To tell jokes"
+backstory="You are Ai assistant"
+reasoning_model={{inference_provider="{provider}",model_id="{model_id}"}}
+nlp_model={{inference_provider="{nlp_provider}",model_id="{nlp_model_id}"}}
+default_apps=["clock_app"]
+'''
+
+INFERENCE_CONFIG_TEMPLATE = '''[[ollama_config]]
+chat_api_url="http://localhost:11434/api/chat"
+generate_api_url="http://localhost:11434/api/generate"
+temperature=0.1
+
+[[gemini_config]]
+api_key="{gemini_api_key}"
+temperature=0.1
+
+[[huggingface_config]]
+api_key="{huggingface_api_key}"
+max_new_tokens=8000
+temperature=0.1
+
+[[sarvam_config]]
+api_key="{sarvam_api_key}"
+max_new_tokens=8000
+temperature=0.1
+reasoning_effort="high"
+
+[[openai_config]]
+api_key="{openai_api_key}"
+max_tokens=8000
+temperature=0.1
+auth_token_path="~/.codex/auth.json"
+'''
+
+def _config_base() -> Path:
+    return Path(__file__).parent / "configs"
+
+def is_configured() -> bool:
+    cfg = _config_base() / "agents_config.toml"
+    if not cfg.exists():
+        return False
+    try:
+        with open(cfg, "rb") as f:
+            return tomllib.load(f).get("configured", False) is True
+    except Exception:
+        return False
+
+def read_current_config() -> dict:
+    cfg = _config_base() / "agents_config.toml"
+    if not cfg.exists():
+        return {}
+    try:
+        with open(cfg, "rb") as f:
+            return tomllib.load(f)
+    except Exception:
+        return {}
+
+def detect_available_providers() -> dict:
+    results = {}
+    # Ollama
+    try:
+        req = urllib.request.Request("http://localhost:11434/", method="HEAD")
+        urllib.request.urlopen(req, timeout=2)
+        results["ollama"] = True
+    except Exception:
+        results["ollama"] = False
+    # OpenAI/Codex
+    results["openai"] = Path("~/.codex/auth.json").expanduser().exists()
+    # Others: check if API key is set
+    inf_cfg = _config_base() / "inference_config.toml"
+    if inf_cfg.exists():
+        try:
+            with open(inf_cfg, "rb") as f:
+                inf = tomllib.load(f)
+            for name, key in [("gemini", "gemini_config"), ("huggingface", "huggingface_config"), ("sarvam", "sarvam_config")]:
+                cfgs = inf.get(key, [])
+                results[name] = bool(cfgs and cfgs[0].get("api_key", "").strip())
+        except Exception:
+            pass
+    return results
+
+def write_configs(provider: str, model_id: str, api_key: str = ""):
+    nlp_provider = provider
+    nlp_model_id = PROVIDER_DEFAULTS.get(provider, {}).get("nlp", model_id)
+
+    # Read existing API keys to preserve them
+    existing_keys = {"gemini": "", "huggingface": "", "sarvam": "", "openai": ""}
+    inf_path = _config_base() / "inference_config.toml"
+    if inf_path.exists():
+        try:
+            with open(inf_path, "rb") as f:
+                existing = tomllib.load(f)
+            for name, key in [("gemini", "gemini_config"), ("huggingface", "huggingface_config"),
+                              ("sarvam", "sarvam_config"), ("openai", "openai_config")]:
+                cfgs = existing.get(key, [{}])
+                if cfgs:
+                    existing_keys[name] = cfgs[0].get("api_key", "")
+        except Exception:
+            pass
+
+    if api_key and provider in existing_keys:
+        existing_keys[provider] = api_key
+
+    agents_content = AGENTS_CONFIG_TEMPLATE.format(
+        provider=provider, model_id=model_id,
+        nlp_provider=nlp_provider, nlp_model_id=nlp_model_id,
+    )
+    (_config_base() / "agents_config.toml").write_text(agents_content)
+
+    inference_content = INFERENCE_CONFIG_TEMPLATE.format(
+        gemini_api_key=existing_keys["gemini"],
+        huggingface_api_key=existing_keys["huggingface"],
+        sarvam_api_key=existing_keys["sarvam"],
+        openai_api_key=existing_keys["openai"],
+    )
+    (_config_base() / "inference_config.toml").write_text(inference_content)
+
+# ── App state ─────────────────────────────────────────────────────────────────
 
 AGENTS=[]
 se_bind="127.0.0.1:3077"
 async def load_run_time():
     global AGENTS,GLOBAL_SE_RUNTIME
     GLOBAL_SE_RUNTIME=await PyRuntime.create(bind=se_bind)
-
 
     AGENTS = await GLOBAL_SE_RUNTIME.get_agent_list()
     print("Loaded Agents:",AGENTS)
@@ -199,10 +343,11 @@ Screen { background: $bg; color: $text; layout: vertical; }
 
 #topbar-right {
     layout: horizontal;
-    width: auto;          /* shrinks to content */
+    width: auto;
     align: right middle;
     padding-left: 1;
-    height: 3;   
+    height: 3;
+    overflow: hidden;
 }
 
 #logo {
@@ -306,14 +451,14 @@ Screen { background: $bg; color: $text; layout: vertical; }
 .strip-hint  { width: auto; color: $muted; }
 
 #thinking {
-    height: 2; background: $surf; border-top: tall $bord2;
+    height: 1; background: $surf; border-top: tall $bord2;
     padding: 0 2; layout: horizontal; align: center middle; display: none;
 }
 #thinking.show { display: block; }
 
 #input-row {
-    height: 5; background: $surf; border-top: tall $bord2;overflow:auto;
-    padding: 0 2; layout: horizontal; align: center middle;
+    height: 4; background: $surf; border-top: tall $bord2;
+    padding: 0 1; layout: horizontal; align: center middle;
 }
 #prompt-icon { width: 5; color: $green; text-style: bold; }
 #agent-select {
@@ -467,6 +612,34 @@ SelectOverlay > .option-list--option {
 .stat.ok  { color: $green; }
 .stat.err { color: $red; }
 .stat.warn { color: $amber; }
+
+/* ── Setup Screen ── */
+SetupScreen { align: center middle; }
+#setup-container {
+    width: 70; height: auto; max-height: 80%;
+    background: $surf; border: tall $bord; padding: 2 3;
+}
+#setup-title { text-style: bold; color: $green; text-align: center; margin-bottom: 1; }
+#setup-subtitle { color: $muted; text-align: center; margin-bottom: 2; }
+#provider-status { color: $muted; margin-bottom: 1; }
+#provider-select { width: 100%; margin-bottom: 1; }
+#model-input { width: 100%; margin-bottom: 1; }
+#api-key-input { width: 100%; margin-bottom: 1; display: none; }
+#api-key-input.show { display: block; }
+#continue-btn { width: 100%; margin-top: 1; }
+
+/* ── Settings Modal ── */
+SettingsScreen { align: center middle; }
+#settings-container {
+    width: 70; height: auto; max-height: 85%;
+    background: $surf; border: tall $bord; padding: 2 3;
+}
+#settings-title { text-style: bold; color: $green; margin-bottom: 2; }
+.settings-label { color: $muted; margin-bottom: 0; }
+.settings-current { color: $text; margin-bottom: 1; }
+#settings-btn-row { layout: horizontal; margin-top: 2; }
+#save-btn { width: 1fr; margin-right: 1; }
+#cancel-btn { width: 1fr; }
 """
 
 # ─────────────────────────────────────────────────────────────
@@ -555,6 +728,139 @@ class AgentMsg(Static):
 
 
 # ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# Setup & Settings Screens
+# ─────────────────────────────────────────────────────────────
+
+class SetupScreen(Screen):
+    BINDINGS = [Binding("escape", "app.quit", "Quit")]
+
+    def compose(self) -> ComposeResult:
+        with Container(id="setup-container"):
+            yield Label("Welcome to Kattalai", id="setup-title")
+            yield Label("Select your AI provider to get started", id="setup-subtitle")
+            yield Label("Detecting providers...", id="provider-status")
+            yield Select(
+                [(n, n) for n in PROVIDER_DEFAULTS],
+                prompt="Select provider...",
+                id="provider-select",
+            )
+            yield Input(placeholder="Model ID (e.g. qwen3:4b)", id="model-input")
+            yield Input(placeholder="API key (if required)", id="api-key-input", password=True)
+            yield Button("Continue", id="continue-btn", variant="success")
+
+    def on_mount(self) -> None:
+        self._detect_providers()
+
+    @work(exclusive=True)
+    async def _detect_providers(self) -> None:
+        avail = detect_available_providers()
+        parts = []
+        for name, found in avail.items():
+            tag = "[green]available[/green]" if found else "[dim]not detected[/dim]"
+            parts.append(f"{name}: {tag}")
+        try:
+            self.query_one("#provider-status", Label).update("  ".join(parts))
+        except NoMatches:
+            pass
+
+    @on(Select.Changed, "#provider-select")
+    def _on_provider_change(self, event: Select.Changed) -> None:
+        provider = event.value
+        if provider is None or provider == Select.BLANK:
+            return
+        defaults = PROVIDER_DEFAULTS.get(str(provider), {})
+        try:
+            self.query_one("#model-input", Input).value = defaults.get("model", "")
+            api_input = self.query_one("#api-key-input", Input)
+            if defaults.get("needs_key", False):
+                api_input.add_class("show")
+            else:
+                api_input.remove_class("show")
+        except NoMatches:
+            pass
+
+    @on(Button.Pressed, "#continue-btn")
+    def _on_continue(self, event: Button.Pressed) -> None:
+        try:
+            provider = self.query_one("#provider-select", Select).value
+            model_id = self.query_one("#model-input", Input).value.strip()
+            api_key = self.query_one("#api-key-input", Input).value.strip()
+        except NoMatches:
+            return
+        if not provider or provider == Select.BLANK:
+            self.notify("Please select a provider", severity="warning")
+            return
+        if not model_id:
+            self.notify("Please enter a model ID", severity="warning")
+            return
+        write_configs(str(provider), model_id, api_key)
+        self.dismiss(True)
+
+
+class SettingsScreen(ModalScreen[bool]):
+    BINDINGS = [Binding("escape", "dismiss_settings", "Cancel")]
+
+    def compose(self) -> ComposeResult:
+        current = read_current_config()
+        agents = current.get("agent_config", [])
+        cur_provider = ""
+        cur_model = ""
+        if agents:
+            rm = agents[0].get("reasoning_model", {})
+            cur_provider = rm.get("inference_provider", "ollama")
+            cur_model = rm.get("model_id", "")
+
+        with Container(id="settings-container"):
+            yield Label("Settings", id="settings-title")
+            for agent in agents:
+                rm = agent.get("reasoning_model", {})
+                yield Label(f"{agent.get('agent_name', '?')}: {rm.get('inference_provider', '?')} / {rm.get('model_id', '?')}", classes="settings-current")
+            yield Label("Provider", classes="settings-label")
+            yield Select(
+                [(n, n) for n in PROVIDER_DEFAULTS],
+                value=cur_provider,
+                id="settings-provider-select",
+            )
+            yield Label("Model ID", classes="settings-label")
+            yield Input(value=cur_model, id="settings-model-input")
+            yield Input(placeholder="API key (leave blank to keep current)", id="settings-api-key-input", password=True)
+            with Container(id="settings-btn-row"):
+                yield Button("Save & Restart", id="save-btn", variant="success")
+                yield Button("Cancel", id="cancel-btn", variant="default")
+
+    @on(Select.Changed, "#settings-provider-select")
+    def _on_provider_change(self, event: Select.Changed) -> None:
+        provider = event.value
+        if provider is None or provider == Select.BLANK:
+            return
+        defaults = PROVIDER_DEFAULTS.get(str(provider), {})
+        try:
+            self.query_one("#settings-model-input", Input).value = defaults.get("model", "")
+        except NoMatches:
+            pass
+
+    @on(Button.Pressed, "#save-btn")
+    def _on_save(self, event: Button.Pressed) -> None:
+        try:
+            provider = self.query_one("#settings-provider-select", Select).value
+            model_id = self.query_one("#settings-model-input", Input).value.strip()
+            api_key = self.query_one("#settings-api-key-input", Input).value.strip()
+        except NoMatches:
+            return
+        if provider and provider != Select.BLANK and model_id:
+            write_configs(str(provider), model_id, api_key)
+            self.dismiss(True)
+
+    @on(Button.Pressed, "#cancel-btn")
+    def _on_cancel(self, event: Button.Pressed) -> None:
+        self.dismiss(False)
+
+    def action_dismiss_settings(self) -> None:
+        self.dismiss(False)
+
+
+# ─────────────────────────────────────────────────────────────
 # Main App
 # ─────────────────────────────────────────────────────────────
 
@@ -570,12 +876,17 @@ class KattalaiApp(App):
         Binding("ctrl+r", "refresh_mind", "Refresh",  show=False),
         Binding("escape", "focus_input",  "Focus",    show=False),
         Binding("ctrl+enter", "send_message", "Send"),
+        Binding("f2",     "open_settings","Settings", show=False),
     ]
 
     active_agent: reactive[str]  = reactive("")
     active_tab:   reactive[str]  = reactive("chat-pane")
     is_thinking:  reactive[bool] = reactive(False)
     se_ready:     reactive[bool] = reactive(False)
+
+    def __init__(self, first_run: bool = False):
+        super().__init__()
+        self._first_run = first_run
 
     # ── SoulEngine state ──────────────────────────────────────
     _se_runtime   = None
@@ -600,6 +911,12 @@ class KattalaiApp(App):
                         return
                     event.stop()           # prevent newline being inserted
                     ta.clear()
+
+                    # ── Slash commands ──
+                    if text.startswith("/"):
+                        await self._handle_slash_command(text)
+                        return
+
                     msgs = self.query_one("#messages", ScrollableContainer)
                     await msgs.mount(UserMsg(text))
                     msgs.scroll_end(animate=False)
@@ -609,6 +926,91 @@ class KattalaiApp(App):
                         await self._demo_respond(text, msgs)
             except NoMatches:
                 pass
+
+    async def _handle_slash_command(self, text: str) -> None:
+        parts = text.split(None, 2)
+        cmd = parts[0].lower()
+        msgs = self.query_one("#messages", ScrollableContainer)
+
+        if cmd == "/settings":
+            self.push_screen(SettingsScreen(), callback=self._on_settings_result)
+
+        elif cmd == "/provider":
+            if len(parts) < 2:
+                current = read_current_config()
+                agents = current.get("agent_config", [])
+                if agents:
+                    rm = agents[0].get("reasoning_model", {})
+                    provider = rm.get("inference_provider", "?")
+                    model = rm.get("model_id", "?")
+                    await msgs.mount(AgentMsg("System", [("output", f"Current provider: {provider}\nCurrent model: {model}\n\nAvailable: {', '.join(PROVIDER_DEFAULTS.keys())}\n\nUsage: /provider <name>")]))
+                else:
+                    await msgs.mount(AgentMsg("System", [("output", f"Available providers: {', '.join(PROVIDER_DEFAULTS.keys())}\n\nUsage: /provider <name>")]))
+            else:
+                provider = parts[1].lower()
+                if provider not in PROVIDER_DEFAULTS:
+                    await msgs.mount(AgentMsg("System", [("output", f"Unknown provider '{provider}'. Available: {', '.join(PROVIDER_DEFAULTS.keys())}")]))
+                else:
+                    defaults = PROVIDER_DEFAULTS[provider]
+                    model_id = parts[2] if len(parts) > 2 else defaults["model"]
+                    write_configs(provider, model_id)
+                    await msgs.mount(AgentMsg("System", [("output", f"Switched to {provider} / {model_id}\nRestarting runtime...")]))
+                    msgs.scroll_end(animate=False)
+                    self._se_runtime = None
+                    self._se_user_id = None
+                    self._se_topic_id = None
+                    self._se_active_agent_id = None
+                    self._se_active_agent_name = None
+                    self._se_agent_ids = {}
+                    self._se_added = set()
+                    self._msg_cursor = 0
+                    self.se_ready = False
+                    self._reload_runtime()
+
+        elif cmd == "/model":
+            if len(parts) < 2:
+                current = read_current_config()
+                agents = current.get("agent_config", [])
+                if agents:
+                    rm = agents[0].get("reasoning_model", {})
+                    await msgs.mount(AgentMsg("System", [("output", f"Current model: {rm.get('model_id', '?')}\n\nUsage: /model <model_id>")]))
+            else:
+                model_id = parts[1]
+                current = read_current_config()
+                agents = current.get("agent_config", [])
+                provider = "ollama"
+                if agents:
+                    provider = agents[0].get("reasoning_model", {}).get("inference_provider", "ollama")
+                write_configs(provider, model_id)
+                await msgs.mount(AgentMsg("System", [("output", f"Switched to model: {model_id}\nRestarting runtime...")]))
+                msgs.scroll_end(animate=False)
+                self._se_runtime = None
+                self._se_user_id = None
+                self._se_topic_id = None
+                self._se_active_agent_id = None
+                self._se_active_agent_name = None
+                self._se_agent_ids = {}
+                self._se_added = set()
+                self._msg_cursor = 0
+                self.se_ready = False
+                self._reload_runtime()
+
+        elif cmd == "/help":
+            help_text = (
+                "Available commands:\n"
+                "  /provider              Show current provider\n"
+                "  /provider <name>       Switch provider (ollama, openai, gemini, ...)\n"
+                "  /provider <name> <model>  Switch provider and model\n"
+                "  /model <model_id>      Switch model (keep current provider)\n"
+                "  /settings              Open settings panel\n"
+                "  /help                  Show this help"
+            )
+            await msgs.mount(AgentMsg("System", [("output", help_text)]))
+
+        else:
+            await msgs.mount(AgentMsg("System", [("output", f"Unknown command: {cmd}\nType /help for available commands")]))
+
+        msgs.scroll_end(animate=False)
 
     def compose(self) -> ComposeResult:
 
@@ -655,9 +1057,10 @@ class KattalaiApp(App):
             with Container(id="thinking"):
                 yield Label("agent is thinking...", markup=False)
             with Container(id="input-row"):
+                agent_opts = [(name, name) for name in AGENTS] if AGENTS else [("...", "...")]
                 yield Select(
-                    [(name, name) for name in AGENTS],
-                    value=AGENTS[0],
+                    agent_opts,
+                    value=AGENTS[0] if AGENTS else "...",
                     id="agent-select",
                     allow_blank=False,
                 )
@@ -736,14 +1139,94 @@ class KattalaiApp(App):
         self.begin_capture_print(self.query_one("#term-log",RichLog))
         self.set_interval(30, self._tick_clock)
         self._se_added = set()
-        if SE_AVAILABLE:
+        if self._first_run:
+            self.push_screen(SetupScreen(), callback=self._on_setup_complete)
+        elif SE_AVAILABLE:
             self.init_soulengine()
-            
         else:
             self._set_badge("SE: demo", "warn")
             self._log_term(f"[dim]--- SoulEngine not available — demo mode ---[/dim]")
-            # self.set_timer(0.5, self.run_demo)
         self._seed_terminal_header()
+
+    def _on_setup_complete(self, result: bool) -> None:
+        if result:
+            self._log_term("[#4ade80]Setup complete, initializing runtime...[/#4ade80]")
+            self._set_badge("Loading models...", "warn")
+            try:
+                self.query_one("#thinking", Container).add_class("show")
+                self.query_one("#thinking Label", Label).update("Loading models, please wait...")
+            except NoMatches:
+                pass
+            self._reload_runtime()
+        else:
+            self._set_badge("SE: not configured", "err")
+
+    def action_open_settings(self) -> None:
+        self.push_screen(SettingsScreen(), callback=self._on_settings_result)
+
+    def _on_settings_result(self, result: bool) -> None:
+        if result:
+            self._log_term("[#f59e0b]Config changed — restarting runtime...[/#f59e0b]")
+            self._se_runtime = None
+            self._se_user_id = None
+            self._se_topic_id = None
+            self._se_active_agent_id = None
+            self._se_active_agent_name = None
+            self._se_agent_ids = {}
+            self._se_added = set()
+            self._msg_cursor = 0
+            self.se_ready = False
+            self._reload_runtime()
+
+    @work(exclusive=True)
+    async def _reload_runtime(self) -> None:
+        global GLOBAL_SE_RUNTIME, AGENTS, SE_AVAILABLE
+        self._set_badge("SE: loading...", "warn")
+        try:
+            # Drop old runtime to release the port
+            import gc
+            GLOBAL_SE_RUNTIME = None
+            self._se_runtime = None
+            gc.collect()
+            await asyncio.sleep(0.5)  # brief pause for OS to release the socket
+
+            GLOBAL_SE_RUNTIME = await PyRuntime.create(bind=se_bind)
+            SE_AVAILABLE = True
+            AGENTS = await GLOBAL_SE_RUNTIME.get_agent_list()
+            try:
+                sel = self.query_one("#agent-select", Select)
+                sel.set_options([(n, n) for n in AGENTS])
+                if AGENTS:
+                    sel.value = AGENTS[0]
+            except NoMatches:
+                pass
+            # init_soulengine sets se_ready=True and starts chat_monitor
+            self._se_runtime = GLOBAL_SE_RUNTIME
+            self._se_user_id = await self._se_runtime.create_user("kattalaiUser")
+            self._se_topic_id = await self._se_runtime.create_topic_thread()
+            self.se_ready = True
+            cur = read_current_config()
+            agents = cur.get("agent_config", [])
+            prov_label = ""
+            if agents:
+                rm = agents[0].get("reasoning_model", {})
+                prov_label = f" | {rm.get('inference_provider', '?')}:{rm.get('model_id', '?')}"
+            self._set_badge(f"Live: http://{se_bind}{prov_label}", "ok")
+            self._log_term("[#4ade80]--- SoulEngine ready ---[/#4ade80]")
+            # Clear loading indicator
+            try:
+                self.query_one("#thinking", Container).remove_class("show")
+                self.query_one("#thinking Label", Label).update("agent is thinking...")
+            except NoMatches:
+                pass
+            self.chat_monitor()
+        except Exception as e:
+            self._set_badge("SE: error", "err")
+            self._log_term(f"[#f87171]Runtime reload error: {e}[/#f87171]")
+            try:
+                self.query_one("#thinking", Container).remove_class("show")
+            except NoMatches:
+                pass
 
     def _tick_clock(self) -> None:
         try:
@@ -805,7 +1288,7 @@ class KattalaiApp(App):
                 self._msg_cursor = cursor_before + 1 + len(new_entries)
                 self._update_stat("stat-topic", f"topic: {str(self._se_topic_id)[:8]}")
 
-                # self.is_thinking = False
+                self.is_thinking = False
                 logging.info(f"MEM{new_entries}")
                 msgs = self.query_one("#messages", ScrollableContainer)
                 if new_entries:
@@ -825,6 +1308,7 @@ class KattalaiApp(App):
                     ]))
                     msgs.scroll_end(animate=False)
         except Exception as e:
+            self.is_thinking = False
             logging.error(f"Chat Monitor Error:{str(e)}")
 
     async def agent_monitor(self)->None:
@@ -880,6 +1364,7 @@ class KattalaiApp(App):
             self._se_active_agent_cursor_before=new_len
             return self._se_active_agent_cursor_before
         except Exception as e:
+            self.is_thinking = False
             logging.error(f"Agent Monitor Error:{str(e)}")
 
     @work(exclusive=True)
@@ -901,7 +1386,13 @@ class KattalaiApp(App):
             self._update_stat("stat-topic", f"topic: {str(self._se_topic_id)[:8]}")
 
             self.se_ready = True
-            self._set_badge(f"Live: http://{se_bind}", "ok")
+            cur = read_current_config()
+            agents = cur.get("agent_config", [])
+            prov_label = ""
+            if agents:
+                rm = agents[0].get("reasoning_model", {})
+                prov_label = f" | {rm.get('inference_provider', '?')}:{rm.get('model_id', '?')}"
+            self._set_badge(f"Live: http://{se_bind}{prov_label}", "ok")
             log("[#4ade80]--- SoulEngine ready ---[/#4ade80]")
             
             # # 5. Add active agent to topic
@@ -1330,63 +1821,13 @@ def setup():
     
     print("Setup complete. Run 'kattalai' to start.")
 
-def upgrade():
-    
-    os.chdir(Path(__file__).parent)
-    base = Path(__file__).parent
-    folders = ["apps", "configs", "model_assets", "prompts"]
-
-    # Step 1: Upgrade the package
-    print("Upgrading kattalai package...")
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--upgrade", "kattalai"],
-        check=True
-    )
-    print("  ✓ Package upgraded")
-
-    # Step 2: Remove existing folders
-    print("Removing existing assets...")
-    for folder in folders:
-        dst = base / folder
-        if dst.exists():
-            shutil.rmtree(dst)
-            print(f"  ✓ Removed {folder}")
-
-    # Step 3: Pull fresh assets from GitHub
-    print("Downloading fresh assets from GitHub...")
-    url = f"https://github.com/{GITHUB_REPO}/archive/refs/heads/{BRANCH}.zip"
-    zip_path = base / "temp.zip"
-
-    urllib.request.urlretrieve(url, zip_path)
-
-    with zipfile.ZipFile(zip_path, "r") as z:
-        for folder in folders:
-            for file in z.namelist():
-                if file.startswith(f"kattalai-{BRANCH}/{folder}/"):
-                    z.extract(file, base / "temp_extract")
-
-    # Move extracted folders to package dir
-    extract_root = base / "temp_extract" / f"kattalai-{BRANCH}"
-    for folder in folders:
-        src = extract_root / folder
-        dst = base / folder
-        if src.exists():
-            shutil.copytree(src, dst, dirs_exist_ok=True)
-            print(f"  ✓ {folder}")
-        else:
-            print(f"  ✗ {folder} not found in repo")
-
-    # Cleanup
-    zip_path.unlink()
-    shutil.rmtree(base / "temp_extract")
-
-    print("Upgrade complete. Run 'kattalai' to start.")
-
 def main():
     os.chdir(Path(__file__).parent)
     setup()
-    asyncio.run(load_run_time())
-    KattalaiApp().run()
+    first_run = not is_configured()
+    if not first_run and SE_AVAILABLE:
+        asyncio.run(load_run_time())
+    KattalaiApp(first_run=first_run).run()
 
 if __name__ == "__main__":
     main()
