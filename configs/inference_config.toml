@@ -18,3 +18,8 @@ api_key=""
 max_new_tokens=8000
 temperature=0.1
 reasoning_effort="high"
+
+[[openai_config]]
+api_key=""
+max_tokens=8000
+temperature=0.1

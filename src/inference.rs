@@ -890,3 +890,197 @@ impl inference_api_trait for SarvamAI {
         self.parse_response(response, invoke_type).await
     }
 }
+
+
+// ── OpenAI Standard Chat Completions API ────────────────────────────────────
+
+pub struct OpenAIConfig {
+    pub api_key: String,
+    pub allowed_roles: HashSet<Role>,
+    pub non_tool_roles: HashSet<Role>,
+    pub stream_response: bool,
+    pub temperature: Option<f32>,
+    pub top_p: Option<f32>,
+    pub max_tokens: Option<u32>,
+}
+
+impl OpenAIConfig {
+    pub fn new(
+        api_key: String,
+        allowed_roles: HashSet<Role>,
+        non_tool_roles: HashSet<Role>,
+        stream_response: bool,
+        temperature: Option<f32>,
+        top_p: Option<f32>,
+        max_tokens: Option<u32>,
+    ) -> Self {
+        Self {
+            api_key,
+            allowed_roles,
+            non_tool_roles,
+            stream_response,
+            temperature,
+            top_p,
+            max_tokens,
+        }
+    }
+
+    pub fn get_model(&self, model_id: String) -> Arc<OpenAI> {
+        OpenAI::new(
+            model_id,
+            self.api_key.clone(),
+            self.allowed_roles.clone(),
+            self.non_tool_roles.clone(),
+            self.stream_response,
+            self.temperature,
+            self.top_p,
+            self.max_tokens,
+        )
+    }
+}
+
+
+pub struct OpenAI {
+    pub model_id: String,
+    pub api_key: String,
+    pub allowed_roles: HashSet<Role>,
+    pub non_tool_roles: HashSet<Role>,
+    pub stream_response: bool,
+    pub temperature: Option<f32>,
+    pub top_p: Option<f32>,
+    pub max_tokens: Option<u32>,
+}
+
+impl OpenAI {
+    pub fn new(
+        model_id: String,
+        api_key: String,
+        allowed_roles: HashSet<Role>,
+        non_tool_roles: HashSet<Role>,
+        stream_response: bool,
+        temperature: Option<f32>,
+        top_p: Option<f32>,
+        max_tokens: Option<u32>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            model_id,
+            api_key,
+            allowed_roles,
+            non_tool_roles,
+            stream_response,
+            temperature,
+            top_p,
+            max_tokens,
+        })
+    }
+
+    fn get_api_url(&self) -> String {
+        "https://api.openai.com/v1/chat/completions".to_string()
+    }
+}
+
+#[async_trait]
+impl inference_api_trait for OpenAI {
+
+    async fn chat(
+        &self,
+        memory: Arc<Memory>,
+        system_prompt: String,
+        invocation_id: Option<String>,
+    ) -> String {
+        self._chat_invoke(
+            &self.get_api_url(),
+            memory,
+            system_prompt,
+            invocation_id,
+            &self.allowed_roles,
+            &self.non_tool_roles,
+        )
+        .await
+    }
+
+    async fn generate(&self, prompt: String) -> String {
+        let mut history = vec![json!({
+            "role": "user",
+            "content": prompt
+        })];
+        let payload = self.request_payload_builder(&mut history, "You are a helpful assistant.".to_string()).await;
+        self.invoke(&self.get_api_url(), payload, invoke_type::Chat).await
+    }
+
+    async fn request_payload_builder(
+        &self,
+        message_history: &mut Vec<Value>,
+        system_prompt: String,
+    ) -> Value {
+        let mut messages: Vec<Value> = Vec::new();
+
+        if !system_prompt.is_empty() {
+            messages.push(json!({
+                "role": "system",
+                "content": system_prompt
+            }));
+        }
+
+        for msg in message_history.iter() {
+            let role = msg["role"].as_str().unwrap_or("user");
+            if role == "system" {
+                continue;
+            }
+            if role == "tool" {
+                messages.push(json!({
+                    "role": role,
+                    "tool_call_id": Uuid::now_v7().to_string(),
+                    "content": msg["content"].as_str().unwrap_or("")
+                }));
+                continue;
+            }
+            messages.push(json!({
+                "role": role,
+                "content": msg["content"].as_str().unwrap_or("")
+            }));
+        }
+
+        json!({
+            "model": self.model_id,
+            "messages": messages,
+            "temperature": self.temperature.unwrap_or(1.0),
+            "top_p": self.top_p.unwrap_or(1.0),
+            "max_tokens": self.max_tokens.unwrap_or(4096),
+            "stream": false
+        })
+    }
+
+    async fn parse_response(&self, response: String, _invoke_type: invoke_type) -> String {
+        let parsed: Value = match serde_json::from_str(&response) {
+            Ok(v) => v,
+            Err(e) => {
+                return format!("[ERROR] OpenAI: Invalid JSON response: {}", e);
+            }
+        };
+        parsed["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("[ERROR] OpenAI: Could not parse response")
+            .to_string()
+    }
+
+    async fn invoke(&self, api_url: &str, payload: Value, invoke_type: invoke_type) -> String {
+        let client = Client::new();
+
+        let response = match client
+            .post(api_url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await {
+                Ok(resp) => match resp.text().await {
+                    Ok(text) => text,
+                    Err(e) => return format!("[ERROR] Failed to read OpenAI response: {}", e),
+                },
+                Err(e) => return format!("[ERROR] OpenAI request failed: {}", e),
+            };
+
+        self.parse_response(response, invoke_type).await
+    }
+}
