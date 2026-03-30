@@ -64,6 +64,7 @@ User intent  →  LLM reasoning  →  App selection  →  Python app  →  Resul
 pip3 install kattalai
 kattalai-setup    # download apps, configs, prompts, model assets
 kattalai          # launch the TUI
+kattalai-upgrade  # Upgrades kattalai and repull all assets form github
 ```
 
 > **API access** — once running, the runtime also exposes an HTTP API at `http://127.0.0.1:3077`. See the [HTTP API reference](API-Readme.md) for details.

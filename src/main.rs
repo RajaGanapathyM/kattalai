@@ -88,7 +88,7 @@ async fn main() {
     drop(se_write_runtime);
     let se_read_runtime=se_runtime.read().await;
 
-
+    
 
     se_read_runtime.insert_message(&topic_id, &demo_user_id, "Hello, Whst is your name.".to_string()).await.unwrap();
     
@@ -168,10 +168,12 @@ async fn main() {
 
     se_read_runtime.add_agent_to_topic(&topic_id, &agent_id).await;
     sleep(Duration::from_secs(3));
-    se_read_runtime.remove_agent_from_topic(&topic_id, &agent_id).await;
+    // se_read_runtime.remove_agent_from_topic(&topic_id, &agent_id).await;
     
 
-    let my_msg="wait for 5 sec and get stock price of HDFCBANK.NS and analyse".to_string();
+    let my_msg="analyze the report C:\\Users\\RG\\Downloads\\CC_sample.pdf".to_string();
+// let msg="".to_string();
+    println!("Inserting message: {}", my_msg);
 
     
     se_read_runtime.insert_message(&topic_id, &demo_user_id, my_msg).await.unwrap();

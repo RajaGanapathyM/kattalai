@@ -48,7 +48,7 @@ pub fn init_tracing() {
         .open("kattalai_rust.log")
         .unwrap();
 
-    let level_filter = LevelFilter::DEBUG;
+    let level_filter = LevelFilter::INFO;
 
     let file_layer = fmt::layer()
         .with_writer(file)
