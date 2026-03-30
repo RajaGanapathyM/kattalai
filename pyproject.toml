@@ -23,6 +23,7 @@ classifiers = [
 kattalai = "soulengine.kattalai:main"
 kattalai-folder = "soulengine.kattalai:open_folder"
 kattalai-setup = "soulengine.kattalai:setup"
+kattalai-upgrade = "soulengine.kattalai:upgrade"
 
 [tool.maturin]
 python-source = "pysrc"

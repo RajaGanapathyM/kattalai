@@ -150,8 +150,9 @@ impl AgentStore{
 
     }
     pub fn list_agents(&self)->Vec<String>{
-        self.agents_config.keys().cloned().collect()
-
+        let mut agents = self.agents_config.keys().cloned().collect::<Vec<String>>();
+        agents.sort();
+        agents
     }
     pub fn get_agent(&self,agent_name:String)->Arc<RwLock<Arc<Agent>>>{
 

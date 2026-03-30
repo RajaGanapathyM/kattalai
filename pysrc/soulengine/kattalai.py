@@ -12,6 +12,8 @@ from pathlib import Path
 import urllib.request
 import zipfile
 import shutil
+import subprocess
+import sys
 
 GITHUB_REPO = "RajaGanapathyM/kattalai"
 BRANCH = "main"
@@ -49,6 +51,7 @@ se_bind="127.0.0.1:3077"
 async def load_run_time():
     global AGENTS,GLOBAL_SE_RUNTIME
     GLOBAL_SE_RUNTIME=await PyRuntime.create(bind=se_bind)
+
 
     AGENTS = await GLOBAL_SE_RUNTIME.get_agent_list()
     print("Loaded Agents:",AGENTS)
@@ -1326,6 +1329,58 @@ def setup():
     shutil.rmtree(base / "temp_extract")
     
     print("Setup complete. Run 'kattalai' to start.")
+
+def upgrade():
+    
+    os.chdir(Path(__file__).parent)
+    base = Path(__file__).parent
+    folders = ["apps", "configs", "model_assets", "prompts"]
+
+    # Step 1: Upgrade the package
+    print("Upgrading kattalai package...")
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--upgrade", "kattalai"],
+        check=True
+    )
+    print("  ✓ Package upgraded")
+
+    # Step 2: Remove existing folders
+    print("Removing existing assets...")
+    for folder in folders:
+        dst = base / folder
+        if dst.exists():
+            shutil.rmtree(dst)
+            print(f"  ✓ Removed {folder}")
+
+    # Step 3: Pull fresh assets from GitHub
+    print("Downloading fresh assets from GitHub...")
+    url = f"https://github.com/{GITHUB_REPO}/archive/refs/heads/{BRANCH}.zip"
+    zip_path = base / "temp.zip"
+
+    urllib.request.urlretrieve(url, zip_path)
+
+    with zipfile.ZipFile(zip_path, "r") as z:
+        for folder in folders:
+            for file in z.namelist():
+                if file.startswith(f"kattalai-{BRANCH}/{folder}/"):
+                    z.extract(file, base / "temp_extract")
+
+    # Move extracted folders to package dir
+    extract_root = base / "temp_extract" / f"kattalai-{BRANCH}"
+    for folder in folders:
+        src = extract_root / folder
+        dst = base / folder
+        if src.exists():
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+            print(f"  ✓ {folder}")
+        else:
+            print(f"  ✗ {folder} not found in repo")
+
+    # Cleanup
+    zip_path.unlink()
+    shutil.rmtree(base / "temp_extract")
+
+    print("Upgrade complete. Run 'kattalai' to start.")
 
 def main():
     os.chdir(Path(__file__).parent)
