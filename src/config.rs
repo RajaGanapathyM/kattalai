@@ -37,7 +37,7 @@ pub struct SarvamConfigLoader {
     pub api_key: String,
     pub max_new_tokens: u32,
     pub temperature: f32,
-    pub reasoning_effort:String
+    pub reasoning_effort: Option<String>
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -121,7 +121,7 @@ impl InferenceStore {
                     Some(sarvam_config.temperature),
                     None,   
                     Some(sarvam_config.max_new_tokens.clone()),
-                    Some(sarvam_config.reasoning_effort.clone())
+                    sarvam_config.reasoning_effort.clone()
                 ).get_model(model_id.clone())
             }
             else{

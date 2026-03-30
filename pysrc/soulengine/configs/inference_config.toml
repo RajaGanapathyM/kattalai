@@ -17,4 +17,4 @@ temperature=0.1
 api_key=""
 max_new_tokens=8000
 temperature=0.1
-reasoning_effort="high"
+# reasoning_effort="high"  # Optional: only needed for models that support it (e.g. sarvam-m4)
