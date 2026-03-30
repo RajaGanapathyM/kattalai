@@ -113,6 +113,7 @@ impl AppStore{
     }
 
     pub fn clone_app(&self,app_handle_name:String)->App{
+        info!("Cloning app:{}",app_handle_name);
         let readable_apps=self.apps.read().unwrap();
         let app_inits=readable_apps.get(&app_handle_name).unwrap();
 
@@ -281,7 +282,7 @@ impl AppStore{
 
                         let new_sim=cosine(&new_embeds[0], &new_embeds[1]);
                         // info!("NEW TOOL CHAIN {}->{}|{}",p,np,new_sim);
-                        if new_sim>0.8{
+                        if new_sim>0.7{
                             for capps in consuming_app_name.iter(){
                                 
                                 let n_key=(p.clone(),np.clone());
@@ -330,7 +331,7 @@ impl AppStore{
         for rec in episode_memory.iter_memory(Some((memory_len-history_lookup_len).max(0) as usize), None).await{
             let mem_node_type=rec.get_node_type();
             info!("mem_node_type:{:?}",mem_node_type);
-            if mem_node_type==MemoryNodeType::Message || mem_node_type==MemoryNodeType::Thought || mem_node_type==MemoryNodeType::TerminalCommands{
+            if mem_node_type==MemoryNodeType::Message || mem_node_type==MemoryNodeType::ModelResponse{
                 let intents=rec.get_node_intents();
                 let tags=rec.get_node_tags();
 
@@ -434,7 +435,7 @@ impl AppStore{
 
         // step 3 - semantic match
         for (target, emb) in target_map.iter() {
-            if cosine(candidate_embedding, emb) > 0.75 {
+            if cosine(candidate_embedding, emb) > 0.7 {
                 matched.push(target.clone());
             }
         }

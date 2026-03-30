@@ -31,6 +31,7 @@ impl Terminal{
         if has_app{
             app.launch().await;
             self.app_hooks.write().await.insert(format!("&{}", app_handle_name), Arc::new(app));
+            info!("App Launched: {}",app_handle_name);
             if let Some(mem_rx)=memory_rx{
                 self.attach_memory(mem_rx).await;
             }
