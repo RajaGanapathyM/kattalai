@@ -17,12 +17,12 @@ use std::fs;
 use tokio::time::{ Duration};
 use crate::embeddings::{embedder};
 use crate::agent::{AgentPulse, episode};
-use crate::tool::{self, App,CmdSignature,AppType};
+use crate::app::{self, App,CmdSignature,AppType};
 use crate::{
     memory::{Memory, MemoryNode, MemoryNodeType},
     source::{Role, Source},
 };
-use crate::tool::{AppConfig};
+use crate::app::{AppConfig};
 use tokio::io::AsyncWriteExt;
 use regex::Regex;
 use serde::Deserialize;

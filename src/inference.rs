@@ -61,7 +61,7 @@ pub trait inference_api_trait {
     async fn filter_messages(&self, memory: Arc<Memory>,invocation_id:Option<String>,allowed_roles: &HashSet<Role>,non_tool_roles: &HashSet<Role>,) -> Vec<Value>{
         memory.iter_memory(None,None).await
             .filter(|node| { 
-                let error_current_invocation_flag=if node.get_node_type()==MemoryNodeType::ModelError{
+                let error_current_invocation_flag=if node.get_node_type()==MemoryNodeType::ModelError || node.get_node_type()==MemoryNodeType::ModelResponse{
                     match &invocation_id{
                         Some(in_id)=>{
                             if let Some(nivc_id)=&node.get_invocation_id(){

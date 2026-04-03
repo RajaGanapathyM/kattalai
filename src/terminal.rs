@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
-use tool::App;
+use app::App;
 use std::collections::HashMap;
 use crate::memory::Memory;
 use std::sync::{Arc};
 use tokio::sync::RwLock;
-use crate::tool;
+use crate::app;
 use crate::agent::AgentPulse;
 use log::{info, warn, error, debug, trace};
 use async_trait::async_trait;
@@ -51,8 +51,11 @@ impl Terminal{
 
     pub async fn get_app_guidebook(&self) -> String {
         let mut app_guide_book = String::new();
+        let mut app_list = String::new();
+        app_list.push_str("List of currently running/available Apps:\n");
 
         for (index, (app_name, app)) in self.app_hooks.read().await.iter().enumerate() {
+            app_list.push_str(&format!("{}. {}\n", index + 1, app_name));
             app_guide_book.push_str(&format!(
                 "App #{}: {}\n Command to invoke:{}\n Usage guideline:{}\n\n",
                 index + 1,
@@ -62,7 +65,7 @@ impl Terminal{
             ));
         }
 
-        app_guide_book
+        format!("{}\nApps Guidebook:\n{}", app_list, app_guide_book)
     }
 
     pub async fn validate_app_commands(&self,commands:&Vec<String>)->Vec<String>{

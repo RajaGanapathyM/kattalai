@@ -55,6 +55,8 @@ class soul_engine_app():
         result=""
         try:
             result = await self.process_command(self.get_interface(args,self.app_name),remaining)
+            if result is None:
+                result="Application executed successfully.Check APP_MESSAGE for more details."
 
             # if result is not None:
             sys.stdout.write(f"[#APP_EXECUTION_SUCCESS>episode_id:{args.episode_id}|invocation_id:{args.invocation_id}]{result}\n")
