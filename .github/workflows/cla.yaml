@@ -25,5 +25,5 @@ jobs:
         with:
           path-to-signatures: 'cla-signatures.json'
           path-to-document: 'https://github.com/RajaGanapathyM/kattalai/blob/main/CONTRIBUTOR_LICENSE_AGREEMENT.md'
-          branch: 'main'
+          branch: 'cla-signatures'
           allowlist: dependabot[bot],renovate[bot]
