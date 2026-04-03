@@ -150,9 +150,9 @@ impl App {
             match &AppResponseParser::parse(&resp){
                 Ok(parsed)=>{
                     // sleep(Duration::from_secs(5));
-                    let new_mem_node=MemoryNode::new(app_card, format!("> APP Returns : APP NAME:{}|App Status:{}|APP OUTPUT:{}",app_card.get_name(),parsed.command.clone(),parsed.message.clone()), None, MemoryNodeType::AppResponse,invocation_id);
+                    let new_mem_node=MemoryNode::new(app_card, format!("> APP Returns : APP NAME:{}|App Status:{}|{}",app_card.get_name(),parsed.command.clone(),parsed.message.clone()), None, MemoryNodeType::AppResponse,invocation_id);
 
-                    print!("[App]{:?}",new_mem_node.get_content());
+                    info!("[App]{:?}",new_mem_node.get_content());
                     if parsed.command=="APP_EXECUTION_SUCCESS" || parsed.command=="APP_EXECUTION_ERROR" || parsed.command=="APP_INVOKE"{
                         Some(AgentPulse::AddMemoryAndInvoke(new_mem_node,Some(parsed.episode_id.clone())))
                     }
@@ -162,7 +162,7 @@ impl App {
                     }
                 },
                 Err(e)=>{
-                    info!("APPLOG:{:?}",e);
+                    error!("APPLOG:{:?}",e);
                     None
                 }
             }

@@ -1,7 +1,7 @@
 mod memory;
 mod source;
 mod inference;
-mod tool;
+mod app;
 mod terminal;
 mod agent;
 mod embeddings;
@@ -21,7 +21,7 @@ use inference::{OLLAMA,Gemini,HuggingFace};
 use inference::{OllamaConfig,GeminiConfig,HuggingFaceConfig};
 use inference::inference_api_trait;
 use terminal::Terminal;
-use tool::{App,AppType};
+use app::{App,AppType};
 use agent::{Agent,AgentPulse,AgentStore};
 use embeddings::{embedder};
 use std::collections::{HashMap, HashSet};
@@ -40,6 +40,7 @@ use config::InferenceStore;
 use log::{info, warn, error, debug, trace};
 use std::fs::OpenOptions;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, filter::LevelFilter};
+use tracing_subscriber::{ EnvFilter};
 use tracing_subscriber::Layer;
 pub fn init_tracing() {
     let file = OpenOptions::new()
@@ -60,7 +61,10 @@ pub fn init_tracing() {
     //     .compact()
     //     .with_filter(level_filter);
 
+    let filter = EnvFilter::new("info,nlprule=error");
+
     let _ = tracing_subscriber::registry()
+        .with(filter)
         .with(file_layer)
         .try_init(); 
 }

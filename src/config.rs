@@ -7,7 +7,7 @@ use crate::inference::{Gemini, HuggingFace, OLLAMA, SarvamConfig};
 use crate::inference::{OllamaConfig,GeminiConfig,HuggingFaceConfig};
 use crate::inference::inference_api_trait;
 use crate::terminal::Terminal;
-use crate::tool::{App,AppType};
+use crate::app::{App,AppType};
 use crate::{model, source};
 
 use crate::inference;

@@ -6,7 +6,7 @@ use crate::source::{Source,Role};
 use crate::terminal::Terminal;
 use crate::inference::{ inference_api_trait,invoke_type};
 use crate::embeddings::embedder;
-use crate::tool::App;
+use crate::app::App;
 use core::error;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -827,6 +827,7 @@ impl Agent{
                     choosen_prompt=Some(PromptStyle::TOF);
                     agent_tof_prompt.clone()
                 };
+                // info!("FINAL PROMPT:{}",final_agent_prompt);
                 let resp=reasoning_model_clone.chat(current_episode_memory.clone(),
                 final_agent_prompt,
             Some(invoc_id.clone())).await;
@@ -1052,8 +1053,8 @@ impl AgentResponseParser  {
         let matches:Vec<_> = re.captures_iter(resp).collect();
         let re_iter_count=matches.len();
         if re_iter_count==0{
-            return Ok(Validation{thoughts:false,commands:false,output:false,needs_followup:false,followup_context:false});
-            // Err(ParseError::ValidationError("No Validation block found in your response.Analyze and correct your mistakes.".to_string()))
+            // return Ok(Validation{thoughts:false,commands:false,output:false,needs_followup:false,followup_context:false});
+            Err(ParseError::ValidationError("No Validation block found in your response.Validation block is required.".to_string()))
         }
         else if re_iter_count>1 {
             Err(ParseError::ValidationError("Multiple Validation Block found. Only one is allowed".to_string()))
@@ -1149,10 +1150,10 @@ impl AgentResponseParser  {
                 v_block.commands=false;
                 return Err(ParseError::CommandsError("No or empty terminal block found in your response But found terminal=True in v_block block.Analyze and correct your mistakes and set terminal=True|False correctly based on your new response".to_string()));
             }
-            if re_iter_count==0 && v_block.needs_followup{
-                v_block.commands=false;
-                return Err(ParseError::CommandsError("No or empty terminal block found in your response But found needs_followup=True in validation block.Why followup needed when no app command is given.Analyze and correct your mistakes and set needs_followup=True|False correctly based on your new response".to_string()));
-            }
+            // if re_iter_count==0 && v_block.needs_followup{
+            //     v_block.commands=false;
+            //     return Err(ParseError::CommandsError("No or empty terminal block found in your response But found needs_followup=True in validation block.Why followup needed when no app command is given.Analyze and correct your mistakes and set needs_followup=True|False correctly based on your new response".to_string()));
+            // }
             if re_iter_count>0  && !v_block.commands{
                 v_block.commands=true;
                 // return Err(ParseError::CommandsError("terminal block found in your response But found terminal=False in validation block.Analyze and correct your mistakes and set terminal=True|False correctly based on your new response".to_string()));

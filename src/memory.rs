@@ -96,7 +96,7 @@ impl MemoryNode {
             actions.extend(action.clone().iter().cloned());
             
         }
-        info!("{},{:?}",content,tags);
+        // info!("{},{:?}",content,tags);
 
 
         MemoryNode {
