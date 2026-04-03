@@ -41,6 +41,8 @@ pub enum MemoryNodeType {
     Message,
     Signal,
     Applog,
+    FollowupContext,
+    ValidationBlock,
 }
 impl MemoryNodeType {
     fn as_str(&self) -> &'static str {
@@ -58,6 +60,8 @@ impl MemoryNodeType {
             MemoryNodeType::Message=>"Message",
             MemoryNodeType::Signal=>"Signal",
             MemoryNodeType::Applog=>"Applog",
+            MemoryNodeType::FollowupContext=>"FollowupContext",
+            MemoryNodeType::ValidationBlock=>"ValidationBlock",
         }
     }
 }
