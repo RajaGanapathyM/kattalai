@@ -27,4 +27,3 @@ jobs:
           path-to-document: 'https://github.com/RajaGanapathyM/kattalai/blob/main/CONTRIBUTOR_LICENSE_AGREEMENT.md'
           branch: 'main'
           allowlist: dependabot[bot],renovate[bot]
-          exclude-collaborators: false
