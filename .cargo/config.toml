@@ -1,3 +1,0 @@
-[env]
-LIBTORCH_USE_PYTORCH = "1"
-PYTHON_SYS_EXECUTABLE = "python"

@@ -794,7 +794,7 @@ impl Agent{
             }
         };
 
-        let invoc_id=Uuid::now_v7().to_string();
+        let mut invoc_id=Uuid::now_v7().to_string();
 
         while need_rerun && run_count<MAX_RUN_ALLOWED {
             
@@ -808,6 +808,7 @@ impl Agent{
                 
                 let mut choosen_prompt: Option<PromptStyle>;
                 let final_agent_prompt=if run_count==0{
+                    invoc_id=Uuid::now_v7().to_string();
                     info!("Invoking Reasoning prompt  | Episode Id:{} | Agent :{}|",invoke_epid.clone(),agent_card.get_name());
                     choosen_prompt=Some(PromptStyle::REASONING);
                     agent_prompt.clone()
@@ -818,11 +819,13 @@ impl Agent{
                     repair_prompt.clone()
                 }
                 else if run_count==2{
+                    invoc_id=Uuid::now_v7().to_string();
                     info!("Invoking RAC prompt | Episode Id:{} | Agent :{}|",invoke_epid.clone(),agent_card.get_name());
                     choosen_prompt=Some(PromptStyle::RAC);
                     agent_rac_prompt.clone()
                 }
                 else{
+                    invoc_id=Uuid::now_v7().to_string();
                     info!("Invoking TOF prompt | Episode Id:{} | Agent :{}|",invoke_epid.clone(),agent_card.get_name());
                     choosen_prompt=Some(PromptStyle::TOF);
                     agent_tof_prompt.clone()
@@ -924,20 +927,37 @@ impl Agent{
                     }
                     
                     
-                    // if let Some(thoughts)=&parsed_reponse.thoughts{
-                    //     if thoughts.len()>0{
-                    //         let thoughts_memory_node=MemoryNode::new(&agent_card, thoughts.join("\n"), None, MemoryNodeType::Thought,Some(invoc_id.clone()));
-                    //         current_episode_memory.insert(thoughts_memory_node).await;
-                    //     }
-                    // }
+                    if let Some(thoughts)=&parsed_reponse.thoughts{
+                        if thoughts.len()>0{
+                            let thoughts_memory_node=MemoryNode::new(&agent_card, thoughts.join("\n"), None, MemoryNodeType::Thought,Some(invoc_id.clone()));
+                            current_episode_memory.insert(thoughts_memory_node).await;
+                        }
+                    }
                     
                     if let Some(commands)=&parsed_reponse.commands{
                         if commands.len()>0{
-                            // let commands_memory_node=MemoryNode::new(&agent_card, commands.join("\n"), None, MemoryNodeType::TerminalCommands,Some(invoc_id.clone()));
-                            // current_episode_memory.insert(commands_memory_node).await;
+                            let commands_memory_node=MemoryNode::new(&agent_card, commands.join("\n"), None, MemoryNodeType::TerminalCommands,Some(invoc_id.clone()));
+                            current_episode_memory.insert(commands_memory_node).await;
 
                             terminal.execute_multi_commands(&commands,invoke_epid.clone(),invoc_id.clone()).await;
                         }
+                    }
+                    if let Some(outputs)=&parsed_reponse.outputs{
+                        if outputs.len()>0{
+                            let outputs_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()));
+                            current_episode_memory.insert(outputs_memory_node).await;
+                        }
+                    }
+                    if let Some(followupcontext)=&parsed_reponse.followup_context{
+                        if followupcontext.len()>0{
+                            let followupcontext_memory_node=MemoryNode::new(&agent_card, followupcontext.join("\n"), None, MemoryNodeType::FollowupContext,Some(invoc_id.clone()));
+                            current_episode_memory.insert(followupcontext_memory_node).await;
+                        }
+                    }
+                    if let Some(validationblock)=&parsed_reponse.validation_block{
+                        let validationblock_memory_node=MemoryNode::new(&agent_card, validationblock.to_string(), None, MemoryNodeType::ValidationBlock,Some(invoc_id.clone()));
+                        current_episode_memory.insert(validationblock_memory_node).await;
+                        
                     }
                 }
                     
@@ -1011,7 +1031,11 @@ pub struct Validation {
     pub needs_followup: bool,
     pub followup_context:bool,
 }
-
+impl Validation {
+    pub fn to_string(&self)->String{
+        format!("thoughts={}\nterminal={}\noutput={}\nfollowup_context={}\nneeds_followup={}",self.thoughts,self.commands,self.output,self.followup_context,self.needs_followup)
+    }
+}
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandBlock {
     pub commands: Vec<String>,
