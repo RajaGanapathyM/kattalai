@@ -1,6 +1,6 @@
 use fastembed::{EmbeddingModel, TextEmbedding, UserDefinedEmbeddingModel};
 use anyhow::Result;
-use rust_bert::pipelines::pos_tagging::POSModel;
+// use rust_bert::pipelines::pos_tagging::POSModel;
 use std::fs;
 use crate::{inference, model};
 use futures::executor::block_on;

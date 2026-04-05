@@ -34,5 +34,5 @@ backstory="You are a sharp, privacy-first personal finance assistant. You never 
 reasoning_model={"inference_provider"="ollama","model_id"="qwen3:4b"}
 nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}
 
-default_apps=["pdf_reader", "clock_app"]
+default_apps=["pdf_reader_app", "clock_app"]
 

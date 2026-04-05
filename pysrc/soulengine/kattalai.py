@@ -923,6 +923,9 @@ class KattalaiApp(App):
 
     # @work(exclusive=True)
     async def _add_agent_to_topic(self, name: str) -> None:
+        if name is None:
+            name=AGENTS[0]
+            logging.info("Defaulting to First Agent")
         """Add an agent to the topic thread (idempotent)."""
         if not self.se_ready:
             logging.info("1 fails")
@@ -932,12 +935,13 @@ class KattalaiApp(App):
             return
         
         logging.info(f"Agent init to topic:{name}")
-        if name not in self._se_agent_ids or self._se_agent_ids.get(name) is None : 
-            try:
-                logging.info(f"Deploying agent:{name}")
-                self._se_agent_ids[name]=await self._se_runtime.deploy_agent(name)
-            except Exception as e:
-                self._log_term(f"[#f87171]Deploying agent error: {e}[/#f87171]")
+        if name is not None:
+            if name not in self._se_agent_ids or self._se_agent_ids.get(name) is None : 
+                try:
+                    logging.info(f"Deploying agent:{name}")
+                    self._se_agent_ids[name]=await self._se_runtime.deploy_agent(name)
+                except Exception as e:
+                    self._log_term(f"[#f87171]Deploying agent error: {e}[/#f87171]")
 
         agent_id = self._se_agent_ids.get(name)
         if agent_id is None:

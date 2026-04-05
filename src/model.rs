@@ -1,5 +1,5 @@
-use rust_bert::pipelines::pos_tagging::POSModel;
-use rust_bert::pipelines::ner::NERModel;
+// use rust_bert::pipelines::pos_tagging::POSModel;
+// use rust_bert::pipelines::ner::NERModel;
 
 use deadpool::unmanaged::{Pool, Object};
 use std::sync::{Arc, OnceLock, Mutex};

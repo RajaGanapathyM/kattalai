@@ -903,7 +903,7 @@ impl Agent{
                 //     None=>{}
                 // }
                 if error_ls.len()>0{
-                    let error_str=Agent::handle_error(invoc_id.clone(),&validator_card,error_ls, &mut need_rerun, current_episode_memory.clone(),choosen_prompt).await;
+                    let error_str=Agent::handle_error(invoc_id.clone(),&validator_card,error_ls, &mut need_rerun, current_episode_memory.clone(),choosen_prompt.clone()).await;
                     repair_prompt=format!(include_str!("../prompts/AGENT_RESPONSE_REPAIR_PROMPT.md"),
                         malformed_response=resp,
                         validator_errors=error_str);
@@ -927,38 +927,44 @@ impl Agent{
                     }
                     
                     
-                    if let Some(thoughts)=&parsed_reponse.thoughts{
-                        if thoughts.len()>0{
-                            let thoughts_memory_node=MemoryNode::new(&agent_card, thoughts.join("\n"), None, MemoryNodeType::Thought,Some(invoc_id.clone()));
-                            current_episode_memory.insert(thoughts_memory_node).await;
-                        }
-                    }
+                    // if let Some(thoughts)=&parsed_reponse.thoughts{
+                    //     if thoughts.len()>0{
+                    //         let thoughts_memory_node=MemoryNode::new(&agent_card, thoughts.join("\n"), None, MemoryNodeType::Thought,Some(invoc_id.clone()));
+                    //         current_episode_memory.insert(thoughts_memory_node).await;
+                    //     }
+                    // }
                     
                     if let Some(commands)=&parsed_reponse.commands{
                         if commands.len()>0{
-                            let commands_memory_node=MemoryNode::new(&agent_card, commands.join("\n"), None, MemoryNodeType::TerminalCommands,Some(invoc_id.clone()));
-                            current_episode_memory.insert(commands_memory_node).await;
+                            // let commands_memory_node=MemoryNode::new(&agent_card, commands.join("\n"), None, MemoryNodeType::TerminalCommands,Some(invoc_id.clone()));
+                            // current_episode_memory.insert(commands_memory_node).await;
 
                             terminal.execute_multi_commands(&commands,invoke_epid.clone(),invoc_id.clone()).await;
                         }
                     }
-                    if let Some(outputs)=&parsed_reponse.outputs{
-                        if outputs.len()>0{
-                            let outputs_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()));
-                            current_episode_memory.insert(outputs_memory_node).await;
-                        }
-                    }
-                    if let Some(followupcontext)=&parsed_reponse.followup_context{
-                        if followupcontext.len()>0{
-                            let followupcontext_memory_node=MemoryNode::new(&agent_card, followupcontext.join("\n"), None, MemoryNodeType::FollowupContext,Some(invoc_id.clone()));
-                            current_episode_memory.insert(followupcontext_memory_node).await;
-                        }
-                    }
-                    if let Some(validationblock)=&parsed_reponse.validation_block{
-                        let validationblock_memory_node=MemoryNode::new(&agent_card, validationblock.to_string(), None, MemoryNodeType::ValidationBlock,Some(invoc_id.clone()));
-                        current_episode_memory.insert(validationblock_memory_node).await;
+                    // if let Some(outputs)=&parsed_reponse.outputs{
+                    //     if outputs.len()>0{
+                    //         let outputs_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()));
+                    //         current_episode_memory.insert(outputs_memory_node).await;
+                    //     }
+                    // }
+                    // if let Some(followupcontext)=&parsed_reponse.followup_context{
+                    //     if followupcontext.len()>0{
+                    //         let followupcontext_memory_node=MemoryNode::new(&agent_card, followupcontext.join("\n"), None, MemoryNodeType::FollowupContext,Some(invoc_id.clone()));
+                    //         current_episode_memory.insert(followupcontext_memory_node).await;
+                    //     }
+                    // }
+                    // if let Some(validationblock)=&parsed_reponse.validation_block{
+                    //     let validationblock_memory_node=MemoryNode::new(&agent_card, validationblock.to_string(), None, MemoryNodeType::ValidationBlock,Some(invoc_id.clone()));
+                    //     current_episode_memory.insert(validationblock_memory_node).await;
                         
-                    }
+                    // }
+                    
+                    agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, resp.clone(),
+                                        choosen_prompt.clone(), 
+                                        MemoryNodeType::Message,Some(invoc_id.clone())),
+                    Some(invoke_epid.clone()))).unwrap();
+                    
                 }
                     
                 if !(need_rerun && run_count<MAX_RUN_ALLOWED){
