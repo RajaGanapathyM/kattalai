@@ -19,6 +19,7 @@ Rewrite your previous response correctly. Same content, fixed structure.
 - `followup_context=False` + `needs_followup=True` → forbidden
 - Validation flags must exactly match which blocks you included
 - One validation block only, always last
+- Every block must be wrapped in triple backticks with its name — bare text is invalid
 
 ---
 
@@ -50,5 +51,4 @@ Previous malformed response:
 
 ---
 
-Now output the corrected response below. Do not explain or apologize — just emit the fixed blocks.
-
+Now output the corrected response below. Do not explain or apologize. Do not write block names as plain text — every block must use the exact ```blockname``` fence syntax shown above.

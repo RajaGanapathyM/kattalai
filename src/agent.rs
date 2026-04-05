@@ -454,17 +454,17 @@ impl Agent{
                         info!("Episode Mem len:{}",mlen);
                         
                         let ner_content=agent_lock.get_tool_select_content(current_episode.episode_memory.clone(),nlp_model_clone.clone()).await;
-                        let tools_select=agent_lock.app_store.resolve_tools(current_episode.episode_memory.clone(),ner_content).await;
+                        let (tools_select, app_chain_str)=agent_lock.app_store.resolve_tools(current_episode.episode_memory.clone(),ner_content).await;
 
                         for app_handle_name in tools_select.iter(){
                             info!("Launching New App:{} | Agent:{}",app_handle_name,agent_card.get_name());
                             let new_app=agent_lock.app_store.clone_app(app_handle_name.clone());
                             agent_lock.terminal.launch_app(new_app, Some(agent_tx_clone.clone())).await;
                         }
-                        let agent_prompt=agent_lock.get_sys_prompt();
+                        let agent_prompt=agent_lock.get_sys_prompt(&app_chain_str);
                         // info!("Model Prompt :\n{}",agent_prompt);
-                        let agent_tof_prompt=agent_lock.get_tof_sys_prompt();
-                        let agent_rac_prompt=agent_lock.get_rac_sys_prompt();        
+                        let agent_tof_prompt=agent_lock.get_tof_sys_prompt(&app_chain_str);
+                        let agent_rac_prompt=agent_lock.get_rac_sys_prompt(&app_chain_str);        
                         
                         let terminal=agent_lock.terminal.clone();
 
@@ -673,7 +673,7 @@ impl Agent{
         }
     }
     
-    fn get_sys_prompt(&self)->String{
+    fn get_sys_prompt(&self,app_chain_str:&String)->String{
         // info!("App Guidebook:\n{}",self.terminal.get_app_guidebook());
         
         format!( include_str!("../prompts/AGENT_REASONING_PROMPT.md"),
@@ -681,6 +681,7 @@ impl Agent{
         agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
         agent_goal=self.agent_goal,
         agent_backstory=self.backstory.clone(),
+        app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()))
         
     }
@@ -692,25 +693,27 @@ impl Agent{
         
     }
 
-    fn get_tof_sys_prompt(&self)->String{
+    fn get_tof_sys_prompt(&self,app_chain_str:&String)->String{
         
         format!(include_str!("../prompts/AGENT_TOT_PROMPT.md"),
         agent_name=self.agent_card.get_name(),
         agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
         agent_goal=self.agent_goal,
         agent_backstory=self.backstory.clone(),
+        app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()))
     }
 
     
 
-    fn get_rac_sys_prompt(&self)->String{
+    fn get_rac_sys_prompt(&self,app_chain_str:&String)->String{
         
         format!(include_str!("../prompts/AGENT_RAC_PROMPT.md"),
         agent_name=self.agent_card.get_name(),
         agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
         agent_goal=self.agent_goal,
         agent_backstory=self.backstory.clone(),
+        app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()))
     }
 
@@ -734,7 +737,7 @@ impl Agent{
         }
 
         if erro_v.len()>0{
-            combined_error=format!("Correct the following errors and give your respone again for the previous query:\n{}",erro_v.join("\n"));
+            combined_error=format!("Errors:\n{}",erro_v.join("\n"));
 
             info!("Error Identified:\n{}",combined_error);
             current_episode_memory.insert(MemoryNode::new(validator_card,combined_error.clone() , prompt_style, MemoryNodeType::ModelError,Some(invoc_id))).await;
@@ -830,7 +833,7 @@ impl Agent{
                     choosen_prompt=Some(PromptStyle::TOF);
                     agent_tof_prompt.clone()
                 };
-                // info!("FINAL PROMPT:{}",final_agent_prompt);
+                info!("FINAL PROMPT:{}",final_agent_prompt);
                 let resp=reasoning_model_clone.chat(current_episode_memory.clone(),
                 final_agent_prompt,
             Some(invoc_id.clone())).await;

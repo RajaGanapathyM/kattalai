@@ -260,4 +260,11 @@ needs_followup=False
 # Registered Apps
 {app_guidelines}
 
+# App Chains (Suggested)
+Common data flows between apps, for reference only.
+Syntax: `&source_app <output_field> -> &target_app <output_field>` (left app's output feeds into right app, which produces its own output)
+
+{app_chain_str}
+
+When chaining: issue each app as a separate command in sequence, using each app's own signatures.
 ---
