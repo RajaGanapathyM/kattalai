@@ -171,7 +171,7 @@ async fn main() {
     // se_read_runtime.remove_agent_from_topic(&topic_id, &agent_id).await;
     
 
-    let my_msg="read and summarize my credit card statement C:\\Users\\RG\\Downloads\\CC_sample.pdf".to_string();
+    let my_msg="read and summarize my credit card statement C:/Users/RG/Downloads/CC_sample.pdf".to_string();
 // let msg="".to_string();
     println!("Inserting message: {}", my_msg);
 
