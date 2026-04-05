@@ -25,7 +25,7 @@ use crate::{
 use crate::app::{AppConfig};
 use tokio::io::AsyncWriteExt;
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, de};
 use strsim::jaro_winkler;
 
 use petgraph::visit::Bfs;
@@ -315,11 +315,12 @@ impl AppStore{
 
     
 
-    pub async fn resolve_tools(&self,episode_memory:Arc<Memory>,cntxt_content:String)->HashSet<String>{
+    pub async fn resolve_tools(&self,episode_memory:Arc<Memory>,cntxt_content:String)->(HashSet<String>, String){
 
         let history_lookup_len=50 as isize;
         let memory_len=episode_memory.get_memory_len().await as isize;
-
+        let mut detected_app_chains:HashSet<String> = HashSet::new();
+        let mut include_chain=false;
         let mut detected_intents=HashSet::new();
         let mut detected_objects=HashSet::new();
         let mut conv=Vec::new();
@@ -330,13 +331,13 @@ impl AppStore{
         detected_objects.extend(cntxt_parts);
         for rec in episode_memory.iter_memory(Some((memory_len-history_lookup_len).max(0) as usize), None).await{
             let mem_node_type=rec.get_node_type();
-            info!("mem_node_type:{:?}",mem_node_type);
+            // info!("mem_node_type:{:?}",mem_node_type);
             if mem_node_type==MemoryNodeType::Message || mem_node_type==MemoryNodeType::ModelResponse{
                 let intents=rec.get_node_intents();
                 let tags=rec.get_node_tags();
 
                 conv.push(rec.get_content());
-                info!("Content:{}",rec.get_content());
+                // info!("Content:{}",rec.get_content());
                 detected_intents.extend(intents);
                 detected_objects.extend(tags);
             }
@@ -375,12 +376,17 @@ impl AppStore{
             if let Some(end) = last_match {
                 
                 let trimmed_sequence = &parts[0..=end];
+                // info!("trimmed_sequence{:?}",trimmed_sequence);
                 
                 for obj in trimmed_sequence.iter().cloned(){
                     if let Some(app)=self.object_apps.get(obj){
                         collected_pairs.extend(app.clone());
                     }
                 }
+                
+                let mut app_chains:Vec<String>=Vec::new();
+                include_chain=false;
+                
                 for window in trimmed_sequence.windows(2) {
                     if let [a, b] = window {
                         let nkey=(a.to_string(), b.to_string());
@@ -388,13 +394,38 @@ impl AppStore{
                         if self.consume_produce_apps.contains_key(&nkey){
                             if let Some(app)=self.consume_produce_apps.get(&nkey){
                                 collected_pairs.extend(app.clone());
+
+                                
+                                let mut temp_chain=Vec::new();
+
+                                for each_app in app.iter(){
+                                    if app_chains.len()>0{
+                                        include_chain=true;
+                                        for each_chain in app_chains.iter(){
+                                            temp_chain.push(format!("{} -> &{} {}",each_chain,each_app,b));
+                                        }
+                                    }
+                                    else{
+                                        for each_app in app.iter(){
+                                            temp_chain.push(format!("&{} {}",each_app,b));
+                                        }
+                                    }
+                                }
+                                app_chains=temp_chain;
+                                // app_chains.push(app.clone());
                             }
                         }
                     }
                 }
+
+                if include_chain{
+                    detected_app_chains.extend(app_chains.into_iter().filter(|chain| !chain.trim().is_empty()));
+                }
+                // detected_app_chains.insert(app_chains.join(" -> "));
             }
         }
-        
+        // info!("detected_app_chains{:?}",detected_app_chains);
+        let app_chain_str=detected_app_chains.iter().cloned().collect::<Vec<String>>().join("\n");
         let conv_embedding=self.embedder.get_embeddings(vec![conv.join("\n")]).await.unwrap();
 
 
@@ -405,7 +436,7 @@ impl AppStore{
             }
         }
         info!("Shortlisted Apps:{:?}",collected_pairs);
-        collected_pairs
+        (collected_pairs,app_chain_str)
     }
     fn resolve_type(
         &self,
