@@ -9,6 +9,7 @@ mod appstore;
 mod model;
 mod config;
 mod server;
+mod protocol;
 use anyhow::Error;
 use chrono::Local;
 use itertools::Itertools;

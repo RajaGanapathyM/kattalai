@@ -1,0 +1,16 @@
+protocol_name = "first_check"
+protocol_handle_name="first_check"
+protocol_description = "A simple protocol to check if it's friday or not"
+trigger_prompt="Trigger this protocol when user said hi"
+
+[[step]]
+id = 1
+label = "Getting date"
+app_command = "&clock_app now"
+prompt = "What is the current date and time?"
+completion_check_condition = "The response should contain the current date and time in a human readable format."
+
+[[step]]
+id = 2
+label = "cHECK_TUESDAY"
+prompt = "if it is a friday today tell ajoke otherwise say it's not friday"
