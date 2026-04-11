@@ -10,6 +10,7 @@ mod model;
 mod config;
 mod server;
 mod protocol;
+
 use anyhow::Error;
 use chrono::Local;
 use itertools::Itertools;
@@ -23,6 +24,7 @@ use inference::{OllamaConfig,GeminiConfig,HuggingFaceConfig};
 use inference::inference_api_trait;
 use terminal::Terminal;
 use app::{App,AppType};
+use protocol::{Protocol,ProtocolStore};
 use agent::{Agent,AgentPulse,AgentStore};
 use embeddings::{embedder};
 use std::collections::{HashMap, HashSet};
@@ -77,15 +79,19 @@ pub struct Runtime{
     embedder:Arc<embedder>,
     app_store:Arc<AppStore>,
     inference_store:Arc<InferenceStore>,
-    agent_store:Arc<AgentStore>
+    agent_store:Arc<AgentStore>,
+    protocols_store:Arc<ProtocolStore>
 }
 
 impl Runtime{
     pub async fn new(bind:Option<String>)->Arc<RwLock<Self>>{
+        
+        println!("Initializing protocol...");
+        let protocol_store=ProtocolStore::new("./protocols/".to_string());
         let embedder=embedder::new("./model_assets/bge-small-en-v1.5".to_string()).await;
         let app_store=AppStore::new("./apps/".to_string(),embedder.clone()).await;
         let inference_store=InferenceStore::load_configs("./configs/inference_config.toml");
-        let agent_store=AgentStore::load_agents("./configs/agents_config.toml", inference_store.clone(), app_store.clone());
+        let agent_store=AgentStore::load_agents("./configs/agents_config.toml", inference_store.clone(), app_store.clone(),protocol_store.clone());
 
         let sharedruntime= Arc::new(RwLock::new(Self{
             topics:HashMap::new(),
@@ -94,7 +100,8 @@ impl Runtime{
             embedder,
             app_store,
             inference_store,
-            agent_store:Arc::new(agent_store)
+            agent_store:Arc::new(agent_store),
+            protocols_store:protocol_store
         }));
 
         if let Some(addr)=bind{

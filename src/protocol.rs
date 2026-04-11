@@ -1,14 +1,21 @@
 use crate::agent::Agent;
 use crate::memory::{Memory,MemoryNode,MemoryNodeType};
+use crate::protocol;
 use crate::terminal::Terminal;
 use arc_swap::cache;
 use crate::source::{Source,Role};
 use uuid::Uuid;
+
+use std::fs;
 use crate::inference::{ inference_api_trait,invoke_type};
 use std::sync::Arc;
-
+use std::hash::Hash;
+use std::collections::HashMap;
+use crate::appstore::find_matching_toml_dirs;
 use regex::Regex;
-pub struct protocol_step{
+
+#[derive(Debug, Clone, PartialEq,serde::Serialize, serde::Deserialize)]
+pub struct ProtocolStep{
     id: u32,
     label: Option<String>,
     app_command: Option<String>,
@@ -16,55 +23,54 @@ pub struct protocol_step{
     
 }
 
-pub struct protocol{
+pub struct Protocol{
     protocol_card:Source,
     protocol_id:String,
     protocol_name: String,
     protocol_description:Option<String>,
     protocol_handle_name: String,
+    protocol_result:String,
     trigger_prompt:Option<String>,
-    steps: Vec<protocol_step>,   
+    step: Vec<ProtocolStep>,   
     memory:Arc<Memory>,
     reasoning_model:Arc<dyn inference_api_trait + Send + Sync>,
     terminal:Terminal,
     protocol_md:String
 }
 
-impl protocol{
+impl Protocol{
     pub fn new(
         protocol_name: String,
         protocol_description:Option<String>,
         protocol_handle_name: String,
+        protocol_result:String,
         trigger_prompt:Option<String>,
-        steps: Vec<protocol_step>,
-        protocol_md:String,
+        step: Vec<ProtocolStep>,
+        protocol_md_path:String,
         reasoning_model:Arc<dyn inference_api_trait + Send + Sync>,
         memory:Arc<Memory>,
         terminal:Terminal
     )-> Self{
         
-        let pcard=Source::new(Role::App,format!("{}ProtocolRunner",protocol_name.clone()),None),
+        let pcard=Source::new(Role::App,format!("{}ProtocolRunner",protocol_name.clone()),None);
         Self{
             protocol_id: Uuid::now_v7().to_string(),
             protocol_card: pcard,
             protocol_name,
             protocol_description,
             protocol_handle_name,
+            protocol_result,
             trigger_prompt,
-            steps,
+            step,
             memory,
             reasoning_model,
             terminal,
-            protocol_md
+            protocol_md:std::fs::read_to_string(protocol_md_path.clone()).unwrap()
         }
     }
 
     fn get_sys_prompt(&self)->String{
-        format!(
-            include_str!("../prompts/AGENT_PROTOCOL_PROMPT.md"),
-            protocol_md=self.protocol_md.clone()
-        )
-        
+        include_str!("../prompts/AGENT_PROTOCOL_PROMPT.md").replace("__protocol_md__", &self.protocol_md)
     }
     pub async fn run(&self){
         let invocation_id=Uuid::now_v7().to_string();
@@ -80,12 +86,9 @@ impl protocol{
             let parsed_resp=ProtocolRespParser::parse_model_response(model_resp);  
             if parsed_resp.is_ok(){
                 let protocol_response=parsed_resp.unwrap();
-
-                
-                
                 println!("Protocol response: {:?}", protocol_response);
-                
-                let protocol_reason_msg=MemoryNode::new(&self.protocol_card ,format!("Protocol Step Reason: {}\nMessage:{}", protocol_response.reason.clone(),protocol_response.message.clone() ), None, MemoryNodeType::AppResponse,Some(invocation_id.clone()));
+                let new_content=format!("Protocol Runner Update:\n Protocol Name: {}\nDecision: {:?}\nReason: {}\nMessage: {}", self.protocol_name, protocol_response.decision, protocol_response.reason, protocol_response.message);
+                let protocol_reason_msg=MemoryNode::new(&self.protocol_card ,new_content, None, MemoryNodeType::AppResponse,Some(invocation_id.clone()));
                 self.memory.insert(protocol_reason_msg).await;
                 
                 match protocol_response.decision{
@@ -132,14 +135,6 @@ pub enum ProtocolDecision{
     ProtocolError
 }
 
-#[derive(Debug, Clone, PartialEq,serde::Serialize, serde::Deserialize)]
-pub struct ProtocolStep{
-    id: u32,
-    label: Option<String>,
-    app_command: Option<String>,
-    prompt: Option<String>,
-}
-
 
 #[derive(Debug, Clone, PartialEq,serde::Serialize, serde::Deserialize)]
 pub struct ProtocolResponse {
@@ -163,7 +158,6 @@ impl ProtocolRespParser{
         }
         let parsed_resp=ProtocolRespParser::extract_json_block(&model_resp);
         parsed_resp
-
     }
     fn extract_json_block(resp:&String) -> Result<ProtocolResponse, ProtocolParseError>{
         let json_block_pattern=r"```\s*\n?json\s*\n?([\s\S]*?)```";
@@ -180,5 +174,101 @@ impl ProtocolRespParser{
         }else{
             Err(ProtocolParseError::JsonError("No JSON block found in the response".to_string())) 
         }
+    }
+}
+
+
+
+///////////Protocol Store
+#[derive(Debug, Clone, PartialEq,serde::Serialize, serde::Deserialize)]
+pub struct ProtocolConfig{
+    protocol_name: String,
+    protocol_description:Option<String>,
+    protocol_handle_name: String,
+    trigger_prompt:Option<String>,
+    protocol_result:String,
+    step: Vec<ProtocolStep>
+}
+
+pub struct ProtocolStore{
+    protocol_dir_path: String,
+    protocols: HashMap<String, ProtocolConfig>,
+    protocols_path: HashMap<String, String>
+}
+
+impl ProtocolStore{
+    pub fn new(protocol_dir_path: String)-> Arc<Self>{
+        let mut pstore=Self{
+            protocol_dir_path,
+            protocols: HashMap::new(),
+            protocols_path: HashMap::new()
+        };
+        pstore.load_protocols();
+
+        Arc::new(pstore)
+    }
+    pub fn get_protocols_book(&self)->String{
+        let mut book=String::new();
+        for (protocol_handle, protocol_config) in self.protocols.iter(){
+            book.push_str(&format!("Protocol: {}\nDescription: {} How to initiate: &protocol {}\n When to trigger: {}\nProtocol ExpectedResult: {}\n", protocol_config.protocol_name, protocol_config.protocol_description.clone().unwrap_or("No description".to_string()), protocol_config.protocol_handle_name, protocol_config.trigger_prompt.clone().unwrap_or("No trigger prompt".to_string()), protocol_config.protocol_result));
+        }
+        book
+    }
+
+    pub fn load_protocols(&mut self){
+        let mut matches: Vec<String> = Vec::new();
+        find_protocol_tomls(&self.protocol_dir_path, &mut matches);
+        println!("Found protocol configs: {:?}", matches);
+        for protocol_path in matches{
+            let protocol_md_read=std::fs::read_to_string(protocol_path.clone());
+            if let Ok(protocol_md)=protocol_md_read{
+                let protocolconfig=toml::from_str::<ProtocolConfig>(&protocol_md).unwrap();
+                println!("Found protocol config: {:?}", protocolconfig);
+                self.protocols_path.insert(protocolconfig.protocol_handle_name.clone(), protocol_path);
+                self.protocols.insert(protocolconfig.protocol_handle_name.clone(), protocolconfig);
+            }
+            else{
+                println!("Failed to read protocol file: {}", protocol_path);
+            }
+        }
+            // Here you would read the TOML file, parse it, and create Protocol instances to store in the protocols HashMap
+
+    }
+}
+
+
+
+pub fn find_protocol_tomls(root: &str, matches: &mut Vec<String>) {
+    if let Ok(entries) = fs::read_dir(root) {
+
+        println!("entries in {}: {:?}", root, entries );
+        for entry in entries.flatten() {
+            let path = entry.path();
+            println!("Checking path: {:?}", path);
+
+            // Skip hidden directories
+            if path.is_dir() {
+                if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
+                    if dir_name.starts_with('.') {
+                        continue;
+                    }
+                }
+
+                // Recurse into subdirectory
+                if let Some(sub_path) = path.to_str() {
+                    find_protocol_tomls(sub_path, matches);
+                }
+            } else {
+                // Check if file is .toml
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if ext == "toml" {
+                        matches.push(path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+    else{
+        println!("Failed to read directory: {}", root);
     }
 }

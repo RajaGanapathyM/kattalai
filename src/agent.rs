@@ -7,6 +7,7 @@ use crate::terminal::Terminal;
 use crate::inference::{ inference_api_trait,invoke_type};
 use crate::embeddings::embedder;
 use crate::app::App;
+use crate::protocol::{ProtocolStore, ProtocolConfig};
 use core::error;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -130,11 +131,12 @@ pub struct AgentConfigs{
 pub struct AgentStore{
     agents_config:HashMap<String,agent_config>,
     inference_store:Arc<InferenceStore>,
-    app_store:Arc<AppStore>
+    app_store:Arc<AppStore>,
+    protocols_store:Arc<ProtocolStore>
 
 }
 impl AgentStore{
-    pub fn load_agents(agent_config_path:&str,inference_store:Arc<InferenceStore>,app_store:Arc<AppStore>)->Self{
+    pub fn load_agents(agent_config_path:&str,inference_store:Arc<InferenceStore>,app_store:Arc<AppStore>,protocols_store:Arc<ProtocolStore>)->Self{
         let content = fs::read_to_string(agent_config_path).unwrap();
         let config: AgentConfigs = toml::from_str(&content).unwrap();
         let mut agent_map=HashMap::new();
@@ -145,7 +147,8 @@ impl AgentStore{
         Self{
             agents_config:agent_map,
             inference_store,
-            app_store
+            app_store,
+            protocols_store
         }
 
     }
@@ -173,7 +176,8 @@ impl AgentStore{
                     reasoning_model ,
                     nlp_model ,
                     None,
-                    self.app_store.clone()
+                    self.app_store.clone(),
+                    self.protocols_store.clone()
                 );
 
             for dapp in &aconfig.default_apps{
@@ -203,7 +207,8 @@ pub struct Agent{
     validator_card:Source,
     _agent_tx: channel::Sender<AgentPulse>,
     _agent_rx: channel::Receiver<AgentPulse>,
-    app_store:Arc<AppStore>
+    app_store:Arc<AppStore>,
+    protocols_store:Arc<ProtocolStore>
 }
 impl Agent{
     pub fn new(
@@ -214,7 +219,8 @@ impl Agent{
         reasoning_model:Arc<dyn inference_api_trait + Send + Sync>,
         nlp_model:Arc<dyn inference_api_trait + Send + Sync>,
         invoke_post_fn:Option<fn(String,&mut Agent)->MemoryNode>,
-        app_store:Arc<AppStore>
+        app_store:Arc<AppStore>,
+        protocols_store:Arc<ProtocolStore>
     )->Arc<RwLock<Arc<Self>>>{
         let (tx, rx) = channel::unbounded();
         
@@ -232,7 +238,8 @@ impl Agent{
             validator_card:Source::new(Role::App,format!("{}ResponseValidator",agent_name.clone()),None),
             _agent_tx:tx.clone(),
             _agent_rx:rx.clone(),
-            app_store
+            app_store,
+            protocols_store
         })));
 
         let new_agent_clone=new_agent.clone();

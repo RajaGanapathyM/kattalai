@@ -71,8 +71,6 @@ pub struct AppStore{
     cp_embeddings:HashMap<String,Vec<f32>>,
     tool_chain_graph:Graph<String, u32>,
     guidelines_embeddings:HashMap<String,Vec<f32>>,
-
-
 }
 impl AppStore{
     pub async fn new(apps_dir:String,embedder:Arc<embedder>)->Arc<Self>{
@@ -544,7 +542,7 @@ fn generate_all_paths(g: &Graph<String, u32>) ->HashSet<String>{
     tool_chains
 }
 
-fn find_matching_toml_dirs(root: &str, matches: &mut Vec<String>) {
+pub fn find_matching_toml_dirs(root: &str, matches: &mut Vec<String>) {
     if let Ok(entries) = fs::read_dir(root) {
         for entry in entries.flatten() {
             let path = entry.path(); 

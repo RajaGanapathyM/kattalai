@@ -2,6 +2,7 @@ protocol_name = "first_check"
 protocol_handle_name="first_check"
 protocol_description = "A simple protocol to check if it's friday or not"
 trigger_prompt="Trigger this protocol when user said hi"
+protocol_result="The protocol should respond with a joke if it's friday otherwise it should say it's not friday"
 
 [[step]]
 id = 1
@@ -14,3 +15,4 @@ completion_check_condition = "The response should contain the current date and t
 id = 2
 label = "cHECK_TUESDAY"
 prompt = "if it is a friday today tell ajoke otherwise say it's not friday"
+       
