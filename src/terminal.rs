@@ -12,27 +12,29 @@ use async_trait::async_trait;
 pub struct Terminal{
     env_vars: Vec<(String, String)>,
     app_hooks:Arc<RwLock<HashMap<String, Arc<App>>>>,
+    interface_memory_tx:Option<crossbeam::channel::Sender<AgentPulse>>
 }
 
 impl Terminal{
-    pub fn new() -> Self {
+    pub fn new(interface_memory_tx:Option<crossbeam::channel::Sender<AgentPulse>>) -> Self {
         Self {
             env_vars: Vec::new(),
-            app_hooks:Arc::new(RwLock::new(HashMap::new()))
+            app_hooks:Arc::new(RwLock::new(HashMap::new())),
+            interface_memory_tx
         }
     }
 
-    pub async fn launch_app(&self, app: App, memory_rx:Option<crossbeam::channel::Sender<AgentPulse>>) {
+    pub async fn launch_app(&self, app: App) {
         let app_handle_name = app.app_handle_name.clone();
         let app_hook_loc=self.app_hooks.read().await;
-        let has_app=!app_hook_loc.contains_key(&format!("&{}", app_handle_name)).clone();
+        let has_app=!app_hook_loc.contains_key(&format!("&{}", app_handle_name));
         drop(app_hook_loc);
 
         if has_app{
             app.launch().await;
             self.app_hooks.write().await.insert(format!("&{}", app_handle_name), Arc::new(app));
             info!("App Launched: {}",app_handle_name);
-            if let Some(mem_rx)=memory_rx{
+            if let Some(mem_rx)=self.interface_memory_tx.clone(){
                 self.attach_memory(mem_rx).await;
             }
         }

@@ -10,6 +10,8 @@ pub enum Role {
     Environment,
     App,
     System,
+    Runtime,
+    Protocol,
 }
 impl Role {
     pub fn as_str(&self) -> &str {
@@ -19,6 +21,8 @@ impl Role {
             Role::Agent => "assistant",
             Role::App => "app",
             Role::Environment => "environment",
+            Role::Runtime => "runtime",
+            Role::Protocol => "protocol",
         }
     }
 }

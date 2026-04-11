@@ -80,17 +80,18 @@ pub struct Runtime{
     app_store:Arc<AppStore>,
     inference_store:Arc<InferenceStore>,
     agent_store:Arc<AgentStore>,
-    protocols_store:Arc<ProtocolStore>
+    protocols_store:Arc<ProtocolStore>,
+    runtime_card:Source
 }
 
 impl Runtime{
     pub async fn new(bind:Option<String>)->Arc<RwLock<Self>>{
         
         println!("Initializing protocol...");
-        let protocol_store=ProtocolStore::new("./protocols/".to_string());
         let embedder=embedder::new("./model_assets/bge-small-en-v1.5".to_string()).await;
         let app_store=AppStore::new("./apps/".to_string(),embedder.clone()).await;
         let inference_store=InferenceStore::load_configs("./configs/inference_config.toml");
+        let protocol_store=ProtocolStore::new("./protocols/".to_string(),app_store.clone(),inference_store.clone());
         let agent_store=AgentStore::load_agents("./configs/agents_config.toml", inference_store.clone(), app_store.clone(),protocol_store.clone());
 
         let sharedruntime= Arc::new(RwLock::new(Self{
@@ -101,7 +102,8 @@ impl Runtime{
             app_store,
             inference_store,
             agent_store:Arc::new(agent_store),
-            protocols_store:protocol_store
+            protocols_store:protocol_store,
+            runtime_card:Source::new(source::Role::Runtime, "Runtime".to_string(), None)
         }));
 
         if let Some(addr)=bind{
@@ -120,7 +122,7 @@ impl Runtime{
     }
 
     pub async fn create_topic_thread(&mut self)->String{
-        let memory = Memory::new();
+        let memory = Memory::new(Some(self.protocols_store.clone()));
         let memory_id_clone=memory._memory_id.clone();
         self.topics.insert(memory_id_clone.clone(), memory);
         memory_id_clone
@@ -178,6 +180,7 @@ impl Runtime{
                     None,
                     memory::MemoryNodeType::Message,
                     None,
+                    None,
                 )).await;
 
                 Ok("Message Inserted")
@@ -213,7 +216,7 @@ impl Runtime{
     pub async fn iter_topic(&self,topic_id:&String,start_index:usize)->Result<impl Iterator<Item = MemoryNode> ,&str>{
         if self.topics.contains_key(topic_id){
             let topic=self.topics.get(topic_id).unwrap();
-            Ok(topic.iter_memory(Some(start_index), None).await)
+            Ok(topic.iter_memory(Some(start_index), None, Some(&self.runtime_card)).await)
 
         }
         else{

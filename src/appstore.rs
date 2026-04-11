@@ -18,6 +18,7 @@ use tokio::time::{ Duration};
 use crate::embeddings::{embedder};
 use crate::agent::{AgentPulse, episode};
 use crate::app::{self, App,CmdSignature,AppType};
+use crate::source;
 use crate::{
     memory::{Memory, MemoryNode, MemoryNodeType},
     source::{Role, Source},
@@ -313,7 +314,7 @@ impl AppStore{
 
     
 
-    pub async fn resolve_tools(&self,episode_memory:Arc<Memory>,cntxt_content:String)->(HashSet<String>, String){
+    pub async fn resolve_tools(&self,episode_memory:Arc<Memory>,cntxt_content:String,source:Option<&Source>)->(HashSet<String>, String){
 
         let history_lookup_len=50 as isize;
         let memory_len=episode_memory.get_memory_len().await as isize;
@@ -327,7 +328,7 @@ impl AppStore{
             .map(|s| s.to_string().trim().to_lowercase())
             .collect();
         detected_objects.extend(cntxt_parts);
-        for rec in episode_memory.iter_memory(Some((memory_len-history_lookup_len).max(0) as usize), None).await{
+        for rec in episode_memory.iter_memory(Some((memory_len-history_lookup_len).max(0) as usize), None,source).await{
             let mem_node_type=rec.get_node_type();
             // info!("mem_node_type:{:?}",mem_node_type);
             if mem_node_type==MemoryNodeType::Message || mem_node_type==MemoryNodeType::ModelResponse{

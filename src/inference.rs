@@ -3,7 +3,7 @@ use std::{collections::HashSet, vec};
 use reqwest::Client;
 use serde_json::{json, Value};
 use crate::memory::{Memory, MemoryNode,MemoryNodeType};
-use crate::source::{Role, Source};
+use crate::source::{self, Role, Source};
 use std::sync::Arc;
 use async_trait::async_trait;
 use uuid::Uuid;
@@ -16,7 +16,7 @@ use log::{info, warn, error, debug, trace};
 #[async_trait]
 pub trait inference_api_trait {
     async fn generate(&self, prompt: String) -> String;
-    async fn chat(&self,memory: Arc<Memory>,system_prompt:String,invocation_id:Option<String>) -> String;
+    async fn chat(&self,memory: Arc<Memory>,system_prompt:String,invocation_id:Option<String>,source:Option<&Source>) -> String;
     
     async fn invoke(&self,api_url: &str, payload: Value, invoke_type: invoke_type) -> String {
         let client = Client::new();
@@ -58,9 +58,10 @@ pub trait inference_api_trait {
 
     
     
-    async fn filter_messages(&self, memory: Arc<Memory>,invocation_id:Option<String>,allowed_roles: &HashSet<Role>,non_tool_roles: &HashSet<Role>,) -> Vec<Value>{
-        memory.iter_memory(None,None).await
+    async fn filter_messages(&self, memory: Arc<Memory>,invocation_id:Option<String>,allowed_roles: &HashSet<Role>,non_tool_roles: &HashSet<Role>,source:Option<&Source>) -> Vec<Value>{
+        memory.iter_memory(None,None,source).await
             .filter(|node| { 
+                // println!("node:{:?}", node);
                 let error_current_invocation_flag=if node.get_node_type()==MemoryNodeType::ModelError || node.get_node_type()==MemoryNodeType::ModelResponse{
                     match &invocation_id{
                         Some(in_id)=>{
@@ -87,8 +88,8 @@ pub trait inference_api_trait {
         }
     
     async fn request_payload_builder(&self, message_history: &mut Vec<Value>,system_prompt:String)->Value;
-    async fn _chat_invoke(&self,chat_api_url:&String, memory: Arc<Memory>,system_prompt:String,invocation_id:Option<String>,allowed_roles: &HashSet<Role>,non_tool_roles: &HashSet<Role>,) -> String{
-        let mut message_history=self.filter_messages(memory,invocation_id,allowed_roles,non_tool_roles).await;
+    async fn _chat_invoke(&self,chat_api_url:&String, memory: Arc<Memory>,system_prompt:String,invocation_id:Option<String>,allowed_roles: &HashSet<Role>,non_tool_roles: &HashSet<Role>,source:Option<&Source>) -> String{
+        let mut message_history=self.filter_messages(memory,invocation_id,allowed_roles,non_tool_roles,source).await;
         let payload= self.request_payload_builder(&mut message_history,system_prompt).await;
         // print!("Request Payload: {}", serde_json::to_string_pretty(&payload).unwrap());
 
@@ -188,14 +189,15 @@ impl OLLAMA {
 impl inference_api_trait for OLLAMA {
     
 
-    async fn chat(&self,memory: Arc<Memory>,system_prompt:String,invocation_id:Option<String>) -> String{
+    async fn chat(&self,memory: Arc<Memory>,system_prompt:String,invocation_id:Option<String>,source:Option<&Source>) -> String{
         self._chat_invoke(
             &self.chat_api_url, 
             memory,
             system_prompt,
             invocation_id,
             &self.allowed_roles,
-            &self.non_tool_roles
+            &self.non_tool_roles,
+            source
         ).await
     }
 
@@ -332,7 +334,7 @@ impl Gemini {
 #[async_trait]
 impl inference_api_trait for Gemini {
     
-    async fn chat(&self, memory: Arc<Memory>, system_prompt: String, invocation_id: Option<String>) -> String {
+    async fn chat(&self, memory: Arc<Memory>, system_prompt: String, invocation_id: Option<String>, source: Option<&Source>) -> String {
         // Pass the dynamically generated URL into your invoke handler
         self._chat_invoke(
             &self.get_api_url(), 
@@ -340,7 +342,8 @@ impl inference_api_trait for Gemini {
             system_prompt,
             invocation_id,
             &self.allowed_roles,
-            &self.non_tool_roles
+            &self.non_tool_roles,
+            source
         ).await
     }
 
@@ -531,6 +534,7 @@ impl inference_api_trait for HuggingFace {
         memory: Arc<Memory>,
         system_prompt: String,
         invocation_id: Option<String>,
+        source: Option<&Source>
     ) -> String {
         self._chat_invoke(
             &self.get_api_url(),
@@ -539,6 +543,7 @@ impl inference_api_trait for HuggingFace {
             invocation_id,
             &self.allowed_roles,
             &self.non_tool_roles,
+            source
         )
         .await
     }
@@ -782,6 +787,7 @@ impl inference_api_trait for SarvamAI {
         memory: Arc<Memory>,
         system_prompt: String,
         invocation_id: Option<String>,
+        source: Option<&Source>
     ) -> String {
         self._chat_invoke(
             &self.get_api_url(),
@@ -790,6 +796,7 @@ impl inference_api_trait for SarvamAI {
             invocation_id,
             &self.allowed_roles,
             &self.non_tool_roles,
+            source
         )
         .await
     }

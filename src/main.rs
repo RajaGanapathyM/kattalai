@@ -9,7 +9,8 @@ async fn main() {
 
 
 
-    let se_runtime=Runtime::new(Some("127.0.0.1:3076".to_string())).await;
+    // let se_runtime=Runtime::new(Some("127.0.0.1:3166".to_string())).await;
+    let se_runtime=Runtime::new(None).await;
 
 
     
@@ -87,12 +88,16 @@ async fn main() {
     let demo_user_id=se_write_runtime.create_user("Alice".to_string()).await;
     let topic_id=se_write_runtime.create_topic_thread().await;
     let agent_id=se_write_runtime.deploy_agent("DIA".to_string()).await;
+    se_write_runtime.add_agent_to_topic(&topic_id, &agent_id).await;
     println!("Memory instance created...");
     drop(se_write_runtime);
     let se_read_runtime=se_runtime.read().await;
 
     
-
+    se_read_runtime.insert_message(&topic_id, &demo_user_id, "/first_check".to_string()).await.unwrap();  
+    drop(se_read_runtime);  
+    sleep(Duration::from_secs(200000));
+    let se_read_runtime=se_runtime.read().await;
     se_read_runtime.insert_message(&topic_id, &demo_user_id, "Hello, Whst is your name.".to_string()).await.unwrap();
     
     let agent_stat=se_read_runtime.is_agent_working_on_topic(&topic_id,&agent_id).await.unwrap();
@@ -169,7 +174,7 @@ async fn main() {
     
     // let se_write_runtime=se_runtime.write().await;
 
-    se_read_runtime.add_agent_to_topic(&topic_id, &agent_id).await;
+    
     sleep(Duration::from_secs(3));
     // se_read_runtime.remove_agent_from_topic(&topic_id, &agent_id).await;
     

@@ -3,16 +3,15 @@ protocol_handle_name="first_check"
 protocol_description = "A simple protocol to check if it's friday or not"
 trigger_prompt="Trigger this protocol when user said hi"
 protocol_result="The protocol should respond with a joke if it's friday otherwise it should say it's not friday"
-
+apps_used=["clock_app"]
 [[step]]
 id = 1
 label = "Getting date"
 app_command = "&clock_app now"
-prompt = "What is the current date and time?"
-completion_check_condition = "The response should contain the current date and time in a human readable format."
+completion_check_condition = "Clock app should return current date and time"
 
 [[step]]
 id = 2
-label = "cHECK_TUESDAY"
-prompt = "if it is a friday today tell ajoke otherwise say it's not friday"
+label = "CHECK_FRIDAY"
+prompt = "if it is a friday today tell a joke otherwise say it's not friday"
        

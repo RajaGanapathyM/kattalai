@@ -1,7 +1,13 @@
 use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use crossbeam::channel;
+use crate::app;
+use crate::source::Source;
+use crate::agent::{Agent, AgentPulse};
+use crate::protocol::ProtocolStore;
 use env_logger::filter;
+use crate::appstore::AppStore;
+use crate::config::InferenceStore;
 use std::ptr::read;
 use std::sync::{Arc,RwLock};
 use std::{
@@ -12,7 +18,7 @@ use std::{
 use uuid::Uuid;
 use log::{info, warn, error, debug, trace};
 use crate::source::{self, Role};
-use crate::source::Source;
+// use crate::source::Source;
 use crate::agent::PromptStyle;
 use crate::embeddings::GLOBAL_EMBEDDER;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,6 +39,8 @@ pub enum MemoryNodeType {
     Decision,
     Action,
     Protocol,
+    ProtocolLog,
+    ProtocolPrompt,
     TerminalCommands,
     ModelResponse,
     AppResponse,
@@ -52,9 +60,11 @@ impl MemoryNodeType {
             MemoryNodeType::Decision=>"Decision",
             MemoryNodeType::Action=>"Action",
             MemoryNodeType::Protocol=>"Protocol",
+            MemoryNodeType::ProtocolPrompt=>"ProtocolPrompt",
             MemoryNodeType::TerminalCommands=>"TerminalCommands",
             MemoryNodeType::ModelResponse=>"ModelResponse",
             MemoryNodeType::AppResponse=>"AppResponse",
+            MemoryNodeType::ProtocolLog=>"ProtocolLog",
             MemoryNodeType::Error=>"Error",
             MemoryNodeType::ModelError=>"ModelError",
             MemoryNodeType::Message=>"Message",
@@ -77,7 +87,8 @@ pub struct MemoryNode {
     branch_id: Option<String>,
     tags: HashSet<String>,
     intents: HashSet<String>,
-    invocation_id:Option<String>
+    invocation_id:Option<String>,
+    target:Option<Source>
 }
 impl MemoryNode {
     pub fn new(
@@ -85,7 +96,8 @@ impl MemoryNode {
         content: String,
         prompt_info: Option<PromptStyle>,
         node_type: MemoryNodeType,
-        invocation_id:Option<String>
+        invocation_id:Option<String>,
+        target:Option<&Source>
     ) -> Self {
 
         let mut tags: HashSet<String>    =HashSet::new();
@@ -113,7 +125,8 @@ impl MemoryNode {
             prompt_info: prompt_info,
             tags,
             intents:actions,
-            invocation_id
+            invocation_id,
+            target: target.cloned(),
         }
     }
     pub fn is_allowed(&self, allowed_roles: &HashSet<Role>) -> bool {
@@ -190,13 +203,13 @@ pub struct Memory {
     pub _memory_id: String,
     _memory_store: Arc<MemoryStore>,
     _branch_id: String,
-    _memory_tx: channel::Sender<MemoryNode>,
+    _memory_tx: channel::Sender<AgentPulse>,
     pub _kill_switch:Arc<AtomicBool>
 }
 
 impl Memory {
     /// construct a new Memory container
-    pub fn new() -> Arc<Self> {
+    pub fn new(protocol_store: Option<Arc<ProtocolStore>>) -> Arc<Self> {
         let (tx, rx) = channel::unbounded();
         let arc_memory = Arc::new(Memory {
             _memory_id: Uuid::now_v7().to_string(),
@@ -210,9 +223,22 @@ impl Memory {
         let arc_memory_clone = arc_memory.clone();
 
         thread::spawn(move || {
+            let tokio_rt: tokio::runtime::Runtime  = tokio::runtime::Runtime::new().unwrap();
             info!("Memory thread started. Memory ID: {}, Branch ID: {}", arc_memory_clone._memory_id, arc_memory_clone._branch_id);
-            while let Ok(new_node) = rx_clone.recv() {
-                // print!("Inserting Memory Node: {:?}", new_node);
+            while let Ok(pulse_node) = rx_clone.recv() {
+                let mut new_node = match pulse_node{
+                    AgentPulse::AddMemory(mem_node,_)=>mem_node,
+                    AgentPulse::AddMemoryAndInvoke(mem_node, _)=>mem_node,  
+                    _=>continue
+                };
+                match &new_node.branch_id{
+                    Some(_)=>{},
+                    None=>{
+                        new_node.branch_id=Some(arc_memory_clone._branch_id.clone());
+                    }
+                }
+                let new_node_content=new_node.get_content();
+                // println!("Inserting Memory Node: {:?}", new_node);
                 let kill_switch = arc_memory_clone._kill_switch.load(Ordering::Relaxed);
                 // println!("kill{:?}",kill_switch);
                 if kill_switch{
@@ -247,6 +273,14 @@ impl Memory {
                 }
                 drop(writable_tags_indx);
 
+                if let Some(protocol_store_clone) = protocol_store.clone(){
+                 
+                    if new_node_content.starts_with("/"){
+                        println!("Triggering protocol for node content: {}", new_node_content);
+                        tokio_rt.block_on(protocol_store_clone.trigger_protocol(new_node_content[1..].to_string(), arc_memory_clone.clone() ));
+                    }
+                }
+
                 
                 
 
@@ -258,7 +292,7 @@ impl Memory {
         arc_memory
     }
 
-    pub fn get_memory_tx(&self) -> Option<channel::Sender<MemoryNode>> {
+    pub fn get_memory_tx(&self) -> Option<channel::Sender<AgentPulse>> {
         Some(self._memory_tx.clone())
     }   
     pub fn kill_memory(&self){
@@ -267,7 +301,7 @@ impl Memory {
 
     }  
     
-    pub async fn incremental_mem_nodes(&self,ref_node_id:Option<String>)-> impl Iterator<Item = MemoryNode>{
+    pub async fn incremental_mem_nodes(&self,ref_node_id:Option<String>,source:Option<&Source>)-> impl Iterator<Item = MemoryNode>{
         if let Some(ref_nid)=&ref_node_id{
             let readable_mem_indx=self._memory_store.mem_indx.read().unwrap();
 
@@ -275,16 +309,16 @@ impl Memory {
             drop(readable_mem_indx);
             match ref_indx{
                 Some(ref_ix)=>{
-                    self.iter_memory(Some(ref_ix+1),None).await
+                    self.iter_memory(Some(ref_ix+1),None,source).await
                 }
                 None=>{
-                    self.iter_memory(None,None).await
+                    self.iter_memory(None,None,source).await
                 }
             }
 
         }
         else{
-            self.iter_memory(None,None).await
+            self.iter_memory(None,None,source).await
         }
     }
 
@@ -322,7 +356,7 @@ impl Memory {
         memory_node.branch_id = Some(self._branch_id.clone());
 
         // create node asynchronously (currently synchronous)
-        self._memory_tx.send(memory_node).unwrap();
+        self._memory_tx.send(AgentPulse::AddMemory(memory_node,None)).unwrap();
     }
 
     pub async fn get_distinct_node_tags(&self) -> Vec<String> {
@@ -334,6 +368,7 @@ impl Memory {
         &self,
         start_index:Option<usize>,
         filter_tags: Option<HashSet<String>>,
+        source:Option<&Source>
     ) -> impl Iterator<Item = MemoryNode> {
         let local_mem_vec = self._memory_store.mem_vec.load();
         // print!("mem_vec : {}", mem_vec.len());
@@ -346,11 +381,25 @@ impl Memory {
         .iter()
         .skip(skip_len)
         .filter(move |node| {
-            node.branch_id == Some(self._branch_id.clone()) 
+            let filter_bool=node.branch_id == Some(self._branch_id.clone()) 
                 && match &filter_tags {
                     Some(tags) => !node.tags.is_disjoint(tags),
                     None => true,
                 }
+
+                && match &node.target {
+                    Some(tgt) => {
+                        match source {
+                            Some(src) => {
+                                // println!("Filtering node with target: {:?} against source: {:?}", tgt, src);
+                                src.get_role()==source::Role::Runtime || tgt.get_id() == src.get_id()},
+                            None => false
+                        }
+                    }
+                    None =>  true
+                };
+                //  println!("Filtering node: {:?}-{}", node,filter_bool);
+                filter_bool
         }).map(|node| node.as_ref().clone()).collect::<Vec<_>>().into_iter()
     }
 

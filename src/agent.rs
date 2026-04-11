@@ -45,6 +45,7 @@ pub enum PromptStyle{
     REASONING,
     RAC,
     TOF,
+    PROTOCOL,
     REPAIR
 }
 pub struct episode{
@@ -102,16 +103,17 @@ fn check_for_invoke_trigger(new_memories:&Vec<MemoryNode>)->bool{
         let triggerable_roles=vec![Role::Agent,Role::User];
         new_memories.iter().any(|mem_node|{
 
-            mem_node.get_source_role()==Role::User
+            mem_node.get_source_role()==Role::User ||
+            mem_node.get_node_type()==MemoryNodeType::ProtocolPrompt
 
         })
 }
 
 
-#[derive(Deserialize,Clone)]
+#[derive(Debug,Deserialize,Clone)]
 pub struct agent_model_config{
-    inference_provider:String,
-    model_id:String
+    pub inference_provider:String,
+    pub model_id:String
 }
 
 #[derive(Deserialize,Clone)]
@@ -208,7 +210,8 @@ pub struct Agent{
     _agent_tx: channel::Sender<AgentPulse>,
     _agent_rx: channel::Receiver<AgentPulse>,
     app_store:Arc<AppStore>,
-    protocols_store:Arc<ProtocolStore>
+    protocols_store:Arc<ProtocolStore>,
+    // _post_invoke_fn:Option<fn(String)->MemoryNode>
 }
 impl Agent{
     pub fn new(
@@ -223,16 +226,17 @@ impl Agent{
         protocols_store:Arc<ProtocolStore>
     )->Arc<RwLock<Arc<Self>>>{
         let (tx, rx) = channel::unbounded();
+        let agent_card=Source::new(Role::Agent, agent_name.clone(), Some(agent_info));
         
         let episodes=Arc::new(RwLock::new(HashMap::new()));
         let new_agent=Arc::new(RwLock::new(Arc::new(Self{
-            agent_card:Source::new(Role::Agent, agent_name.clone(), Some(agent_info)),
+            agent_card:agent_card.clone(),
             episodes: episodes.clone(),
             agent_goal,
             backstory,
             reasoning_model:reasoning_model.clone(),
             nlp_model:nlp_model.clone(),
-            terminal:Arc::new(Terminal::new()),
+            terminal:Arc::new(Terminal::new(Some(tx.clone()))),
             latest_episode_id:RwLock::new(None),
             invoke_post_fn,
             validator_card:Source::new(Role::App,format!("{}ResponseValidator",agent_name.clone()),None),
@@ -344,8 +348,10 @@ impl Agent{
         info!("Launching Episode monitoring thread");
         let episodes_clone=episodes.clone();
         let agent_tx_clone=tx.clone();
+        let agent_card_clone=agent_card.clone();
         thread::spawn(move ||{
             let tokio_rt  = tokio::runtime::Runtime::new().unwrap();
+            let agent_card=agent_card_clone;
 
             loop {
                 thread::sleep(Duration::from_secs(1));
@@ -369,7 +375,7 @@ impl Agent{
                             let last_fetched_imemory_node_id=(*tokio_rt.block_on(episode.last_fetched_imemory_id.lock())).clone();
                             
                             // info!("last_fetched_imemory_node_id:{:?}",last_fetched_imemory_node_id);
-                            let incremental_memories:Vec<MemoryNode>=tokio_rt.block_on(imemory.incremental_mem_nodes(last_fetched_imemory_node_id)).collect();
+                            let incremental_memories:Vec<MemoryNode>=tokio_rt.block_on(imemory.incremental_mem_nodes(last_fetched_imemory_node_id,Some(&agent_card))).collect();
                             
                             if incremental_memories.len()>0{
                                 let last_mem=incremental_memories.last();
@@ -424,7 +430,7 @@ impl Agent{
         let memory_len=episode_memory.get_memory_len().await as isize;
 
         let mut conv=Vec::new();
-        for rec in episode_memory.iter_memory(Some((memory_len-history_lookup_len).max(0) as usize), None).await{
+        for rec in episode_memory.iter_memory(Some((memory_len-history_lookup_len).max(0) as usize), None,Some(&self.agent_card)).await{
             let mem_node_type=rec.get_node_type();
             if mem_node_type==MemoryNodeType::Message || mem_node_type==MemoryNodeType::Thought || mem_node_type==MemoryNodeType::TerminalCommands{
                 conv.push(format!("{}:{}",rec.get_source_role().as_str(),rec.get_content()));
@@ -461,12 +467,12 @@ impl Agent{
                         info!("Episode Mem len:{}",mlen);
                         
                         let ner_content=agent_lock.get_tool_select_content(current_episode.episode_memory.clone(),nlp_model_clone.clone()).await;
-                        let (tools_select, app_chain_str)=agent_lock.app_store.resolve_tools(current_episode.episode_memory.clone(),ner_content).await;
+                        let (tools_select, app_chain_str)=agent_lock.app_store.resolve_tools(current_episode.episode_memory.clone(),ner_content,Some(&agent_card)).await;
 
                         for app_handle_name in tools_select.iter(){
                             info!("Launching New App:{} | Agent:{}",app_handle_name,agent_card.get_name());
                             let new_app=agent_lock.app_store.clone_app(app_handle_name.clone());
-                            agent_lock.terminal.launch_app(new_app, Some(agent_tx_clone.clone())).await;
+                            agent_lock.terminal.launch_app(new_app).await;
                         }
                         let agent_prompt=agent_lock.get_sys_prompt(&app_chain_str);
                         // info!("Model Prompt :\n{}",agent_prompt);
@@ -505,7 +511,7 @@ impl Agent{
     }
     pub async fn attach_app(agent_self:Arc<RwLock<Arc<Agent>>>,app:App){
         let agent_locked=agent_self.read().await.clone();
-        agent_locked.terminal.launch_app(app,Some(agent_locked._agent_tx.clone())).await;
+        agent_locked.terminal.launch_app(app).await;
         drop(agent_locked);
 
     }
@@ -531,7 +537,7 @@ impl Agent{
     pub async fn initiate_new_episode(agent_lock: Arc<RwLock<Arc<Agent>>>,episode_desc:String,episode_interface_memory:Option<Arc<Memory>>)->String{
         let agent_self=agent_lock.write().await;
         let mut episode_id=Uuid::now_v7().to_string();
-        let episode_memory=Memory::new();
+        let episode_memory=Memory::new(None);
 
         let latest_fetched_id=match &episode_interface_memory{
             Some(mem)=>{
@@ -581,17 +587,17 @@ impl Agent{
         filter_tags: Option<HashSet<String>>,
     ) -> Result<impl Iterator<Item = MemoryNode>, String> {
 
-        let episode = {
+        let (episode,agent_card) = {
             let readable_agent = agent_lock.read().await;
             let readable_episodes = readable_agent.episodes.read().await;
 
-            readable_episodes.get(&episode_id).cloned()
+            (readable_episodes.get(&episode_id).cloned(),readable_agent.agent_card.clone())
         };
 
         if let Some(ep) = episode {
             let data: Vec<MemoryNode> = ep
                 .episode_memory
-                .iter_memory(Some(start_index), filter_tags)
+                .iter_memory(Some(start_index), filter_tags,Some(&agent_card))
                 .await
                 .into_iter()
                 .collect();
@@ -634,7 +640,7 @@ impl Agent{
         let epid=self.latest_episode_id.read().await.clone();
         match epid{
             Some(latest_episode_id)=>{
-                for i in self.episodes.read().await.get(&latest_episode_id).unwrap().episode_memory.iter_memory(None,None).await{
+                for i in self.episodes.read().await.get(&latest_episode_id).unwrap().episode_memory.iter_memory(None,None,Some(&self.agent_card)).await{
                     info!("{:?}",i);
                 }
             }
@@ -747,23 +753,24 @@ impl Agent{
             combined_error=format!("Errors:\n{}",erro_v.join("\n"));
 
             info!("Error Identified:\n{}",combined_error);
-            current_episode_memory.insert(MemoryNode::new(validator_card,combined_error.clone() , prompt_style, MemoryNodeType::ModelError,Some(invoc_id))).await;
+            current_episode_memory.insert(MemoryNode::new(validator_card,combined_error.clone() , prompt_style, MemoryNodeType::ModelError,Some(invoc_id),None)).await;
         }
         combined_error
 
     }
 
-    async fn get_pos_tags(nlp_model:Arc<embedder>,mem:Arc<Memory>){
+    async fn get_pos_tags(nlp_model:Arc<embedder>,mem:Arc<Memory>,source:Option<&Source>)->Vec<String>{
         let memory_len=mem.get_memory_len().await;
 
         let mut shortlisted_msgs=Vec::new();
 
-        for rec in mem.iter_memory(Some(std::cmp::max(0,memory_len-50)), None).await{
+        for rec in mem.iter_memory(Some(std::cmp::max(0,memory_len-50)), None, source).await{
             let node_type=rec.get_node_type();
             if node_type==MemoryNodeType::Message || node_type==MemoryNodeType::Message{
                 shortlisted_msgs.push(rec.get_content());
             }
         }
+        shortlisted_msgs
 
         // let pos_tags=nlp_model.get_pos_tags(&shortlisted_msgs).await;
 
@@ -840,15 +847,15 @@ impl Agent{
                     choosen_prompt=Some(PromptStyle::TOF);
                     agent_tof_prompt.clone()
                 };
-                info!("FINAL PROMPT:{}",final_agent_prompt);
+                // info!("FINAL PROMPT:{}",final_agent_prompt);
                 let resp=reasoning_model_clone.chat(current_episode_memory.clone(),
                 final_agent_prompt,
-            Some(invoc_id.clone())).await;
+            Some(invoc_id.clone()),Some(&agent_card)).await;
                 info!("Model resp:{}",resp);
 
                 agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, resp.clone(),
                                     choosen_prompt.clone(), 
-                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone())),
+                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None),
                  Some(invoke_epid.clone()))).unwrap();
                 
                 let mut error_ls:Vec<ParseError>=Vec::new();
@@ -925,7 +932,7 @@ impl Agent{
 
                     if let Some(outputs)=&parsed_reponse.outputs{
                         if outputs.len()>0{
-                            let output_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()));
+                            let output_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()),None);
                             match &interface_memory{
                                 Some(imemory)=>{
                                     info!("Writing to interface memory");
@@ -972,7 +979,7 @@ impl Agent{
                     
                     agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, resp.clone(),
                                         choosen_prompt.clone(), 
-                                        MemoryNodeType::Message,Some(invoc_id.clone())),
+                                        MemoryNodeType::Message,Some(invoc_id.clone()),None),
                     Some(invoke_epid.clone()))).unwrap();
                     
                 }
@@ -1003,7 +1010,7 @@ impl Agent{
         info!("Last rerun:{}",need_rerun);
 
         if !parsed_reponse.success{
-            let error_message=MemoryNode::new(&agent_card, "Error Processing Last Message.Please try again".to_string(), None, MemoryNodeType::Error,Some(invoc_id.clone()));
+            let error_message=MemoryNode::new(&agent_card, "Error Processing Last Message.Please try again".to_string(), None, MemoryNodeType::Error,Some(invoc_id.clone()),None);
             match &interface_memory{
                 Some(imemory)=>{
                     info!("Writing Error to interface memory");

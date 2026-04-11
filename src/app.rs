@@ -150,7 +150,7 @@ impl App {
             match &AppResponseParser::parse(&resp){
                 Ok(parsed)=>{
                     // sleep(Duration::from_secs(5));
-                    let new_mem_node=MemoryNode::new(app_card, format!("> APP Returns : APP NAME:{}|App Status:{}|{}",app_card.get_name(),parsed.command.clone(),parsed.message.clone()), None, MemoryNodeType::AppResponse,invocation_id);
+                    let new_mem_node=MemoryNode::new(app_card, format!("> APP Returns : APP NAME:{}|App Status:{}|{}",app_card.get_name(),parsed.command.clone(),parsed.message.clone()), None, MemoryNodeType::AppResponse,invocation_id,None);
 
                     info!("[App]{:?}",new_mem_node.get_content());
                     if parsed.command=="APP_EXECUTION_SUCCESS" || parsed.command=="APP_EXECUTION_ERROR" || parsed.command=="APP_INVOKE"{
@@ -200,6 +200,7 @@ impl App {
                                     let parsed_resp=App::parse_resp(&app_card,line,None);
 
                                     if let Some(msg_node)=parsed_resp{
+                                        // println!("sending message from app to agent: {:?}", msg_node);
                                         let _ = mem_tx.send(msg_node);
 
                                     }
