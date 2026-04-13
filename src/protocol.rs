@@ -109,6 +109,7 @@ impl Protocol{
                 match protocol_response.decision{
                     ProtocolDecision::NextStep=>{
                         let step_opt=protocol_response.next_step;
+                        let mut wait_sec=5;
                         if let Some(step)=step_opt{
                             println!("Executing step: {}", step.id);
                             current_step_id=step.id;
@@ -116,6 +117,7 @@ impl Protocol{
                             if let Some(app_command) = &step.app_command{
                                 println!("Running app command: {}", app_command);
                                 self.terminal.execute_command(app_command.clone(),self.interface_memory._memory_id.clone(),invocation_id.clone()).await;
+                                wait_sec=15;
                             }
                             if let Some(prompt) = &step.prompt{
                                 if prompt.trim().is_empty(){
@@ -125,12 +127,13 @@ impl Protocol{
                                     println!("Running prompt: {}", prompt);
                                     let output_memory_node=MemoryNode::new(&self.protocol_card ,prompt.clone(), None, MemoryNodeType::ProtocolPrompt,Some(invocation_id.clone()),None);
                                     self.interface_memory.insert(output_memory_node).await;
+                                    wait_sec=30;
                                 }
                             }
 
                         }
-                        println!("Model decided to move to next step. Moving to step id: {}", current_step_id);
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        println!("Model decided to move to next step. Moving to step id: {} | Wait Duration: {}s", current_step_id, wait_sec);
+                        tokio::time::sleep(std::time::Duration::from_secs(wait_sec)).await;
                     },
                     ProtocolDecision::Wait=>{
                         println!("Model decided to wait. Reason: {}", protocol_response.reason);
