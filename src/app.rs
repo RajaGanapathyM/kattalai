@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::fs;
 use tokio::time::{ Duration};
 use crate::agent::{AgentPulse, episode};
+use crate::app;
 use crate::{
     memory::{Memory, MemoryNode, MemoryNodeType},
     source::{Role, Source},
@@ -160,6 +161,8 @@ impl App {
                         Some(AgentPulse::AddMemory(new_mem_node,Some(parsed.episode_id.clone())))
 
                     }
+
+                    
                 },
                 Err(e)=>{
                     error!("APPLOG:{:?}",e);

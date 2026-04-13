@@ -38,13 +38,14 @@ pub trait inference_api_trait {
             
             match invoke_type {
                 invoke_type::Chat => {
+                    // error!("{:?}",parsed);
                     parsed["message"]["content"]
                         .as_str()
                         .expect("Response Parsing Failed")
                         .to_string()
                 },
                 invoke_type::Generate => {
-                    // info!("{:?}",parsed);
+                    // error!("{:?}",parsed);
                     parsed["response"]
                         .as_str()
                         .expect("Response Parsing Failed")

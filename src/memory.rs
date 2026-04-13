@@ -8,6 +8,8 @@ use crate::protocol::ProtocolStore;
 use env_logger::filter;
 use crate::appstore::AppStore;
 use crate::config::InferenceStore;
+
+use regex::Regex;
 use std::ptr::read;
 use std::sync::{Arc,RwLock};
 use std::{
@@ -23,7 +25,11 @@ use crate::agent::PromptStyle;
 use crate::embeddings::GLOBAL_EMBEDDER;
 use std::sync::atomic::{AtomicBool, Ordering};
 use futures::executor::block_on;
-
+use std::fs::{self, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
+use tokio::time::{sleep, Duration};
+use cron::Schedule;
+use std::str::FromStr;
 use pyo3::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -223,9 +229,11 @@ impl Memory {
         let arc_memory_clone = arc_memory.clone();
 
         thread::spawn(move || {
-            let tokio_rt: tokio::runtime::Runtime  = tokio::runtime::Runtime::new().unwrap();
+            let tokio_rt_new: tokio::runtime::Runtime  = tokio::runtime::Runtime::new().unwrap();
             info!("Memory thread started. Memory ID: {}, Branch ID: {}", arc_memory_clone._memory_id, arc_memory_clone._branch_id);
             while let Ok(pulse_node) = rx_clone.recv() {
+                let tokio_rt_handle=tokio_rt_new.handle();
+                
                 let mut new_node = match pulse_node{
                     AgentPulse::AddMemory(mem_node,_)=>mem_node,
                     AgentPulse::AddMemoryAndInvoke(mem_node, _)=>mem_node,  
@@ -276,22 +284,69 @@ impl Memory {
                 if let Some(protocol_store_clone) = protocol_store.clone(){
                  
                     if new_node_content.starts_with("/"){
-                        println!("Triggering protocol for node content: {}", new_node_content);
-                        tokio_rt.block_on(protocol_store_clone.trigger_protocol(new_node_content[1..].to_string(), arc_memory_clone.clone() ));
+                        let regcap = Regex::new(r"^/([^\s]+)\s+--(schedule|run)(?:\s+(.*))?$").unwrap().captures(&new_node_content);
+
+                        if let Some(caps) = regcap {
+                            let command = caps.get(1).map_or("", |m| m.as_str());
+                            let action = caps.get(2).map_or("", |m| m.as_str());
+                            let arg = caps.get(3).map_or("", |m| m.as_str());
+
+                            if action == "run" {
+                                println!("Triggering protocol for node content: {}", new_node_content);
+                                tokio_rt_handle.block_on(protocol_store_clone.trigger_protocol(command.to_string(), arc_memory_clone.clone() ));
+                            } else if action == "schedule" {
+                                println!("Scheduling protocol for node content: {}", new_node_content);
+                                protocol_store_clone.schedule_protocol(command.to_string(),arc_memory_clone._memory_id.clone());
+                            }
+                        }
+                        else{
+                            println!("No regex match for protocol command in node content: {}", new_node_content);
+                        }                        
                     }
+
+
+                    let memory_id_clone=arc_memory_clone._memory_id.clone();
+                    let new_protocol_store_clone=protocol_store.clone().unwrap();
+                    let new_arc_memory_clone=arc_memory_clone.clone();
+                    tokio_rt_handle.spawn(async move {
+                        let file_path = "./configs/protocol_schedules.txt";
+                        let new_protocol_store=new_protocol_store_clone;
+                        let my_memory_id=memory_id_clone;
+                        let my_arc_memory=new_arc_memory_clone;
+
+                        loop {
+                            if let Ok(file) = fs::File::open(file_path) {
+                                let reader = BufReader::new(file);
+                                
+                                for line in reader.lines() {
+                                    if let Ok(content) = line {
+                                        let parts: Vec<&str> = content.split('|').collect();
+                                        
+                                        if let Some(memory_id) = parts.get(0) {
+                                            if memory_id == &my_memory_id {
+                                                if let Some(schedule_string) = parts.get(1) {
+                                                    if let Some(handle_name)=parts.get(2){
+                                                        if should_trigger(schedule_string) {
+                                                            println!("Triggering scheduled protocol: {} for memory_id: {}", schedule_string, my_memory_id);
+                                                            new_protocol_store.trigger_protocol(handle_name.to_string(), my_arc_memory.clone()).await;                                                        
+                                                        }
+                                                    }                                                
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                let _ = fs::write(file_path, ""); 
+                            }
+                            sleep(Duration::from_secs(1)).await;
+                        }
+                    });
                 }
-
-                
-                
-
-                
-
             }
         });
 
         arc_memory
     }
-
     pub fn get_memory_tx(&self) -> Option<channel::Sender<AgentPulse>> {
         Some(self._memory_tx.clone())
     }   
@@ -415,4 +470,18 @@ impl Memory {
     }
 }
 
+
+
+
+fn should_trigger(schedule_string: &str) -> bool {
+    if let Ok(schedule) = Schedule::from_str(schedule_string) {
+        let now = Utc::now();
+        
+        if let Some(next_event) = schedule.upcoming(Utc).next() {
+            let diff = next_event.signed_duration_since(now).num_seconds();
+            return diff <= 0; 
+        }
+    }
+    false
+}
 

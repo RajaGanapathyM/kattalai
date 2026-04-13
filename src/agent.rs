@@ -695,7 +695,8 @@ impl Agent{
         agent_goal=self.agent_goal,
         agent_backstory=self.backstory.clone(),
         app_chain_str=app_chain_str,
-        app_guidelines=block_on(self.terminal.get_app_guidebook()))
+        app_guidelines=block_on(self.terminal.get_app_guidebook()),
+        protocols_book=self.protocols_store.get_protocols_book())
         
     }
 
@@ -714,7 +715,8 @@ impl Agent{
         agent_goal=self.agent_goal,
         agent_backstory=self.backstory.clone(),
         app_chain_str=app_chain_str,
-        app_guidelines=block_on(self.terminal.get_app_guidebook()))
+        app_guidelines=block_on(self.terminal.get_app_guidebook()),
+        protocols_book=self.protocols_store.get_protocols_book())
     }
 
     
@@ -727,7 +729,8 @@ impl Agent{
         agent_goal=self.agent_goal,
         agent_backstory=self.backstory.clone(),
         app_chain_str=app_chain_str,
-        app_guidelines=block_on(self.terminal.get_app_guidebook()))
+        app_guidelines=block_on(self.terminal.get_app_guidebook()),
+        protocols_book=self.protocols_store.get_protocols_book())
     }
 
     async fn handle_error(invoc_id:String,validator_card:&Source,error_ls:Vec<ParseError>,need_rerun:& mut bool ,current_episode_memory:Arc<Memory>,prompt_style:Option<PromptStyle> )->String{
@@ -847,6 +850,7 @@ impl Agent{
                     choosen_prompt=Some(PromptStyle::TOF);
                     agent_tof_prompt.clone()
                 };
+                
                 // info!("FINAL PROMPT:{}",final_agent_prompt);
                 let resp=reasoning_model_clone.chat(current_episode_memory.clone(),
                 final_agent_prompt,

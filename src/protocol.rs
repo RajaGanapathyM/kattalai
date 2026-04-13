@@ -20,6 +20,9 @@ use std::collections::HashMap;
 use crate::appstore::find_matching_toml_dirs;
 use regex::Regex;
 
+use std::fs::OpenOptions;
+use std::io::Write;
+
 #[derive(Debug, Clone, PartialEq,serde::Serialize, serde::Deserialize)]
 pub struct ProtocolStep{
     id: i32,
@@ -255,10 +258,36 @@ impl ProtocolStore{
     }
     pub fn get_protocols_book(&self)->String{
         let mut book=String::new();
+        book.push_str(&format!("| Protocol | Description | How to initiate | When to trigger | Protocol ExpectedResult |"));
         for (protocol_handle, protocol_config) in self.protocols.iter(){
-            book.push_str(&format!("Protocol: {}\nDescription: {} How to initiate: &protocol {}\n When to trigger: {}\nProtocol ExpectedResult: {}\n", protocol_config.protocol_name, protocol_config.protocol_description.clone().unwrap_or("No description".to_string()), protocol_config.protocol_handle_name, protocol_config.trigger_prompt.clone().unwrap_or("No trigger prompt".to_string()), protocol_config.protocol_result));
+            book.push_str(&format!("| {} | {} | {} | {} | {} |\n", protocol_config.protocol_name, protocol_config.protocol_description.clone().unwrap_or("No description".to_string()), protocol_config.protocol_handle_name, protocol_config.trigger_prompt.clone().unwrap_or("No trigger prompt".to_string()), protocol_config.protocol_result));
         }
         book
+    }
+    
+    pub fn schedule_protocol(
+        &self,
+        schedule_string: String,
+        memory_id:String
+    ) {
+        let schedule_entry = format!("{}|{}", memory_id, schedule_string);
+        
+        // Open the file in Append mode, create it if it doesn't exist
+        let file_result = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("./configs/protocol_schedules.txt");
+
+        match file_result {
+            Ok(mut file) => {
+                if let Err(e) = file.write_all(schedule_entry.as_bytes()) {
+                    eprintln!("Failed to write to schedule file: {}", e);
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to open schedule file: {}", e);
+            }
+        }
     }
     pub async fn trigger_protocol(&self, protocol_handle: String,interface_memory:Arc<Memory>){
         let handle = Handle::current();

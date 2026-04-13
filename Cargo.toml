@@ -39,6 +39,7 @@ hf-hub = "0.5.0"
 axum = "0.8.8"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+cron = "0.16.0"
 
 [profile.release]
 opt-level = "z"       # optimize for size

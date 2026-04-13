@@ -94,11 +94,11 @@ async fn main() {
     let se_read_runtime=se_runtime.read().await;
 
     
-    se_read_runtime.insert_message(&topic_id, &demo_user_id, "/first_check".to_string()).await.unwrap();  
-    drop(se_read_runtime);  
-    sleep(Duration::from_secs(200000));
+    // se_read_runtime.insert_message(&topic_id, &demo_user_id, "/first_check --run".to_string()).await.unwrap();  
+    // drop(se_read_runtime);  
+    // sleep(Duration::from_secs(200000));
     let se_read_runtime=se_runtime.read().await;
-    se_read_runtime.insert_message(&topic_id, &demo_user_id, "Hello, Whst is your name.".to_string()).await.unwrap();
+    // se_read_runtime.insert_message(&topic_id, &demo_user_id, "Hello, Whst is your name.".to_string()).await.unwrap();
     
     let agent_stat=se_read_runtime.is_agent_working_on_topic(&topic_id,&agent_id).await.unwrap();
     println!("Agent Status:{}",agent_stat);
@@ -109,7 +109,7 @@ async fn main() {
     sleep(Duration::from_secs(2));
     
     
-    se_read_runtime.insert_message(&topic_id, &demo_user_id, "Say Booo".to_string()).await;
+    // se_read_runtime.insert_message(&topic_id, &demo_user_id, "Say Booo".to_string()).await;
     let topic_len=se_read_runtime.get_topic_history_len(&topic_id.clone()).await.unwrap();
     println!("Memory sequence length: {}", topic_len);
     
@@ -179,7 +179,8 @@ async fn main() {
     // se_read_runtime.remove_agent_from_topic(&topic_id, &agent_id).await;
     
 
-    let my_msg="you two task. first remind me after 20s to take a break and second task read and summarize my credit card statement C:/Users/RG/Downloads/CC_sample.pdf and save the summary as notes".to_string();
+    // let my_msg="you two task. first remind me after 20s to take a break and second task read and summarize my credit card statement C:/Users/RG/Downloads/CC_sample.pdf and save the summary as notes".to_string();
+    let my_msg="can you schedule morning_greeting protocol to run on monday morning".to_string();
 // let msg="".to_string();
     println!("Inserting message: {}", my_msg);
 
