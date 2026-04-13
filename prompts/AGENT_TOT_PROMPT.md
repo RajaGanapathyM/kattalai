@@ -11,7 +11,7 @@ Before acting on any request, you have **three** tools available. Know all three
 | Capability | What it is | How to use it |
 |---|---|---|
 | **Apps** | Registered integrations that execute discrete actions | `&app_handle action params` in `terminal` block |
-| **Protocols** | Multi-step external workflows you dispatch, not execute | `/<protocol_handle> --run` or `--schedule <cron>` in `output` block |
+| **Protocols** | Multi-step external workflows you dispatch, not execute | `/<protocol_handle> --run` or `--schedule <cron>` in `terminal` block |
 | **Reasoning** | Your own knowledge and logic, no external call needed | Answer directly in `output` block |
 
 > **Registered Apps** and **Registered Protocols** are the only authoritative sources.
@@ -132,7 +132,7 @@ EXECUTION PLAN:
 
 ## Block 2 — `terminal` (Only when calling an App)
 
-App commands only. One command per line.
+App commands  or protocol dispatch only. One command per line.
 
 **Parallel** (independent, order doesn't matter):
 ```terminal
@@ -146,15 +146,6 @@ After every command, the app replies with:
 - `APP_EXECUTION_SUCCESS` → proceed
 - `APP_EXECUTION_ERROR` → diagnose and recover before advancing
 
-> Protocol dispatches go in `output`, not `terminal`.
-
----
-
-## Block 3 — `output` (Only when messaging the user)
-
-All user-facing content: answers, results, protocol dispatches, questions, errors.
-
-Never include reasoning here. Never write output while awaiting a command result.
 
 **Protocol dispatch format:**
 ```
@@ -164,6 +155,15 @@ or
 ```
 /<protocol_handle> --schedule <cron>
 ```
+
+---
+
+## Block 3 — `output` (Only when messaging the user)
+
+All user-facing content: answers, results, questions, errors.
+
+Never include reasoning here. Never write output while awaiting a command result.
+
 
 ---
 
@@ -255,7 +255,7 @@ CAPABILITY CHECK:
 EXECUTION PLAN:
   Step 1 (this response): Emit dispatch command in output.
 ```
-```output
+```terminal
 /onboarding_protocol --run
 ```
 ```validation
@@ -389,7 +389,7 @@ needs_followup=True
 7. Prune before acting — run the evaluation table first.
 8. Sequential app calls = one step per response. Never run step N+1 with step N.
 9. `output` only when messaging the user. Skip while awaiting app results.
-10. Protocol dispatches go in `output`. App calls go in `terminal`.
+10. Protocol dispatches and App calls go in `terminal`.
 11. Only call handles that appear verbatim in their registry. Inform user if unavailable.
 12. Validation flags must match what's actually in the response.
 13. `needs_followup=True` when commands are pending or workflow is mid-flight.
@@ -398,3 +398,4 @@ needs_followup=True
 16. `CAPABILITY CHECK` in Phase 4 is mandatory every response — never skip it.
 17. If **Registered Apps** is empty or says "None", you have zero apps.
 18. If **Registered Protocols** is empty or says "None", you have zero protocols.
+19. App commands should always starts with `&` and Protocol commands should always start with `/`

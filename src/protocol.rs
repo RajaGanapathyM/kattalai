@@ -4,6 +4,9 @@ use tokio::runtime::Handle;
 use futures::executor::block_on;
 use crate::memory::{Memory,MemoryNode,MemoryNodeType};
 use crate::protocol;
+use std::fs::{OpenOptions, create_dir_all};
+use std::io::{Write, BufWriter};
+use std::path::Path;
 use crate::inference::{inference_api_trait};
 use crate::terminal::Terminal;
 use arc_swap::cache;
@@ -19,9 +22,6 @@ use std::hash::Hash;
 use std::collections::HashMap;
 use crate::appstore::find_matching_toml_dirs;
 use regex::Regex;
-
-use std::fs::OpenOptions;
-use std::io::Write;
 
 #[derive(Debug, Clone, PartialEq,serde::Serialize, serde::Deserialize)]
 pub struct ProtocolStep{
@@ -265,29 +265,81 @@ impl ProtocolStore{
         book
     }
     
-    pub fn schedule_protocol(
-        &self,
-        schedule_string: String,
-        memory_id:String
-    ) {
-        let schedule_entry = format!("{}|{}", memory_id, schedule_string);
-        
-        // Open the file in Append mode, create it if it doesn't exist
-        let file_result = OpenOptions::new()
+
+    pub fn schedule_protocol(&self,
+        handle_name: &str,
+        schedule_string: &str,
+        memory_id: String,
+    ) -> Result<(), String> {
+
+        let schedule_entry = format!("{}|{}|{}\n", memory_id, schedule_string, handle_name);
+
+        if schedule_entry.trim().is_empty() {
+            return Err("Schedule entry is empty".to_string());
+        }
+
+        println!("📌 Entry length: {}", schedule_entry.len());
+        println!("📌 Entry content: {:?}", schedule_entry);
+
+        let dir_path = Path::new("./configs");
+        if let Err(e) = create_dir_all(dir_path) {
+            return Err(format!("Failed to create directory: {}", e));
+        }
+
+        let file_path = dir_path.join("protocol_schedules.txt");
+
+        println!("Target file path: {:?}", file_path);
+
+        match std::fs::canonicalize(&file_path) {
+            Ok(path) => println!("Canonical path: {:?}", path),
+            Err(_) => println!("⚠️ File not yet created, will create new"),
+        }
+
+        let file = OpenOptions::new()
             .create(true)
             .append(true)
-            .open("./configs/protocol_schedules.txt");
+            .open(&file_path);
 
-        match file_result {
-            Ok(mut file) => {
-                if let Err(e) = file.write_all(schedule_entry.as_bytes()) {
-                    eprintln!("Failed to write to schedule file: {}", e);
+        let file = match file {
+            Ok(f) => {
+                println!("File opened successfully");
+                f
+            }
+            Err(e) => {
+                return Err(format!("Failed to open file: {}", e));
+            }
+        };
+
+        let mut writer = BufWriter::new(file);
+
+        if let Err(e) = writer.write_all(schedule_entry.as_bytes()) {
+            return Err(format!("Write failed: {}", e));
+        } else {
+            println!("Write successful");
+        }
+
+        if let Err(e) = writer.flush() {
+            return Err(format!("Flush failed: {}", e));
+        } else {
+            println!("Flush successful");
+        }
+
+        drop(writer);
+
+        match std::fs::read_to_string(&file_path) {
+            Ok(content) => {
+                if !content.contains(&schedule_entry.trim()) {
+                    println!("Entry not found after write (possible overwrite elsewhere)");
+                } else {
+                    println!("Entry verified in file");
                 }
             }
             Err(e) => {
-                eprintln!("Failed to open schedule file: {}", e);
+                println!("Could not verify file content: {}", e);
             }
         }
+
+        Ok(())
     }
     pub async fn trigger_protocol(&self, protocol_handle: String,interface_memory:Arc<Memory>){
         let handle = Handle::current();

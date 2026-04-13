@@ -295,8 +295,8 @@ impl Memory {
                                 println!("Triggering protocol for node content: {}", new_node_content);
                                 tokio_rt_handle.block_on(protocol_store_clone.trigger_protocol(command.to_string(), arc_memory_clone.clone() ));
                             } else if action == "schedule" {
-                                println!("Scheduling protocol for node content: {}", new_node_content);
-                                protocol_store_clone.schedule_protocol(command.to_string(),arc_memory_clone._memory_id.clone());
+                                println!("Scheduling protocol for node content: {}-{}", command,arg);
+                                protocol_store_clone.schedule_protocol(&command,&arg,arc_memory_clone._memory_id.clone());
                             }
                         }
                         else{
@@ -336,7 +336,7 @@ impl Memory {
                                         }
                                     }
                                 }
-                                let _ = fs::write(file_path, ""); 
+                                // let _ = fs::write(file_path, ""); 
                             }
                             sleep(Duration::from_secs(1)).await;
                         }

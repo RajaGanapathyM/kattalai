@@ -82,6 +82,9 @@ impl Terminal{
                     error_ls.push(format!("App with handle name '{}' not found for command execution.", app_handle_name));
                 }
             }
+            else if app_handle_name.starts_with("/") {
+                continue;
+            }
             else{
                 error_ls.push(format!("Command '{}' not recognized as an app command.", cmd));
             }

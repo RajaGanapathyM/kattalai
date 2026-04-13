@@ -103,8 +103,9 @@ fn check_for_invoke_trigger(new_memories:&Vec<MemoryNode>)->bool{
         let triggerable_roles=vec![Role::Agent,Role::User];
         new_memories.iter().any(|mem_node|{
 
-            mem_node.get_source_role()==Role::User ||
-            mem_node.get_node_type()==MemoryNodeType::ProtocolPrompt
+            (mem_node.get_source_role()==Role::User ||
+            mem_node.get_node_type()==MemoryNodeType::ProtocolPrompt)&&
+            (!mem_node.get_content().trim().starts_with("/"))
 
         })
 }
@@ -957,10 +958,32 @@ impl Agent{
                     
                     if let Some(commands)=&parsed_reponse.commands{
                         if commands.len()>0{
+                            let mut filtered_cmds=Vec::new();
+                            for comnds in commands.iter(){
+                                if comnds.trim().starts_with("/"){
+                                    let output_memory_node=MemoryNode::new(&agent_card, comnds.trim().to_string().clone(), None, MemoryNodeType::Message,Some(invoc_id.clone()),None);
+                                    match &interface_memory{
+                                        Some(imemory)=>{
+                                            info!("Writing to interface memory");
+                                            imemory.insert(output_memory_node).await;
+                                        }
+                                        None=>{}
+                                    }
+                                }
+                                else{
+                                    filtered_cmds.push(comnds.clone());
+                                }
+                                
+                            }
+                            
+                            
                             // let commands_memory_node=MemoryNode::new(&agent_card, commands.join("\n"), None, MemoryNodeType::TerminalCommands,Some(invoc_id.clone()));
                             // current_episode_memory.insert(commands_memory_node).await;
+                            println!("Filtered cmds:{:?}",filtered_cmds);
 
-                            terminal.execute_multi_commands(&commands,invoke_epid.clone(),invoc_id.clone()).await;
+                            if filtered_cmds.len()>0{
+                                terminal.execute_multi_commands(&filtered_cmds,invoke_epid.clone(),invoc_id.clone()).await;
+                            }
                         }
                     }
                     // if let Some(outputs)=&parsed_reponse.outputs{
@@ -1254,8 +1277,8 @@ impl AgentResponseParser  {
             if trimmed.is_empty(){
                 continue;
             }
-            if !line.starts_with("&"){
-                error_ls.push(format!("{} commands did not start with &. Valid command format is &<app_name>.Analyze and correct your mistakes",line));
+            if !(line.starts_with("&") || line.starts_with("/")){
+                error_ls.push(format!("{} commands did not start with & or /. Valid command format is &<app_name> or /<protocol_name>.Analyze and correct your mistakes",line));
             }
             else{
                 commands.push(line);

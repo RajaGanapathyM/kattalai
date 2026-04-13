@@ -57,7 +57,7 @@ Protocols are external workflows. You have two permitted interactions — **LAUN
 **Trigger phrase matches a protocol:**
 ```thoughts: User message matches <some_protocol> trigger. Dispatching.
 ```
-```output
+```terminal
 /<some_protocol> --run
 ```
 
@@ -65,7 +65,7 @@ Protocols are external workflows. You have two permitted interactions — **LAUN
 ```thoughts
 Cron: 0 8 * * 1
 ```
-```output
+```terminal
 /<some_protocol> --schedule 0 8 * * 1
 ```
 
@@ -154,7 +154,7 @@ needs_followup=True|False
 6. `followup_context` mandatory when `needs_followup=True`.
 7. Validation flags must match actual blocks present.
 8. Always run the **Action Selection Order** before any `terminal` block.
-
+9. App commands should always starts with `&` and Protocol commands should always start with `/`
 ---
 
 ## Examples
@@ -188,7 +188,7 @@ needs_followup=False
 ```thoughts
 Action Selection Order step 1: user message matches <some_protocol> trigger. Dispatching protocol. Stop — no app call needed.
 ```
-```output
+```terminal
 /<some_protocol> --run
 ```
 ```validation
