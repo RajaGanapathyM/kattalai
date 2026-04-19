@@ -182,7 +182,8 @@ async fn main() {
     // let my_msg="you two task. first remind me after 20s to take a break and second task read and summarize my credit card statement C:/Users/RG/Downloads/CC_sample.pdf and save the summary as notes".to_string();
     // let my_msg="/morning_greeting --schedule 0 8 * * 1".to_string();
     // let my_msg="can you schedule morning_greeting protocol to run on monday morning".to_string();
-    let my_msg="can you run morning_greeting protocol after 5 secs".to_string();
+    // let my_msg="can you run morning_greeting protocol after 5 secs".to_string();
+    let my_msg="can you move a file called jokes.txt to opensource folder in the g: drive?".to_string();
 // let msg="".to_string();
     println!("Inserting message: {}", my_msg);
 

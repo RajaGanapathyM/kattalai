@@ -267,7 +267,6 @@ impl ProtocolStore{
         }
         book
     }
-    
 
     pub fn schedule_protocol(&self,
         handle_name: &str,
