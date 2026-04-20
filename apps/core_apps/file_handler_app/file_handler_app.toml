@@ -36,7 +36,7 @@ Delete directory    -> &file_handler_app rmdir path=./temp recursive=true
 * stat returns `path`, `size`, `modified_at`, `created_at`, `permissions`.
 * search returns `matches` with `path`, `line_number`, and `snippet`.
 * new / edit / append / copy / move / rename / delete return `status` (success/denied),
-  `path`, and `permission_dialog_shown=true` confirming the dialog was presented.
+  `path`, antrue` confirming the dialog was presented.
 * All mutating ops also return `user_confirmed` (true/false) and `timestamp`.
 * Errors return `error_code` and `reason` (e.g. path_not_found, permission_denied, not_a_directory).
 """
@@ -65,53 +65,53 @@ action = "read"
 [[app_command_signatures]]
 command = "new"
 consumes = ["path", "content","file"]
-produces = ["path", "status", "permission_dialog_shown", "user_confirmed", "timestamp"]
+produces = ["path", "status", "user_confirmed", "timestamp"]
 action = "write"
 
 [[app_command_signatures]]
 command = "mkdir"
 consumes = ["path","file"]
-produces = ["path", "status", "permission_dialog_shown", "user_confirmed", "timestamp"]
+produces = ["path", "status", "user_confirmed", "timestamp"]
 action = "write"
 
 [[app_command_signatures]]
 command = "edit"
 consumes = ["path", "content","file"]
-produces = ["path", "status", "permission_dialog_shown", "user_confirmed", "timestamp"]
+produces = ["path", "status", "user_confirmed", "timestamp"]
 action = "update"
 
 [[app_command_signatures]]
 command = "append"
 consumes = ["path", "content","file"]
-produces = ["path", "status", "permission_dialog_shown", "user_confirmed", "timestamp"]
+produces = ["path", "status", "user_confirmed", "timestamp"]
 action = "update"
 
 [[app_command_signatures]]
 command = "copy"
 consumes = ["src_path", "dest_path","file"]
-produces = ["src_path", "dest_path", "status", "permission_dialog_shown", "user_confirmed", "timestamp"]
+produces = ["src_path", "dest_path", "status", "user_confirmed", "timestamp"]
 action = "copy"
 
 [[app_command_signatures]]
 command = "move"
 consumes = ["src_path", "dest_path","file"]
-produces = ["src_path", "dest_path", "status", "permission_dialog_shown", "user_confirmed", "timestamp"]
+produces = ["src_path", "dest_path", "status", "user_confirmed", "timestamp"]
 action = "move"
 
 [[app_command_signatures]]
 command = "rename"
 consumes = ["path", "new_name","file"]
-produces = ["old_path", "new_path", "status", "permission_dialog_shown", "user_confirmed", "timestamp"]
+produces = ["old_path", "new_path", "status", "user_confirmed", "timestamp"]
 action = "move"
 
 [[app_command_signatures]]
 command = "delete"
 consumes = ["path","file"]
-produces = ["path", "status", "permission_dialog_shown", "user_confirmed", "timestamp"]
+produces = ["path", "status", "user_confirmed", "timestamp"]
 action = "delete"
 
 [[app_command_signatures]]
 command = "rmdir"
 consumes = ["path", "recursive","file"]
-produces = ["path", "files_removed", "status", "permission_dialog_shown", "user_confirmed", "timestamp"]
+produces = ["path", "files_removed", "status", "user_confirmed", "timestamp"]
 action = "delete"

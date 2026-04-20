@@ -13,3 +13,4 @@ apps/core_apps/calculator_app/calc_vars.json
 apps/core_apps/calculator_app/calc_vars.json
 *.pyc
 pysrc/soulengine/configs/mkey_config
+/kat

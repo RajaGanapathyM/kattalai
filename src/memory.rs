@@ -227,6 +227,7 @@ impl Memory {
 
         let rx_clone = rx.clone();
         let arc_memory_clone = arc_memory.clone();
+        let thread_protocol_store = protocol_store.clone();
 
         thread::spawn(move || {
             let tokio_rt_new: tokio::runtime::Runtime  = tokio::runtime::Runtime::new().unwrap();
@@ -281,7 +282,7 @@ impl Memory {
                 }
                 drop(writable_tags_indx);
 
-                if let Some(protocol_store_clone) = protocol_store.clone(){
+                if let Some(protocol_store_clone) = thread_protocol_store.clone(){
                  
                     if new_node_content.starts_with("/"){
                         let regcap = Regex::new(r"^/([^\s]+)\s+--(schedule|run)(?:\s+(.*))?$").unwrap().captures(&new_node_content);
@@ -303,47 +304,51 @@ impl Memory {
                             println!("No regex match for protocol command in node content: {}", new_node_content);
                         }                        
                     }
-
-
-                    let memory_id_clone=arc_memory_clone._memory_id.clone();
-                    let new_protocol_store_clone=protocol_store.clone().unwrap();
-                    let new_arc_memory_clone=arc_memory_clone.clone();
-                    tokio_rt_handle.spawn(async move {
-                        let file_path = "./configs/protocol_schedules.txt";
-                        let new_protocol_store=new_protocol_store_clone;
-                        let my_memory_id=memory_id_clone;
-                        let my_arc_memory=new_arc_memory_clone;
-
-                        loop {
-                            if let Ok(file) = fs::File::open(file_path) {
-                                let reader = BufReader::new(file);
-                                
-                                for line in reader.lines() {
-                                    if let Ok(content) = line {
-                                        let parts: Vec<&str> = content.split('|').collect();
-                                        
-                                        if let Some(memory_id) = parts.get(0) {
-                                            if memory_id == &my_memory_id {
-                                                if let Some(schedule_string) = parts.get(1) {
-                                                    if let Some(handle_name)=parts.get(2){
-                                                        if should_trigger(schedule_string) {
-                                                            println!("Triggering scheduled protocol: {} for memory_id: {}", schedule_string, my_memory_id);
-                                                            new_protocol_store.trigger_protocol(handle_name.to_string(), my_arc_memory.clone()).await;                                                        
-                                                        }
-                                                    }                                                
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                // let _ = fs::write(file_path, ""); 
-                            }
-                            sleep(Duration::from_secs(1)).await;
-                        }
-                    });
                 }
             }
         });
+
+        if protocol_store.is_some(){
+
+            let memory_id_clone=arc_memory._memory_id.clone();
+            let new_protocol_store_clone=protocol_store.clone().unwrap();
+            let new_arc_memory_clone=arc_memory.clone();
+            tokio::spawn(async move {
+                let file_path = "./configs/protocol_schedules.txt";
+                let new_protocol_store=new_protocol_store_clone;
+                let my_memory_id=memory_id_clone;
+                let my_arc_memory=new_arc_memory_clone;
+                println!("Started protocol schedule checker for Memory ID: {}", my_memory_id);
+
+                loop {
+                    // println!("Checking scheduled protocols for Memory ID: {}", my_memory_id);
+                    if let Ok(file) = fs::File::open(file_path) {
+                        let reader = BufReader::new(file);
+                        
+                        for line in reader.lines() {
+                            if let Ok(content) = line {
+                                let parts: Vec<&str> = content.split('|').collect();
+                                
+                                if let Some(memory_id) = parts.get(0) {
+                                    if memory_id == &my_memory_id {
+                                        if let Some(schedule_string) = parts.get(1) {
+                                            if let Some(handle_name)=parts.get(2){
+                                                if should_trigger(schedule_string) {
+                                                    println!("Triggering scheduled protocol: {} for memory_id: {}", schedule_string, my_memory_id);
+                                                    new_protocol_store.trigger_protocol(handle_name.to_string(), my_arc_memory.clone()).await;                                                        
+                                                }
+                                            }                                                
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // let _ = fs::write(file_path, ""); 
+                    }
+                    sleep(Duration::from_secs(1)).await;
+                }
+            });
+        }
 
         arc_memory
     }

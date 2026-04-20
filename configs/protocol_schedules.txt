@@ -1,1 +1,1 @@
-019d88a3-0844-7c62-9978-fc782da3d6fa|0 8 * * 1|morning_greeting
+019daaa2-3496-7733-83c7-6cd1580944a8|*/5 * * * * *|morning_greeting

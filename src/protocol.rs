@@ -4,8 +4,9 @@ use tokio::runtime::Handle;
 use futures::executor::block_on;
 use crate::memory::{Memory,MemoryNode,MemoryNodeType};
 use crate::protocol;
+
+use std::io::{BufRead, BufReader, Write,BufWriter};
 use std::fs::{OpenOptions, create_dir_all};
-use std::io::{Write, BufWriter};
 use std::path::Path;
 use crate::inference::{inference_api_trait};
 use crate::terminal::Terminal;
@@ -343,6 +344,21 @@ impl ProtocolStore{
 
         Ok(())
     }
+
+    // pub async fn show_schedules(&self,interface_memory:Arc<Memory>)-> Vec<String>{
+    //     let file_path = "./configs/protocol_schedules.txt";
+    //     if let Ok(file) = fs::File::open(file_path) {
+    //         let reader = BufReader::new(file);
+    //         let schedules=reader.lines().filter_map(|line| line.ok()).collect::<Vec<String>>();
+    //         let content=format!("Current Protocol Schedules:\n{}", schedules.join("\n"));
+
+    //         interface_memory.insert(MemoryNode::new(&self.protocol_stor_card ,content, None, MemoryNodeType::ProtocolPrompt,Some(Uuid::now_v7().to_string()),None)).await;
+            
+
+    //     }
+
+    //     self.protocols.keys().cloned().collect()
+    // }
     pub async fn trigger_protocol(&self, protocol_handle: String,interface_memory:Arc<Memory>){
         let handle = Handle::current();
         if let Some(protocol_config) = self.protocols.get(&protocol_handle){

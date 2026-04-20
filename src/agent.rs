@@ -143,7 +143,18 @@ impl AgentStore{
         let content = fs::read_to_string(agent_config_path).unwrap();
         let config: AgentConfigs = toml::from_str(&content).unwrap();
         let mut agent_map=HashMap::new();
-        for agent in config.agent_config{
+
+        let std_apps=vec![
+            "protocoladmin".to_string()
+        ];
+        for mut agent in config.agent_config{
+            for std_app in std_apps.clone(){
+                if !agent.default_apps.contains(&std_app){
+                    info!("Adding default app:{} to agent:{}",std_app,agent.agent_name);
+                    agent.default_apps.push(std_app.clone());
+
+                }
+            }
             agent_map.insert(agent.agent_name.clone(), agent.clone());
         }
 

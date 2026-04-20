@@ -1,0 +1,63 @@
+app_name="Protocol Admin App"
+app_path="./apps/core_apps/protocol_admin_app/protocol_admin_app.py"
+app_start_command="python"
+app_start_args="./apps/core_apps/protocol_admin_app/protocol_admin_app.py"
+app_handle_name="protocoladmin"
+app_launch_mode="REPL"
+app_usage_guideline="""
+Use this app for
+- Listing all existing scheduled protocol registered in the system
+- Editing the schedule string of an existing protocol entry
+- Deleting a protocol schedule entry permanently
+
+## Schedule File
+All protocol schedules are stored at: ./configs/protocol_schedules.txt
+Each line follows this format:
+  <memory_id>|<cron_schedule>|<protocol_name>
+
+Example entry:
+  019daaa2-3496-7733-83c7-6cd1580944a8|*/5 * * * * *|morning_greeting
+
+Fields:
+  memory_id       -> UUID of the memory that owns this schedule
+  cron_schedule   -> cron expression defining when the protocol runs
+  protocol_name   -> name of the protocol to execute
+
+## Examples
+List all scheduled protocols      -> &protocoladmin list
+Get a specific entry    -> &protocoladmin get memory_id=019daaa2-3496-7733-83c7-6cd1580944a8
+Edit schedule string    -> &protocoladmin edit memory_id=019daaa2-3496-7733-83c7-6cd1580944a8 cron_schedule="0 9 * * *"
+Delete an entry         -> &protocoladmin delete memory_id=019daaa2-3496-7733-83c7-6cd1580944a8
+
+## Output Behavior
+* list returns `entries` as a list of scheduled protocols each with `memory_id`, `cron_schedule`, and `protocol_name`.
+* get returns a single entry object with `memory_id`, `cron_schedule`, and `protocol_name`, or `error_code=not_found` if the memory_id does not exist.
+* edit returns `status` (success/denied), `memory_id`, `old_cron_schedule`, `new_cron_schedule`, `user_confirmed`, and `timestamp`.
+* delete returns `status` (success/denied), `memory_id`, `protocol_name`, `user_confirmed`, and `timestamp`.
+* Errors return `error_code` and `reason` (e.g. not_found, invalid_cron, permission_denied).
+"""
+
+
+[[app_command_signatures]]
+command = "list"
+consumes = []
+produces = ["entries"]
+action = "read"
+
+[[app_command_signatures]]
+command = "get"
+consumes = ["memory_id"]
+produces = ["memory_id", "cron_schedule", "protocol_name"]
+action = "read"
+
+[[app_command_signatures]]
+command = "edit"
+consumes = ["memory_id", "cron_schedule"]
+produces = ["status", "memory_id", "old_cron_schedule", "new_cron_schedule", "user_confirmed", "timestamp"]
+action = "update"
+
+[[app_command_signatures]]
+command = "delete"
+consumes = ["memory_id"]
+produces = ["status", "memory_id", "protocol_name", "user_confirmed", "timestamp"]
+action = "delete"
