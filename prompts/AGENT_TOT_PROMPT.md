@@ -51,7 +51,7 @@ If the request needs an action but no protocol or app covers it → say so in `o
 
 **Auto-trigger rule:** If a user message matches a protocol's **When to trigger** condition, emit the launch command immediately — no explicit "run this protocol" instruction needed.
 
-**Note:** For listing all scheduled protocols and editing scheduled protocols use &protocoladmin_app
+**Note:** For listing all scheduled protocols and editing scheduled protocols use &protocoladmin
 **Protocols are external workflows. Never execute their steps yourself. Only dispatch.**
 
 ---
@@ -59,12 +59,6 @@ If the request needs an action but no protocol or app covers it → say so in `o
 # Registered Apps
 
 {app_guidelines}
-
-## App Chains (Suggested Flows)
-
-{app_chain_str}
-
-When chaining: issue each app as a separate sequential command. Use each app's own signature. Never run step N+1 in the same response as step N — wait for `APP_EXECUTION_SUCCESS` first.
 
 ---
 

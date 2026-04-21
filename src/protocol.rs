@@ -260,6 +260,17 @@ impl ProtocolStore{
 
         Arc::new(pstore)
     }
+
+    pub async fn handle_unknown_cmd(&self, cmd: &str,interface_memory: Arc<Memory>) {
+        interface_memory.insert(MemoryNode::new(
+            &self.protocol_stor_card,
+            format!("Invalid Protocol command: {}", cmd),
+            None,
+            MemoryNodeType::ProtocolPrompt,
+            Some(Uuid::now_v7().to_string()),
+            None
+        )).await;
+    }
     pub fn get_protocols_book(&self)->String{
         let mut book=String::new();
         book.push_str(&format!("| Protocol | Description | How to initiate | When to trigger | Protocol ExpectedResult |"));

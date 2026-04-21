@@ -412,11 +412,29 @@ impl inference_api_trait for Gemini {
 
         // Gemini nests the response text deep within the candidates array.
         // The path is: candidates[0].content.parts[0].text
-        // print!("PARSED:{:?}",parsed);
-        let content = parsed["candidates"][0]["content"]["parts"][0]["text"]
-            .as_str()
-            .expect("Response Parsing Failed: Could not find text in Gemini response. Check for safety blocks or API errors.")
-            .to_string();
+        let parts = &parsed["candidates"][0]["content"]["parts"];
+        
+
+
+        // 2. Map and collect all text parts into a single string
+        let content=if parts.is_array(){
+            parts
+                .as_array()
+                .expect("Expected parts to be an array")
+                .iter()
+                .filter_map(|part| part["text"].as_str()) 
+                .collect::<Vec<_>>()
+                .join("\n") 
+        }
+        else{
+            info!("PARSED:{:?}",parts);
+            parts["text"].as_str().expect("Expected text in parts").to_string()
+        };
+
+        // 3. Check if we actually got anything
+        if content.is_empty() {
+            panic!("Response Parsing Failed: No text content found in parts.");
+        }
 
         match invoke_type {
             invoke_type::Chat => content,
@@ -870,6 +888,7 @@ impl inference_api_trait for SarvamAI {
     async fn parse_response(&self, response: String, _invoke_type: invoke_type) -> String {
         let parsed: Value = serde_json::from_str(&response).expect("Failed to parse Sarvam response");
 
+        info!("Parsed Sarvam Message: {:?}", parsed);
         let message = &parsed["choices"][0]["message"];
         
         // Prioritize final content, fallback to reasoning_content if it's a thinking model

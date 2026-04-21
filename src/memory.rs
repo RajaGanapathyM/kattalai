@@ -299,6 +299,9 @@ impl Memory {
                                 println!("Scheduling protocol for node content: {}-{}", command,arg);
                                 protocol_store_clone.schedule_protocol(&command,&arg,arc_memory_clone._memory_id.clone());
                             }
+                            else{
+                                tokio_rt_handle.block_on(protocol_store_clone.handle_unknown_cmd(&new_node_content, arc_memory_clone.clone()));
+                            }
                         }
                         else{
                             println!("No regex match for protocol command in node content: {}", new_node_content);

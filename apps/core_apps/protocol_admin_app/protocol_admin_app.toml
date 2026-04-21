@@ -40,7 +40,7 @@ Delete an entry         -> &protocoladmin delete memory_id=019daaa2-3496-7733-83
 
 [[app_command_signatures]]
 command = "list"
-consumes = []
+consumes = ["command"]
 produces = ["entries"]
 action = "read"
 

@@ -1,0 +1,53 @@
+app_name="App Finder App"
+app_path="./apps/core_apps/app_finder_app/app_finder_app.py"
+app_start_command="python"
+app_start_args="./apps/core_apps/app_finder_app/app_finder_app.py"
+app_handle_name="appfinder"
+app_launch_mode="REPL"
+app_usage_guideline="""
+Use this app when you need to discover which installed app to use for a task
+but are unsure of the exact handle name, or when the user asks for a capability
+that you cannot map to a known app from memory.
+
+This app scans all *.toml configs under ./apps, builds a TF-IDF index over
+each app's name, handle, usage guideline, and command names, then returns the
+top-N most relevant apps ranked by cosine similarity to your query.
+
+## When to call
+- You don't know which app handles a user request (e.g. "summarise this PDF" → search for a pdf app)
+- You want to confirm the exact handle_name before invoking an app
+- The user asks "what can you do?" or "do you have an app for X?"
+- After a not_found or unknown-command error, search to find the correct app
+
+## Search tips
+- Use natural-language task descriptions as the query: "read a webpage", "track stocks", "run a calculator"
+- Include domain keywords: "schedule", "protocol", "notes", "grep", "clock"
+- Keep queries short (3–8 words); the ranker uses unigrams + bigrams
+
+## Examples
+Find apps for reading web content -> &appfinder search query="read webpage url"
+Find scheduling-related apps      -> &appfinder search query="cron schedule protocol"
+Find top 3 matches only           -> &appfinder search query="stock price tracker" top_n=3
+List all apps (broad sweep)       -> &appfinder search query="app" top_n=50
+
+## Output
+Returns a `results` list, each entry containing:
+  handle_name  -> the string to use in &<handle_name> invocations
+  app_name     -> human-readable name
+  description  -> full usage guideline for that app
+  commands     -> list of supported command names
+  score        -> similarity score (0.0–1.0); higher = more relevant
+
+`total_apps_indexed` tells you how many TOMLs were found on disk.
+
+## Errors
+  missing query  -> reason: "Missing 'query' argument."
+  no TOMLs found -> reason: "No app TOMLs found under ./apps"
+"""
+
+
+[[app_command_signatures]]
+command = "search"
+consumes = ["query", "top_n"]
+produces = ["results", "total_apps_indexed", "query"]
+action = "read"

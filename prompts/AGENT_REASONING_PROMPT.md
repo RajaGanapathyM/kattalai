@@ -48,7 +48,7 @@ Protocols are external workflows. You have two permitted interactions — **LAUN
 
 **Auto-trigger rule:** If a user message matches a protocol's **When to trigger**, emit the launch command immediately without waiting for an explicit request.
 
-**Note:** For listing all scheduled protocols and editing scheduled protocols use &protocoladmin_app
+**Note:** For listing all scheduled protocols and editing scheduled protocols use &protocoladmin
 ### Registered Protocols
 
 {protocols_book}
@@ -93,15 +93,6 @@ Never advance to the next step until you see `APP_EXECUTION_SUCCESS`.
 ### Registered Apps
 
 {app_guidelines}
-
-### App Chains (Suggested)
-
-Common data flows between apps, for reference only.
-Syntax: `&source_app <output_field> -> &target_app <output_field>`
-
-{app_chain_str}
-
-When chaining: issue each app as a separate command in sequence, using each app's own signatures.
 
 ---
 

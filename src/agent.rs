@@ -145,7 +145,8 @@ impl AgentStore{
         let mut agent_map=HashMap::new();
 
         let std_apps=vec![
-            "protocoladmin".to_string()
+            "protocoladmin".to_string(),
+            "appfinder".to_string(),
         ];
         for mut agent in config.agent_config{
             for std_app in std_apps.clone(){
@@ -705,8 +706,7 @@ impl Agent{
         agent_name=self.agent_card.get_name(),
         agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
         agent_goal=self.agent_goal,
-        agent_backstory=self.backstory.clone(),
-        app_chain_str=app_chain_str,
+        agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()),
         protocols_book=self.protocols_store.get_protocols_book())
         
@@ -725,8 +725,7 @@ impl Agent{
         agent_name=self.agent_card.get_name(),
         agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
         agent_goal=self.agent_goal,
-        agent_backstory=self.backstory.clone(),
-        app_chain_str=app_chain_str,
+        agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()),
         protocols_book=self.protocols_store.get_protocols_book())
     }
@@ -739,8 +738,7 @@ impl Agent{
         agent_name=self.agent_card.get_name(),
         agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
         agent_goal=self.agent_goal,
-        agent_backstory=self.backstory.clone(),
-        app_chain_str=app_chain_str,
+        agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()),
         protocols_book=self.protocols_store.get_protocols_book())
     }

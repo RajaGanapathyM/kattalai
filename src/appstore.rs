@@ -383,7 +383,7 @@ impl AppStore{
                     }
                 }
                 
-                let mut app_chains:Vec<String>=Vec::new();
+                let mut app_chains:Vec<Vec<String>>=Vec::new();
                 include_chain=false;
                 
                 for window in trimmed_sequence.windows(2) {
@@ -401,12 +401,22 @@ impl AppStore{
                                     if app_chains.len()>0{
                                         include_chain=true;
                                         for each_chain in app_chains.iter(){
-                                            temp_chain.push(format!("{} -> &{} {}",each_chain,each_app,b));
+                                            let mut new_chain=each_chain.clone();
+                                            
+                                            new_chain.push(format!("&{} {}",each_app,b));
+                                            if new_chain.len()>3{
+                                                new_chain.remove(0);
+                                            }
+                                            temp_chain.push(new_chain);
+
+                                            // temp_chain.push(format!("{} -> &{} {}",each_chain,each_app,b));
+                                            // temp_chain.push(format!("{} -> &{}",each_chain,each_app));
                                         }
                                     }
                                     else{
                                         for each_app in app.iter(){
-                                            temp_chain.push(format!("&{} {}",each_app,b));
+                                            temp_chain.push(vec![format!("&{} {}",each_app,b)]);
+                                            // temp_chain.push(format!("&{}",each_app));
                                         }
                                     }
                                 }
@@ -418,19 +428,23 @@ impl AppStore{
                 }
 
                 if include_chain{
-                    detected_app_chains.extend(app_chains.into_iter().filter(|chain| !chain.trim().is_empty()));
+                    detected_app_chains.extend(app_chains.into_iter().map(|chain| chain.join(" -> ")).filter(|chain| !chain.trim().is_empty()));
                 }
                 // detected_app_chains.insert(app_chains.join(" -> "));
             }
         }
-        // info!("detected_app_chains{:?}",detected_app_chains);
+        info!("detected_app_chains{:?}",detected_app_chains);
         let app_chain_str=detected_app_chains.iter().cloned().collect::<Vec<String>>().join("\n");
-        let conv_embedding=self.embedder.get_embeddings(vec![conv.join("\n")]).await.unwrap();
+        let conv_str=conv.join("\n");
+        let conv_embedding=self.embedder.get_embeddings(vec![conv_str.clone()]).await.unwrap();
 
 
 
         for (app_handle,guideline_embed) in self.guidelines_embeddings.iter(){
             if cosine(&conv_embedding[0], &guideline_embed)>0.75{
+                collected_pairs.insert(app_handle.clone());
+            }
+            else if conv_str.contains(app_handle){
                 collected_pairs.insert(app_handle.clone());
             }
         }

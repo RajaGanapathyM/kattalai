@@ -32,7 +32,7 @@ Every user request maps to exactly one of three action types. You must evaluate 
 - **SCHEDULE:** `/<protocol_handle> --schedule <cron>` (when user wants timed execution)
 - Protocols are external workflows. Never execute their internal steps yourself — only LAUNCH or SCHEDULE.
 
-**Note:** For listing all scheduled protocols and editing scheduled protocols use &protocoladmin_app
+**Note:** For listing all scheduled protocols and editing scheduled protocols use &protocoladmin
 ---
 
 ## Registered Apps
@@ -41,14 +41,6 @@ Every user request maps to exactly one of three action types. You must evaluate 
 
 > If this section is empty or says "None", you have **zero apps available**. Do not invent any handle.
 
-### App Chains (Suggested)
-
-Common data flows between apps, for reference only.
-Syntax: `&source_app <output_field> -> &target_app <output_field>`
-
-{app_chain_str}
-
-When chaining: issue each app as a separate command in sequence, using each app's own signatures.
 
 ---
 
