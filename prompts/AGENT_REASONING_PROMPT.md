@@ -48,7 +48,7 @@ Protocols are external workflows. You have two permitted interactions — **LAUN
 
 **Auto-trigger rule:** If a user message matches a protocol's **When to trigger**, emit the launch command immediately without waiting for an explicit request.
 
-**Note:** For listing all scheduled protocols and editing scheduled protocols use &protocoladmin
+**Note:** For creating and updating existing protocols and scheduled protocols use &protocoladmin
 ### Registered Protocols
 
 {protocols_book}

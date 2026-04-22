@@ -10,6 +10,45 @@ import shlex
 import inspect
 import traceback
 
+def smart_split(command: str):
+    tokens = []
+    current = []
+    
+    in_double = False
+    in_single = False
+    escape = False
+
+    for ch in command:
+        if escape:
+            current.append(ch)
+            escape = False
+            continue
+
+        if ch == "\\":
+            escape = True
+            continue
+
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            continue
+
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            continue
+
+        if ch == " " and not in_double and not in_single:
+            if current:
+                tokens.append("".join(current))
+                current = []
+            continue
+
+        current.append(ch)
+
+    if current:
+        tokens.append("".join(current))
+
+    return tokens
+
 class soul_engine_interface:
     def __init__(self,args,app_name):
         self.episode_id=args.episode_id
@@ -29,8 +68,9 @@ class soul_engine_app():
         try:
             tokens = shlex.split(line)
         except ValueError:
+            print(f"Warning: Failed to parse line with shlex. Falling back to simple split. Line: {line}")
             # fallback if quotes are broken
-            tokens = line.split()
+            tokens = smart_split(line)
 
         parser = argparse.ArgumentParser(add_help=False)
         parser.add_argument("--episode_id")
@@ -39,6 +79,7 @@ class soul_engine_app():
             
 
         args, remaining = parser.parse_known_args(tokens)
+        # print(f"Remaining arguments: {list(enumerate(remaining))}")
 
         if not args.episode_id or not args.invocation_id:
             sys.stdout.write("[#COMMAND_ERROR>episode_id:{args.episode_id}|invocation_id:{args.invocation_id}]Missing episode_id or invocation_id\n")

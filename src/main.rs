@@ -185,7 +185,7 @@ async fn main() {
     // let my_msg="can you run morning_greeting protocol after 5 secs".to_string();
     // let my_msg="check if a file called jokes.txt exists in g: drive. If it does,move it to opensource folder in the g: drive?".to_string();
     // let my_msg="can you check list of protocols scheduled and change existing protcol to run every 10 minutes".to_string();
-    let my_msg="email leave request to john@example.com".to_string();
+    let my_msg="i want every days morning news to be retrived and analysed and sumamrized for me".to_string();
     
 // let msg="".to_string();
     println!("Inserting message: {}", my_msg);

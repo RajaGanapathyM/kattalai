@@ -1,63 +1,153 @@
-app_name="Protocol Admin App"
-app_path="./apps/core_apps/protocol_admin_app/protocol_admin_app.py"
-app_start_command="python"
-app_start_args="./apps/core_apps/protocol_admin_app/protocol_admin_app.py"
-app_handle_name="protocoladmin"
-app_launch_mode="REPL"
-app_usage_guideline="""
-Use this app for
-- Listing all existing scheduled protocol registered in the system
-- Editing the schedule string of an existing protocol entry
-- Deleting a protocol schedule entry permanently
+app_name = "Protocol Admin App"
+app_path = "./apps/core_apps/protocol_admin_app/protocol_admin_app.py"
+app_start_command = "python"
+app_start_args = "./apps/core_apps/protocol_admin_app/protocol_admin_app.py"
+app_handle_name = "protocoladmin"
+app_launch_mode = "REPL"
+app_usage_guideline = """
+Use this app for:
+- Creating new protocol TOML files with metadata and steps
+- Listing all protocol files registered in the system
+- Reading an existing protocol file's full contents
+- Updating protocol metadata fields (name, description, trigger_prompt, etc.)
+- Adding, editing, or deleting one or more steps (pass as JSON array)
+- Deleting an entire protocol file permanently
+- Listing all scheduled protocol entries
+- Getting a specific schedule entry by memory_id
+- Editing the cron schedule of a scheduled protocol entry
+- Deleting a scheduled protocol entry
+
+## Protocol Files
+All protocols are stored as TOML files in: ./protocols/
+
+## Protocol TOML Structure
+Each protocol TOML contains top-level metadata and an array of [[step]] tables.
+Each step has a unique integer `id` (starting at 1, sequential) and may contain:
+  - id                      -> integer, unique sequential step identifier
+  - label                   -> short display name for the step
+  - app_command             -> (optional) app command to run in this step
+  - prompt                  -> (optional) prompt for the model in this step
+  - completion_check_condition -> (optional) condition to verify step completed
 
 ## Schedule File
 All protocol schedules are stored at: ./configs/protocol_schedules.txt
 Each line follows this format:
-  <memory_id>|<cron_schedule>|<protocol_name>
-
-Example entry:
-  019daaa2-3496-7733-83c7-6cd1580944a8|*/5 * * * * *|morning_greeting
-
-Fields:
-  memory_id       -> UUID of the memory that owns this schedule
-  cron_schedule   -> cron expression defining when the protocol runs
-  protocol_name   -> name of the protocol to execute
+  <schedule_id>|<memory_id>|<cron_schedule>|<protocol_name>
 
 ## Examples
-List all scheduled protocols      -> &protocoladmin list
-Get a specific entry    -> &protocoladmin get memory_id=019daaa2-3496-7733-83c7-6cd1580944a8
-Edit schedule string    -> &protocoladmin edit memory_id=019daaa2-3496-7733-83c7-6cd1580944a8 cron_schedule="0 9 * * *"
-Delete an entry         -> &protocoladmin delete memory_id=019daaa2-3496-7733-83c7-6cd1580944a8
+
+### Protocol Management
+List all protocols          -> &protocoladmin list_protocols
+Read a protocol             -> &protocoladmin read --protocol_handle_name first_check
+Create new protocol         -> &protocoladmin create --protocol_handle_name my_proto --protocol_name "My Protocol" --protocol_description "Does something" --trigger_prompt "Run when user says X" --protocol_result "Returns Y" --apps_used ["clock_app"]' --steps '[{"label":"Step 1","app_command":"&clock_app now","completion_check_condition":"Returns time"}]'
+Update metadata             -> &protocoladmin update_meta --protocol_handle_name my_proto --protocol_description "Updated description"
+Add steps                   -> &protocoladmin add_steps --protocol_handle_name my_proto --steps '[{"label":"New Step","prompt":"Do something"}]'
+Edit steps                  -> &protocoladmin edit_steps --protocol_handle_name my_proto --steps '[{"id":2,"label":"Updated Label","prompt":"New prompt"}]'
+Delete steps                -> &protocoladmin delete_steps --protocol_handle_name my_proto --step_ids '[2,3]'
+Delete protocol             -> &protocoladmin delete_protocol --protocol_handle_name my_proto
+
+### Schedule Management
+List all scheduled          -> &protocoladmin list_schedule
+Get a specific entry        -> &protocoladmin get_schedule --schedule_id <schedule_id>
+Edit schedule string        -> &protocoladmin edit_schedule --schedule_id <schedule_id> --cron_schedule "0 9 * * *"
+Delete an entry             -> &protocoladmin delete_schedule --schedule_id <schedule_id>
+for new schedule entry      -> /<protocol_handle> --schedule <cron>
+<schedule_id> for the schedule can be found in the list_schedule output.
+
+## Steps JSON Format
+Steps are passed as a JSON array enclosed in single quotes after --steps argument(e.g. --steps '[{"label":"Step 1","app_command":"&clock_app now"}]'). 
+Each step object supports:
+  id                        -> (required for edit/delete) integer step id
+  label                     -> string label
+  app_command               -> string app command
+  prompt                    -> string prompt
+  completion_check_condition -> string condition
 
 ## Output Behavior
-* list returns `entries` as a list of scheduled protocols each with `memory_id`, `cron_schedule`, and `protocol_name`.
-* get returns a single entry object with `memory_id`, `cron_schedule`, and `protocol_name`, or `error_code=not_found` if the memory_id does not exist.
-* edit returns `status` (success/denied), `memory_id`, `old_cron_schedule`, `new_cron_schedule`, `user_confirmed`, and `timestamp`.
-* delete returns `status` (success/denied), `memory_id`, `protocol_name`, `user_confirmed`, and `timestamp`.
-* Errors return `error_code` and `reason` (e.g. not_found, invalid_cron, permission_denied).
+* list_protocols returns `protocols` list with `protocol_handle_name`, `protocol_name`, `protocol_description`.
+* read returns full protocol data including all metadata fields and `steps` array.
+* create returns `status`, `protocol_handle_name`, `path`, `user_confirmed`, `timestamp`.
+* update_meta returns `status`, `protocol_handle_name`, `updated_fields`, `user_confirmed`, `timestamp`.
+* add_steps returns `status`, `protocol_handle_name`, `steps_added`, `user_confirmed`, `timestamp`.
+* edit_steps returns `status`, `protocol_handle_name`, `steps_updated`, `user_confirmed`, `timestamp`.
+* delete_steps returns `status`, `protocol_handle_name`, `steps_deleted`, `user_confirmed`, `timestamp`.
+* delete_protocol returns `status`, `protocol_handle_name`, `user_confirmed`, `timestamp`.
+* list_schedule returns `entries` as a list with `schedule_id`, `cron_schedule`, `protocol_name`.
+* get_schedule returns a single entry with `schedule_id`, `cron_schedule`, `protocol_name`, or `error_code=not_found`.
+* edit_schedule returns `status`, `schedule_id`, `old_cron_schedule`, `new_cron_schedule`, `user_confirmed`, `timestamp`.
+* delete_schedule returns `status`, `schedule_id`, `protocol_name`, `user_confirmed`, `timestamp`.
+* Errors return `error_code` and `reason`.
+* New schedule entry add new schedule to ./configs/protocol_schedules.txt
 """
 
+[[app_command_signatures]]
+command = "list_protocols"
+consumes = []
+produces = ["protocols"]
+action = "read"
 
 [[app_command_signatures]]
-command = "list"
-consumes = ["command"]
+command = "read"
+consumes = ["protocol_handle_name"]
+produces = ["protocol_handle_name", "protocol_name", "protocol_description", "trigger_prompt", "protocol_result", "apps_used", "steps"]
+action = "read"
+
+[[app_command_signatures]]
+command = "create"
+consumes = ["protocol_handle_name", "protocol_name", "protocol_description", "trigger_prompt", "protocol_result", "apps_used", "steps"]
+produces = ["status", "protocol_handle_name", "path", "user_confirmed", "timestamp"]
+action = "write"
+
+[[app_command_signatures]]
+command = "update_meta"
+consumes = ["protocol_handle_name", "protocol_name", "protocol_description", "trigger_prompt", "protocol_result", "apps_used"]
+produces = ["status", "protocol_handle_name", "updated_fields", "user_confirmed", "timestamp"]
+action = "update"
+
+[[app_command_signatures]]
+command = "add_steps"
+consumes = ["protocol_handle_name", "steps"]
+produces = ["status", "protocol_handle_name", "steps_added", "user_confirmed", "timestamp"]
+action = "update"
+
+[[app_command_signatures]]
+command = "edit_steps"
+consumes = ["protocol_handle_name", "steps"]
+produces = ["status", "protocol_handle_name", "steps_updated", "user_confirmed", "timestamp"]
+action = "update"
+
+[[app_command_signatures]]
+command = "delete_steps"
+consumes = ["protocol_handle_name", "step_ids"]
+produces = ["status", "protocol_handle_name", "steps_deleted", "user_confirmed", "timestamp"]
+action = "update"
+
+[[app_command_signatures]]
+command = "delete_protocol"
+consumes = ["protocol_handle_name"]
+produces = ["status", "protocol_handle_name", "user_confirmed", "timestamp"]
+action = "delete"
+
+[[app_command_signatures]]
+command = "list_schedule"
+consumes = []
 produces = ["entries"]
 action = "read"
 
 [[app_command_signatures]]
-command = "get"
-consumes = ["memory_id"]
-produces = ["memory_id", "cron_schedule", "protocol_name"]
+command = "get_schedule"
+consumes = ["schedule_id"]
+produces = ["schedule_id", "cron_schedule", "protocol_name"]
 action = "read"
 
 [[app_command_signatures]]
-command = "edit"
-consumes = ["memory_id", "cron_schedule"]
-produces = ["status", "memory_id", "old_cron_schedule", "new_cron_schedule", "user_confirmed", "timestamp"]
+command = "edit_schedule"
+consumes = ["schedule_id", "cron_schedule"]
+produces = ["status", "schedule_id", "old_cron_schedule", "new_cron_schedule", "user_confirmed", "timestamp"]
 action = "update"
 
 [[app_command_signatures]]
-command = "delete"
-consumes = ["memory_id"]
-produces = ["status", "memory_id", "protocol_name", "user_confirmed", "timestamp"]
+command = "delete_schedule"
+consumes = ["schedule_id"]
+produces = ["status", "schedule_id", "protocol_name", "user_confirmed", "timestamp"]
 action = "delete"

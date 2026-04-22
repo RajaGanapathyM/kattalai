@@ -285,8 +285,9 @@ impl ProtocolStore{
         schedule_string: &str,
         memory_id: String,
     ) -> Result<(), String> {
+        let schedule_id=Uuid::now_v7().to_string();
 
-        let schedule_entry = format!("{}|{}|{}\n", memory_id, schedule_string, handle_name);
+        let schedule_entry = format!("{}|{}|{}|{}\n",schedule_id,memory_id, schedule_string, handle_name);
 
         if schedule_entry.trim().is_empty() {
             return Err("Schedule entry is empty".to_string());

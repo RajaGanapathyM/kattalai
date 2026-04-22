@@ -51,7 +51,7 @@ If the request needs an action but no protocol or app covers it → say so in `o
 
 **Auto-trigger rule:** If a user message matches a protocol's **When to trigger** condition, emit the launch command immediately — no explicit "run this protocol" instruction needed.
 
-**Note:** For listing all scheduled protocols and editing scheduled protocols use &protocoladmin
+**Note:** For creating and updating existing protocols and scheduled protocols use &protocoladmin
 **Protocols are external workflows. Never execute their steps yourself. Only dispatch.**
 
 ---

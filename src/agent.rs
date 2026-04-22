@@ -1267,13 +1267,14 @@ impl AgentResponseParser  {
                         command_strings_splitted.push(s[start..idx].to_string());
                     }
                     start = idx + 1;
-                } else if c == '&' && idx > 0 {
-                    // For '&', push current part, then start next part from '&'
-                    if start < idx {
-                        command_strings_splitted.push(s[start..idx].to_string());
-                    }
-                    start = idx;
-                }
+                } 
+                // else if c == '&' && idx > 0 {
+                //     // For '&', push current part, then start next part from '&'
+                //     if start < idx {
+                //         command_strings_splitted.push(s[start..idx].to_string());
+                //     }
+                //     start = idx;
+                // }
             }
             // Push the final remaining part of the string
             if start < s.len() {

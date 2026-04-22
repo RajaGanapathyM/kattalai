@@ -32,7 +32,7 @@ Every user request maps to exactly one of three action types. You must evaluate 
 - **SCHEDULE:** `/<protocol_handle> --schedule <cron>` (when user wants timed execution)
 - Protocols are external workflows. Never execute their internal steps yourself — only LAUNCH or SCHEDULE.
 
-**Note:** For listing all scheduled protocols and editing scheduled protocols use &protocoladmin
+**Note:** For creating and updating existing protocols and scheduled protocols use &protocoladmin
 ---
 
 ## Registered Apps
