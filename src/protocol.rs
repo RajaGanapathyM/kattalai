@@ -2,9 +2,10 @@ use crate::agent::{Agent, PromptStyle,agent_model_config};
 use crate::app::App;
 use tokio::runtime::Handle;
 use futures::executor::block_on;
-use crate::memory::{Memory,MemoryNode,MemoryNodeType};
+use crate::memory::{self, Memory, MemoryNode, MemoryNodeType};
 use crate::protocol;
 
+use log::{info, warn, error, debug, trace};
 use std::io::{BufRead, BufReader, Write,BufWriter};
 use std::fs::{OpenOptions, create_dir_all};
 use std::path::Path;
@@ -280,12 +281,13 @@ impl ProtocolStore{
         book
     }
 
-    pub fn schedule_protocol(&self,
+    pub async fn schedule_protocol(&self,
         handle_name: &str,
         schedule_string: &str,
-        memory_id: String,
-    ) -> Result<(), String> {
+        imemory: Arc<Memory>,
+    ) -> Result<String, String> {
         let schedule_id=Uuid::now_v7().to_string();
+        let memory_id=imemory._memory_id.clone();
 
         let schedule_entry = format!("{}|{}|{}|{}\n",schedule_id,memory_id, schedule_string, handle_name);
 
@@ -293,8 +295,8 @@ impl ProtocolStore{
             return Err("Schedule entry is empty".to_string());
         }
 
-        println!("📌 Entry length: {}", schedule_entry.len());
-        println!("📌 Entry content: {:?}", schedule_entry);
+        info!("📌 Entry length: {}", schedule_entry.len());
+        info!("📌 Entry content: {:?}", schedule_entry);
 
         let dir_path = Path::new("./configs");
         if let Err(e) = create_dir_all(dir_path) {
@@ -303,11 +305,11 @@ impl ProtocolStore{
 
         let file_path = dir_path.join("protocol_schedules.txt");
 
-        println!("Target file path: {:?}", file_path);
+        info!("Target file path: {:?}", file_path);
 
         match std::fs::canonicalize(&file_path) {
-            Ok(path) => println!("Canonical path: {:?}", path),
-            Err(_) => println!("⚠️ File not yet created, will create new"),
+            Ok(path) => info!("Canonical path: {:?}", path),
+            Err(_) => info!("⚠️ File not yet created, will create new"),
         }
 
         let file = OpenOptions::new()
@@ -317,10 +319,11 @@ impl ProtocolStore{
 
         let file = match file {
             Ok(f) => {
-                println!("File opened successfully");
+                info!("File opened successfully");
                 f
             }
             Err(e) => {
+                info!("Failed to open file: {}", e);
                 return Err(format!("Failed to open file: {}", e));
             }
         };
@@ -330,13 +333,14 @@ impl ProtocolStore{
         if let Err(e) = writer.write_all(schedule_entry.as_bytes()) {
             return Err(format!("Write failed: {}", e));
         } else {
-            println!("Write successful");
+            info!("Write successful");
         }
 
         if let Err(e) = writer.flush() {
+            imemory.insert(MemoryNode::new(&self.protocol_stor_card, format!("Protocol scheduling failed: {} {} | error: {}", handle_name,schedule_string,e), None, MemoryNodeType::ProtocolPrompt, Some(Uuid::now_v7().to_string()), Some(&self.protocol_stor_card))).await;
             return Err(format!("Flush failed: {}", e));
         } else {
-            println!("Flush successful");
+            info!("Flush successful");
         }
 
         drop(writer);
@@ -344,17 +348,17 @@ impl ProtocolStore{
         match std::fs::read_to_string(&file_path) {
             Ok(content) => {
                 if !content.contains(&schedule_entry.trim()) {
-                    println!("Entry not found after write (possible overwrite elsewhere)");
+                    info!("Entry not found after write (possible overwrite elsewhere)");
                 } else {
-                    println!("Entry verified in file");
+                    info!("Entry verified in file");
                 }
             }
             Err(e) => {
-                println!("Could not verify file content: {}", e);
+                info!("Could not verify file content: {}", e);
             }
         }
-
-        Ok(())
+        imemory.insert(MemoryNode::new(&self.protocol_stor_card, format!("Successfully Scheduled protocol '{}' with schedule '{}'", handle_name, schedule_string), None, MemoryNodeType::ProtocolPrompt, Some(Uuid::now_v7().to_string()), Some(&self.protocol_stor_card))).await;
+        Ok(format!("Protocol {} scheduled with cron: {}", handle_name, schedule_string))
     }
 
     // pub async fn show_schedules(&self,interface_memory:Arc<Memory>)-> Vec<String>{

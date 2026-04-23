@@ -51,7 +51,7 @@ List all scheduled          -> &protocoladmin list_schedule
 Get a specific entry        -> &protocoladmin get_schedule --schedule_id <schedule_id>
 Edit schedule string        -> &protocoladmin edit_schedule --schedule_id <schedule_id> --cron_schedule "0 9 * * *"
 Delete an entry             -> &protocoladmin delete_schedule --schedule_id <schedule_id>
-for new schedule entry      -> /<protocol_handle> --schedule <cron>
+for new schedule entry      -> /<protocol_handle> --schedule <cron> (e.g. /my_proto --schedule "0 9 * * *")
 <schedule_id> for the schedule can be found in the list_schedule output.
 
 ## Steps JSON Format
@@ -77,7 +77,7 @@ Each step object supports:
 * edit_schedule returns `status`, `schedule_id`, `old_cron_schedule`, `new_cron_schedule`, `user_confirmed`, `timestamp`.
 * delete_schedule returns `status`, `schedule_id`, `protocol_name`, `user_confirmed`, `timestamp`.
 * Errors return `error_code` and `reason`.
-* New schedule entry add new schedule to ./configs/protocol_schedules.txt
+* /<protocol_name> --schedule <cron> add new schedule to ./configs/protocol_schedules.txt
 """
 
 [[app_command_signatures]]

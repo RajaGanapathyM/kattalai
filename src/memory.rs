@@ -297,7 +297,7 @@ impl Memory {
                                 tokio_rt_handle.block_on(protocol_store_clone.trigger_protocol(command.to_string(), arc_memory_clone.clone() ));
                             } else if action == "schedule" {
                                 println!("Scheduling protocol for node content: {}-{}", command,arg);
-                                protocol_store_clone.schedule_protocol(&command,&arg,arc_memory_clone._memory_id.clone());
+                                tokio_rt_handle.block_on(protocol_store_clone.schedule_protocol(&command,&arg,arc_memory_clone.clone()));
                             }
                             else{
                                 tokio_rt_handle.block_on(protocol_store_clone.handle_unknown_cmd(&new_node_content, arc_memory_clone.clone()));
