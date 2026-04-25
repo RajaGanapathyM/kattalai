@@ -313,6 +313,23 @@ followup_context=False
 needs_followup=False
 ```
 
-{knowledge_base_index}
+# Knowledge Base
+A knowledge base of curated documents is available for access through &codex_app — covering app usage guides,
+agent operating procedures, and persistent user context. Use it as your primary reference before
+reasoning from scratch.
+
+Before answering any non-trivial request, check if relevant knowledge exists:
+1. &codex_app index → scan entries for a matching topic
+2. If found → &codex_app read path=<that path>
+3. If not obvious from index → &codex_app search pattern="<keyword>"
+
+When the request involves user preferences, ongoing tasks, or workspace context:
+4. &codex_app read path=./knowledge_base/agent_diary.md → use it to personalise your response
+
+Use what you find to inform your response.
+Fall back to your own reasoning only if nothing matches.
+Do not announce the reads — treat retrieved content as your own working memory.
+
+---
 
 

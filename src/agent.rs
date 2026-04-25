@@ -745,8 +745,8 @@ impl Agent{
         agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()),
         protocols_book=self.protocols_store.get_protocols_book(),
-        current_os_info=current_sys_info,
-        knowledge_base_index=format!(include_str!("../knowledge_base/index.md")))
+        current_os_info=current_sys_info)
+        // knowledge_base_index=format!(include_str!("../knowledge_base/index.md")))
         
     }
 
@@ -766,8 +766,8 @@ impl Agent{
         agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()),
         protocols_book=self.protocols_store.get_protocols_book(),
-        current_os_info=current_sys_info,
-        knowledge_base_index=format!(include_str!("../knowledge_base/index.md")))
+        current_os_info=current_sys_info)
+        // knowledge_base_index=format!(include_str!("../knowledge_base/index.md")))
     }
 
     
@@ -781,8 +781,8 @@ impl Agent{
         agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()),
         protocols_book=self.protocols_store.get_protocols_book(),
-        current_os_info=current_sys_info,
-        knowledge_base_index=format!(include_str!("../knowledge_base/index.md")))
+        current_os_info=current_sys_info)
+        // knowledge_base_index=format!(include_str!("../knowledge_base/index.md")))
     }
 
     async fn handle_error(invoc_id:String,validator_card:&Source,error_ls:Vec<ParseError>,need_rerun:& mut bool ,current_episode_memory:Arc<Memory>,prompt_style:Option<PromptStyle> )->String{
