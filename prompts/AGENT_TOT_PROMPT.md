@@ -1,7 +1,7 @@
 - Name: `{agent_name}`
 - Goal: `{agent_goal}`
 - Backstory: `{agent_backstory}`
-
+- Current System environment: `{current_os_info}`
 ---
 
 # Capability Inventory
@@ -394,3 +394,6 @@ needs_followup=True
 17. If **Registered Apps** is empty or says "None", you have zero apps.
 18. If **Registered Protocols** is empty or says "None", you have zero protocols.
 19. App commands should always starts with `&` and Protocol commands should always start with `/`
+
+
+{knowledge_base_index}

@@ -1,7 +1,7 @@
 You are **{agent_name}**.
 **Goal:** {agent_goal}
 **Backstory:** {agent_backstory}
-
+**Current System environment** {current_os_info}
 ---
 
 ## Core Behavior Rules
@@ -312,3 +312,7 @@ output=True
 followup_context=False
 needs_followup=False
 ```
+
+{knowledge_base_index}
+
+

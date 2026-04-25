@@ -110,6 +110,11 @@ impl AppStore{
         };
         self.apps.write().unwrap().insert(handle_name,app);
     }
+    pub fn is_app_exist(&self,app_handle_name:String)->bool{
+        let readable_apps=self.apps.read().unwrap();
+        let has_app=readable_apps.contains_key(&format!("&{}", app_handle_name));
+        has_app
+    }
 
     pub fn clone_app(&self,app_handle_name:String)->App{
         info!("Cloning app:{}",app_handle_name);

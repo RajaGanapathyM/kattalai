@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use app::App;
 use std::collections::HashMap;
+use crate::appstore::AppStore;
 use crate::memory::Memory;
 use std::sync::{Arc};
 use tokio::sync::RwLock;
@@ -12,15 +13,17 @@ use async_trait::async_trait;
 pub struct Terminal{
     env_vars: Vec<(String, String)>,
     app_hooks:Arc<RwLock<HashMap<String, Arc<App>>>>,
-    interface_memory_tx:Option<crossbeam::channel::Sender<AgentPulse>>
+    interface_memory_tx:Option<crossbeam::channel::Sender<AgentPulse>>,
+    app_store:Option<Arc<AppStore>>,
 }
 
 impl Terminal{
-    pub fn new(interface_memory_tx:Option<crossbeam::channel::Sender<AgentPulse>>) -> Self {
+    pub fn new(app_store:Option<Arc<AppStore>>,interface_memory_tx:Option<crossbeam::channel::Sender<AgentPulse>>) -> Self {
         Self {
             env_vars: Vec::new(),
             app_hooks:Arc::new(RwLock::new(HashMap::new())),
-            interface_memory_tx
+            interface_memory_tx,
+            app_store
         }
     }
 
@@ -79,8 +82,21 @@ impl Terminal{
 
             if app_handle_name.starts_with("&"){
                 if !self.app_hooks.read().await.contains_key(&app_handle_name) {
+                    if self.app_store.is_some(){
+                        if self.app_store.as_ref().unwrap().is_app_exist(app_handle_name.clone()){
+                            let app=self.app_store.as_ref().unwrap().clone_app(app_handle_name.clone());
+                            self.launch_app(app).await;
+                        }
+                        else{
+                            error_ls.push(format!("App with handle name '{}' not found for command execution.", app_handle_name));
+                        }
+                    }
+                    else{
+                        error_ls.push(format!("App with handle name '{}' not found for command execution.", app_handle_name));
+                    }
                     error_ls.push(format!("App with handle name '{}' not found for command execution.", app_handle_name));
                 }
+
             }
             else if app_handle_name.starts_with("/") {
                 continue;
@@ -99,6 +115,10 @@ impl Terminal{
         }
     }
     pub async fn execute_command(&self, command: String,episode_id:String,invocation_id:String) {
+        if self.validate_app_commands(&vec![command.clone()]).await.len()>0{
+            error!("Command validation failed for command:{}",command);
+            return;
+        }
 
         let command_args=command.split_whitespace().collect::<Vec<&str>>();
 

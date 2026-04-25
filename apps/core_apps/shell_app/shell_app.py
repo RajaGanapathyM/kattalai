@@ -248,6 +248,7 @@ class ShellApp(soul_engine_app):
             context["env"] = "inherited (current process environment)"
 
         allowed = self._request_permission(si, "run", context)
+        # si.send_message(f"Allowed or not:{allowed}")
         if not allowed:
             return self._denied("run", cmd=cmd, cwd=cwd)
 
@@ -257,13 +258,20 @@ class ShellApp(soul_engine_app):
                 cmd,
                 shell=True,
                 cwd=cwd,
+                
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=os.environ if include_env else None,
                 text=True,
             )
+            # si.send_message("PRocess started")
             stdout, stderr = proc.communicate()
             duration_ms = int((time.monotonic() - start) * 1000)
+            # si.send_message(f"CMD:{cmd}")
+            # si.send_message(f"RETURN CODE: {proc.returncode}")
+            # si.send_message(f"STDOUT: {stdout}")
+            # si.send_message(f"STDERR: {stderr}")
 
             return self._ok(
                 "run",
@@ -331,6 +339,7 @@ class ShellApp(soul_engine_app):
                 full_cmd,
                 shell=True,
                 cwd=cwd,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,

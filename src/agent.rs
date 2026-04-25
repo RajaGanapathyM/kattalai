@@ -33,12 +33,46 @@ use std::{
     collections::{HashMap, HashSet},
     thread,
 };
-
+use sysinfo::System;
 use tokio::time::{interval, Duration};
 
 use tokio::sync::Mutex;
 
 use log::{info, warn, error, debug, trace};
+
+use sysinfo::{ Disks};
+
+pub fn get_sys_info() -> String {
+    let mut sys = System::new_all();
+    // We must refresh the system data to get current values
+    sys.refresh_all();
+
+    let os_name = System::name().unwrap_or_else(|| "Unknown".to_string());
+    let os_version = System::os_version().unwrap_or_else(|| "Unknown".to_string());
+    let kernel = System::kernel_version().unwrap_or_else(|| "Unknown".to_string());
+    let host = System::host_name().unwrap_or_else(|| "Unknown".to_string());
+    
+    // RAM is usually returned in bytes; converting to GB
+    let total_ram_gb = sys.total_memory() / 1024 / 1024 / 1024;
+    let used_ram_gb = sys.used_memory() / 1024 / 1024 / 1024;
+
+    // CPU info
+    let cpu_count = sys.cpus().len();
+    let cpu_brand = sys.cpus().get(0)
+        .map(|c| c.brand())
+        .unwrap_or("Unknown CPU");
+
+    format!(
+        "
+        Hostname:     {}\n\
+        OS:           {} (v{})\n\
+        Kernel:       {}\n\
+        CPU:          {} ({} Cores)\n\
+        RAM:          {}GB / {}GB used\n\
+        ---------------------------",
+        host, os_name, os_version, kernel, cpu_brand, cpu_count, used_ram_gb, total_ram_gb
+    )
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PromptStyle{
@@ -147,6 +181,7 @@ impl AgentStore{
         let std_apps=vec![
             "protocoladmin".to_string(),
             "appfinder".to_string(),
+            "codex_app".to_string(),
         ];
         for mut agent in config.agent_config{
             for std_app in std_apps.clone(){
@@ -249,7 +284,7 @@ impl Agent{
             backstory,
             reasoning_model:reasoning_model.clone(),
             nlp_model:nlp_model.clone(),
-            terminal:Arc::new(Terminal::new(Some(tx.clone()))),
+            terminal:Arc::new(Terminal::new(Some(app_store.clone()), Some(tx.clone()))),
             latest_episode_id:RwLock::new(None),
             invoke_post_fn,
             validator_card:Source::new(Role::App,format!("{}ResponseValidator",agent_name.clone()),None),
@@ -487,10 +522,11 @@ impl Agent{
                             let new_app=agent_lock.app_store.clone_app(app_handle_name.clone());
                             agent_lock.terminal.launch_app(new_app).await;
                         }
-                        let agent_prompt=agent_lock.get_sys_prompt(&app_chain_str);
+                        let current_sys_info=get_sys_info();
+                        let agent_prompt=agent_lock.get_sys_prompt(&current_sys_info,&app_chain_str);
                         // info!("Model Prompt :\n{}",agent_prompt);
-                        let agent_tof_prompt=agent_lock.get_tof_sys_prompt(&app_chain_str);
-                        let agent_rac_prompt=agent_lock.get_rac_sys_prompt(&app_chain_str);        
+                        let agent_tof_prompt=agent_lock.get_tof_sys_prompt(&current_sys_info,&app_chain_str);
+                        let agent_rac_prompt=agent_lock.get_rac_sys_prompt(&current_sys_info,&app_chain_str);        
                         
                         let terminal=agent_lock.terminal.clone();
 
@@ -699,7 +735,7 @@ impl Agent{
         }
     }
     
-    fn get_sys_prompt(&self,app_chain_str:&String)->String{
+    fn get_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String)->String{
         // info!("App Guidebook:\n{}",self.terminal.get_app_guidebook());
         
         format!( include_str!("../prompts/AGENT_REASONING_PROMPT.md"),
@@ -708,7 +744,9 @@ impl Agent{
         agent_goal=self.agent_goal,
         agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()),
-        protocols_book=self.protocols_store.get_protocols_book())
+        protocols_book=self.protocols_store.get_protocols_book(),
+        current_os_info=current_sys_info,
+        knowledge_base_index=format!(include_str!("../knowledge_base/index.md")))
         
     }
 
@@ -719,7 +757,7 @@ impl Agent{
         
     }
 
-    fn get_tof_sys_prompt(&self,app_chain_str:&String)->String{
+    fn get_tof_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String)->String{
         
         format!(include_str!("../prompts/AGENT_TOT_PROMPT.md"),
         agent_name=self.agent_card.get_name(),
@@ -727,12 +765,14 @@ impl Agent{
         agent_goal=self.agent_goal,
         agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()),
-        protocols_book=self.protocols_store.get_protocols_book())
+        protocols_book=self.protocols_store.get_protocols_book(),
+        current_os_info=current_sys_info,
+        knowledge_base_index=format!(include_str!("../knowledge_base/index.md")))
     }
 
     
 
-    fn get_rac_sys_prompt(&self,app_chain_str:&String)->String{
+    fn get_rac_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String)->String{
         
         format!(include_str!("../prompts/AGENT_RAC_PROMPT.md"),
         agent_name=self.agent_card.get_name(),
@@ -740,7 +780,9 @@ impl Agent{
         agent_goal=self.agent_goal,
         agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()),
-        protocols_book=self.protocols_store.get_protocols_book())
+        protocols_book=self.protocols_store.get_protocols_book(),
+        current_os_info=current_sys_info,
+        knowledge_base_index=format!(include_str!("../knowledge_base/index.md")))
     }
 
     async fn handle_error(invoc_id:String,validator_card:&Source,error_ls:Vec<ParseError>,need_rerun:& mut bool ,current_episode_memory:Arc<Memory>,prompt_style:Option<PromptStyle> )->String{

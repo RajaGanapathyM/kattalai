@@ -4,6 +4,7 @@ Your name is {agent_name}.
 
 **Backstory:** {agent_backstory}
 
+**Current System environment** {current_os_info}
 ---
 
 ## Action Types — Read This Before Every Decision
@@ -397,3 +398,5 @@ output=False
 followup_context=True
 needs_followup=True
 ```
+
+{knowledge_base_index}

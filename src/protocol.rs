@@ -60,7 +60,7 @@ impl Protocol{
         
         let pcard=Source::new(Role::App,format!("{}ProtocolRunner",protocol_config.protocol_name.clone()),None);
 
-        let terminal=Arc::new(Terminal::new(interface_memory.get_memory_tx()));
+        let terminal=Arc::new(Terminal::new(Some(app_store.clone()), interface_memory.get_memory_tx().clone()));
         for app_handle_name in protocol_config.apps_used.iter(){
             let app=app_store.clone_app(app_handle_name.clone());
             terminal.launch_app(app).await;
