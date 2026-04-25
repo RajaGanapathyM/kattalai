@@ -3,12 +3,12 @@ protocol_handle_name = "morning_news_summary"
 protocol_description = "Retrieves and summarizes top morning news"
 trigger_prompt = "morning news"
 protocol_result = "Summarized news"
-apps_used = ["[webpage_reader]"]
+apps_used = ["webpage_reader"]
 
 [[step]]
 id = 1
 label = "Get News"
-app_command = "&webpage_reader read https://news.ycombinator.com --query \"top news\""
+app_command = "&webpage_reader read <website mentioned in context> --query \"top news\""
 prompt = "Get the top news from Hacker News"
 
 [[step]]

@@ -94,9 +94,9 @@ async fn main() {
     let se_read_runtime=se_runtime.read().await;
 
     
-    // se_read_runtime.insert_message(&topic_id, &demo_user_id, "/first_check --run".to_string()).await.unwrap();  
-    // drop(se_read_runtime);  
-    // sleep(Duration::from_secs(200000));
+    se_read_runtime.insert_message(&topic_id, &demo_user_id, "/morning_news_summary --run --context 'https://indianexpress.com/'".to_string()).await.unwrap();  
+    drop(se_read_runtime);  
+    sleep(Duration::from_secs(200000));
     let se_read_runtime=se_runtime.read().await;
     // se_read_runtime.insert_message(&topic_id, &demo_user_id, "Hello, Whst is your name.".to_string()).await.unwrap();
     
@@ -188,7 +188,8 @@ async fn main() {
     // let my_msg="i want every days morning news to be retrived and analysed and sumamrized for me".to_string();
     // let my_msg="My computer is slow. check what are the process running".to_string();
     // let my_msg="What is the current OS information of my computer?".to_string();
-    let my_msg="Can you open https://indianexpress.com/ and check what is the latest news?".to_string();
+    // let my_msg="Can you open https://indianexpress.com/ and check what is the latest news?".to_string();
+    let my_msg="Can you run monring news summary protocol for https://indianexpress.com/".to_string();
     
 // let msg="".to_string();
     println!("Inserting message: {}", my_msg);

@@ -256,7 +256,7 @@ class WebpageReaderApp(soul_engine_app):
         try:
             response=None
             try:
-                response  = await page.goto(url, wait_until="networkidle", timeout=PAGE_LOAD_WAIT_TIME)
+                response  = await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_LOAD_WAIT_TIME)
             except:
                 pass
             final_url = page.url

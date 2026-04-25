@@ -85,7 +85,12 @@ impl Terminal{
                     if self.app_store.is_some(){
                         if self.app_store.as_ref().unwrap().is_app_exist(app_handle_name.clone()){
                             let app=self.app_store.as_ref().unwrap().clone_app(app_handle_name.clone());
-                            self.launch_app(app).await;
+                            if app.is_none(){
+                                error_ls.push(format!("App:{} not found in app store",app_handle_name));
+                                error!("App:{} not found in app store",app_handle_name);
+                                continue;
+                            }
+                            self.launch_app(app.unwrap()).await;
                         }
                         else{
                             error_ls.push(format!("App with handle name '{}' not found for command execution.", app_handle_name));

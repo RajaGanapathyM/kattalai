@@ -63,7 +63,11 @@ impl Protocol{
         let terminal=Arc::new(Terminal::new(Some(app_store.clone()), interface_memory.get_memory_tx().clone()));
         for app_handle_name in protocol_config.apps_used.iter(){
             let app=app_store.clone_app(app_handle_name.clone());
-            terminal.launch_app(app).await;
+            if app.is_none(){
+                error!("App:{} specified in protocol config not found in app store",app_handle_name);
+                continue;
+            }
+            terminal.launch_app(app.unwrap()).await;
         }
         Self{
             protocol_id: Uuid::now_v7().to_string(),
@@ -81,10 +85,12 @@ impl Protocol{
         }
     }
 
-    fn get_sys_prompt(&self,step_id:i32)->String{
-        include_str!("../prompts/AGENT_PROTOCOL_PROMPT.md").replace("__protocol_md__", &self.protocol_md).replace("__current_step_id__", &step_id.to_string())
+    fn get_sys_prompt(&self,step_id:i32,context:String)->String{
+        include_str!("../prompts/AGENT_PROTOCOL_PROMPT.md").replace("__protocol_md__", &self.protocol_md).replace("__current_step_id__", &step_id.to_string()).replace("__context__", &context)
     }
-    pub async fn run(&self){
+    pub async fn run(&self,context:Option<String>){
+        let context_str=context.unwrap_or_else(|| "".into());
+
         let agent_card=Source::new(Role::App, format!("{}ProtocolRunner",self.protocol_handle_name), None);
         let invocation_id=Uuid::now_v7().to_string();
         println!("Running protocol: {}", self.protocol_name);
@@ -93,7 +99,7 @@ impl Protocol{
             println!("Invoking reasoning model for protocol: {}", self.protocol_name);
             let model_resp=self.reasoning_model.chat(
                 self.interface_memory.clone(), 
-                self.get_sys_prompt(current_step_id), 
+                self.get_sys_prompt(current_step_id,context_str.clone()), 
                 Some(invocation_id.clone()),
                 Some(&agent_card)
 
@@ -284,12 +290,13 @@ impl ProtocolStore{
     pub async fn schedule_protocol(&self,
         handle_name: &str,
         schedule_string: &str,
+        context_str: Option<String>,
         imemory: Arc<Memory>,
     ) -> Result<String, String> {
         let schedule_id=Uuid::now_v7().to_string();
         let memory_id=imemory._memory_id.clone();
 
-        let schedule_entry = format!("{}|{}|{}|{}\n",schedule_id,memory_id, schedule_string, handle_name);
+        let schedule_entry = format!("{}|{}|{}|{}|{}\n",schedule_id,memory_id, schedule_string, handle_name, context_str.unwrap_or_else(|| "".to_string()));
 
         if schedule_entry.trim().is_empty() {
             return Err("Schedule entry is empty".to_string());
@@ -375,7 +382,7 @@ impl ProtocolStore{
 
     //     self.protocols.keys().cloned().collect()
     // }
-    pub async fn trigger_protocol(&self, protocol_handle: String,interface_memory:Arc<Memory>){
+    pub async fn trigger_protocol(&self, protocol_handle: String,context_str:Option<String>,interface_memory:Arc<Memory>){
         let handle = Handle::current();
         if let Some(protocol_config) = self.protocols.get(&protocol_handle){
             let protocol_path = self.protocols_path.get(&protocol_handle).unwrap().clone();
@@ -395,7 +402,7 @@ impl ProtocolStore{
                     app_store_clone
                 ).await;
             
-                protocol_inst.run().await;
+                protocol_inst.run(context_str).await;
             });
 
             interface_memory.insert(MemoryNode::new(&self.protocol_stor_card,format!("Launched protocol: {}", protocol_config.protocol_name), None,MemoryNodeType::Applog,Some(Uuid::now_v7().to_string()),Some(&self.protocol_stor_card))).await;

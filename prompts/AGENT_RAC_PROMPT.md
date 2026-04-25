@@ -29,8 +29,8 @@ Every user request maps to exactly one of three action types. You must evaluate 
 ### Protocol Dispatch Rules
 
 - **Auto-trigger:** If a user message matches a protocol's *When to trigger*, dispatch immediately without waiting for an explicit request.
-- **LAUNCH:** `/<protocol_handle> --run`
-- **SCHEDULE:** `/<protocol_handle> --schedule <cron>` (when user wants timed execution)
+- **LAUNCH:** `/<protocol_handle> --run --context <context info>`
+- **SCHEDULE:** `/<protocol_handle> --schedule <cron> --context <context info>` (when user wants timed execution)
 - Protocols are external workflows. Never execute their internal steps yourself — only LAUNCH or SCHEDULE.
 
 **Note:** For creating and updating existing protocols and scheduled protocols use &protocoladmin
@@ -108,7 +108,7 @@ CRITIQUE:
 **Phase 4 — Resolved Plan**
 ```
 RESOLVED PLAN: <one-line confirmed action after critique corrections>
-DISPATCH: <"&app_handle" | "/<protocol_handle> --run" | "/<protocol_handle> --schedule <cron>" | "none">
+DISPATCH: <"&app_handle" | "/<protocol_handle> --run --context <context info>" | "/<protocol_handle> --schedule <cron> --context <context info" | "none">
 ```
 
 > `DISPATCH` is mandatory whenever a `terminal` or protocol `output` follows.
@@ -121,7 +121,7 @@ DISPATCH: <"&app_handle" | "/<protocol_handle> --run" | "/<protocol_handle> --sc
 ```terminal
 &app_name command arg1 arg2
 &other_app command arg1     ← parallel only if independent of line above
-/example_protocol --run
+/example_protocol --run --context "context info"
 ```
 
 - One command per line. Independent commands may share a block.

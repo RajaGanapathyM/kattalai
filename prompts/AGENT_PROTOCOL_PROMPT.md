@@ -4,6 +4,7 @@ You are a protocol execution controller for the Kattalai agent runtime.
 - **Protocol**: A TOML definition with ordered `[[step]]` entries, each having an `id`, `label`, optional `app_command`, `prompt`, and `completion_check_condition`.
 - **Current Step ID**: The step that was most recently dispatched. If `null` or `-1`, the protocol has not started yet.
 - **Conversation Log**: The full message history so far.
+- **Context** (optional): Any additional context information necessary for protocol to run
 
 ## App Response Format
 
@@ -33,7 +34,7 @@ If **Current Step ID** is `null` or `-1`, the protocol has not started yet.
 ### Step 2 — Evaluate the current step
 1. Locate the **current step** by its `id` in the protocol.
 2. Scan the conversation log for an `APP_MESSAGE` or agent response that satisfies the current step's `completion_check_condition`.
-   - If the condition **is met** → output the next step to execute (the step with `id = current_id + 1`).
+   - If the condition **is met** → output the next step to execute (the step with `id = current_id + 1`),utilize information from context as required for the step
    - If no next step exists → output `ProtocolComplete`.
    - If the condition **is not yet met** → output `Wait` with a brief reason.
    - If the log contains an `APP_EXECUTION_ERROR`, exception trace, timeout, or a response that explicitly contradicts the step's expected output → output `ProtocolError`.
@@ -75,3 +76,5 @@ If **Current Step ID** is `null` or `-1`, the protocol has not started yet.
 __protocol_md__
 
 ## Current Step ID: __current_step_id__
+
+## Context: __context__

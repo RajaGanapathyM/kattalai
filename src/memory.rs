@@ -285,19 +285,20 @@ impl Memory {
                 if let Some(protocol_store_clone) = thread_protocol_store.clone(){
                  
                     if new_node_content.starts_with("/"){
-                        let regcap = Regex::new(r"^/([^\s]+)\s+--(schedule|run)(?:\s+(.*))?$").unwrap().captures(&new_node_content);
+                        let regcap = Regex::new(r"^/([^\s]+)\s+--(schedule|run)(?:\s+([^/-][^/]*))?(?:\s+--(context|args)\s+(.*))?$").unwrap().captures(&new_node_content);
 
                         if let Some(caps) = regcap {
                             let command = caps.get(1).map_or("", |m| m.as_str());
                             let action = caps.get(2).map_or("", |m| m.as_str());
                             let arg = caps.get(3).map_or("", |m| m.as_str());
+                            let context_str = caps.get(5).map_or("", |m| m.as_str());
 
                             if action == "run" {
                                 println!("Triggering protocol for node content: {}", new_node_content);
-                                tokio_rt_handle.block_on(protocol_store_clone.trigger_protocol(command.to_string(), arc_memory_clone.clone() ));
+                                tokio_rt_handle.block_on(protocol_store_clone.trigger_protocol(command.to_string(), Some(format!("{}\n{}", arg, context_str)), arc_memory_clone.clone() ));
                             } else if action == "schedule" {
                                 println!("Scheduling protocol for node content: {}-{}", command,arg);
-                                tokio_rt_handle.block_on(protocol_store_clone.schedule_protocol(&command,&arg,arc_memory_clone.clone()));
+                                tokio_rt_handle.block_on(protocol_store_clone.schedule_protocol(&command,&arg,Some(context_str.to_string()),arc_memory_clone.clone()));
                             }
                             else{
                                 tokio_rt_handle.block_on(protocol_store_clone.handle_unknown_cmd(&new_node_content, arc_memory_clone.clone()));
@@ -338,7 +339,7 @@ impl Memory {
                                             if let Some(handle_name)=parts.get(2){
                                                 if should_trigger(schedule_string) {
                                                     println!("Triggering scheduled protocol: {} for memory_id: {}", schedule_string, my_memory_id);
-                                                    new_protocol_store.trigger_protocol(handle_name.to_string(), my_arc_memory.clone()).await;                                                        
+                                                    new_protocol_store.trigger_protocol(handle_name.to_string(), Some(parts.get(3).map_or("".to_string(), |s| s.to_string())), my_arc_memory.clone()).await;                                                        
                                                 }
                                             }                                                
                                         }

@@ -32,7 +32,7 @@ Each step has a unique integer `id` (starting at 1, sequential) and may contain:
 ## Schedule File
 All protocol schedules are stored at: ./configs/protocol_schedules.txt
 Each line follows this format:
-  <schedule_id>|<memory_id>|<cron_schedule>|<protocol_name>
+  <schedule_id>|<memory_id>|<cron_schedule>|<protocol_name>|<context info>
 
 ## Examples
 
@@ -49,9 +49,9 @@ Delete protocol             -> &protocoladmin delete_protocol --protocol_handle_
 ### Schedule Management
 List all scheduled          -> &protocoladmin list_schedule
 Get a specific entry        -> &protocoladmin get_schedule --schedule_id <schedule_id>
-Edit schedule string        -> &protocoladmin edit_schedule --schedule_id <schedule_id> --cron_schedule "0 9 * * *"
+Edit schedule string        -> &protocoladmin edit_schedule --schedule_id <schedule_id> --cron_schedule "0 9 * * *" --context "Updated context for the schedule"
 Delete an entry             -> &protocoladmin delete_schedule --schedule_id <schedule_id>
-for new schedule entry      -> /<protocol_handle> --schedule <cron> (e.g. /my_proto --schedule "0 9 * * *")
+for new schedule entry      -> /<protocol_handle> --schedule <cron> --context <context> (e.g. /my_proto --schedule "0 9 * * *" --context "Some context for the protocol run")
 <schedule_id> for the schedule can be found in the list_schedule output.
 
 ## Steps JSON Format
@@ -60,7 +60,7 @@ Each step object supports:
   id                        -> (required for edit/delete) integer step id
   label                     -> string label
   app_command               -> string app command
-  prompt                    -> string prompt
+  prompt                    -> string prompt along with any details about info to be used from context string (e.g. using info 1 from context)
   completion_check_condition -> string condition
 
 ## Output Behavior

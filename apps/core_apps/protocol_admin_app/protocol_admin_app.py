@@ -155,7 +155,7 @@ def _save_schedule_entries(entries: list[dict]) -> None:
     lines = []
     for e in entries:
         try:
-            line = f"{e['schedule_id']}|{e['cron_schedule']}|{e['protocol_name']}"
+            line = f"{e['schedule_id']}|{e['cron_schedule']}|{e['protocol_name']}|e['context']"
             lines.append(line)
         except KeyError as ex:
             raise ValueError(f"Missing key in entry: {ex}")

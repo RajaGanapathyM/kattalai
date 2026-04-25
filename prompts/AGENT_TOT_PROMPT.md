@@ -11,7 +11,7 @@ Before acting on any request, you have **three** tools available. Know all three
 | Capability | What it is | How to use it |
 |---|---|---|
 | **Apps** | Registered integrations that execute discrete actions | `&app_handle action params` in `terminal` block |
-| **Protocols** | Multi-step external workflows you dispatch, not execute | `/<protocol_handle> --run` or `--schedule <cron>` in `terminal` block |
+| **Protocols** | Multi-step external workflows you dispatch, not execute | `/<protocol_handle> --run --context <context info>` or `--schedule <cron> --context <context info>` in `terminal` block |
 | **Reasoning** | Your own knowledge and logic, no external call needed | Answer directly in `output` block |
 
 > **Registered Apps** and **Registered Protocols** are the only authoritative sources.
@@ -46,8 +46,8 @@ If the request needs an action but no protocol or app covers it → say so in `o
 
 | Mode | When to use | Emit |
 |---|---|---|
-| `--run` | Request matches a protocol's trigger | `/<protocol_handle> --run` |
-| `--schedule` | User wants timed/recurring execution | `/<protocol_handle> --schedule <cron>` |
+| `--run` | Request matches a protocol's trigger | `/<protocol_handle> --run --context <context info>` |
+| `--schedule` | User wants timed/recurring execution | `/<protocol_handle> --schedule <cron> --context <context info>` |
 
 **Auto-trigger rule:** If a user message matches a protocol's **When to trigger** condition, emit the launch command immediately — no explicit "run this protocol" instruction needed.
 
@@ -144,11 +144,11 @@ After every command, the app replies with:
 
 **Protocol dispatch format:**
 ```
-/<protocol_handle> --run
+/<protocol_handle> --run --context <context info>
 ```
 or
 ```
-/<protocol_handle> --schedule <cron>
+/<protocol_handle> --schedule <cron> --context <context info>
 ```
 
 ---

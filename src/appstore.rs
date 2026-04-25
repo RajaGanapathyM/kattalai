@@ -112,16 +112,20 @@ impl AppStore{
     }
     pub fn is_app_exist(&self,app_handle_name:String)->bool{
         let readable_apps=self.apps.read().unwrap();
-        let has_app=readable_apps.contains_key(&format!("&{}", app_handle_name));
+        let has_app=readable_apps.contains_key(&format!("&{}", app_handle_name)) || readable_apps.contains_key(&app_handle_name);
         has_app
     }
 
-    pub fn clone_app(&self,app_handle_name:String)->App{
+    pub fn clone_app(&self,app_handle_name:String)->Option<App>{
         info!("Cloning app:{}",app_handle_name);
         let readable_apps=self.apps.read().unwrap();
-        let app_inits=readable_apps.get(&app_handle_name).unwrap();
-
-        App::new(app_inits.app_toml_path.clone(), app_inits.app_info.clone())
+        if readable_apps.contains_key(&format!("&{}", app_handle_name)) || readable_apps.contains_key(&app_handle_name){
+            let app_inits=readable_apps.get(&app_handle_name).unwrap();
+            Some(App::new(app_inits.app_toml_path.clone(), app_inits.app_info.clone()))
+        } else {
+            error!("App not found: {}", app_handle_name);
+            None
+        }
     }
     pub async fn infer_toolchain(&mut self) {
         let mut consumptions_to_produce: HashMap<String,HashSet<(String,String)>> = HashMap::new();

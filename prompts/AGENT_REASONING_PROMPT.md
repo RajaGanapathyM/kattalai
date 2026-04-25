@@ -41,8 +41,8 @@ Protocols are external workflows. You have two permitted interactions — **LAUN
 
 | Mode | When to use | What to emit |
 |------|-------------|--------------|
-| LAUNCH | User message exactly matches a protocol's trigger | `/<protocol_handle> --run` |
-| SCHEDULE | User wants timed/recurring execution | `/<protocol_handle> --schedule <cron>` |
+| LAUNCH | User message exactly matches a protocol's trigger | `/<protocol_handle> --run --context <context info>` |
+| SCHEDULE | User wants timed/recurring execution | `/<protocol_handle> --schedule <cron> --context <context info>` |
 
 `<protocol_handle>` is the value from the **How to initiate** column below.
 
@@ -59,7 +59,7 @@ Protocols are external workflows. You have two permitted interactions — **LAUN
 ```thoughts: User message matches <some_protocol> trigger. Dispatching.
 ```
 ```terminal
-/<some_protocol> --run
+/<some_protocol> --run --context "context for the protocol"
 ```
 
 **Schedule a protocol:**
@@ -67,7 +67,7 @@ Protocols are external workflows. You have two permitted interactions — **LAUN
 Cron: 0 8 * * 1
 ```
 ```terminal
-/<some_protocol> --schedule 0 8 * * 1
+/<some_protocol> --schedule 0 8 * * 1 --context "context for the protocol"
 ```
 
 ---
@@ -181,7 +181,7 @@ needs_followup=False
 Action Selection Order step 1: user message matches <some_protocol> trigger. Dispatching protocol. Stop — no app call needed.
 ```
 ```terminal
-/<some_protocol> --run
+/<some_protocol> --run --context "context string"
 ```
 ```validation
 thoughts=True

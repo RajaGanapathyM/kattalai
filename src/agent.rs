@@ -232,7 +232,12 @@ impl AgentStore{
 
             for dapp in &aconfig.default_apps{
                 info!("Attaching default app:{} to agent:{}",dapp,agent_name);
-                block_on(Agent::ping(&first_agent,AgentPulse::AttachApp(self.app_store.clone_app(dapp.clone()))));
+                let identified_app=self.app_store.clone_app(dapp.clone());
+                if identified_app.is_none(){
+                    error!("Default app:{} for agent:{} not found in app store",dapp,agent_name);
+                    continue;
+                }
+                block_on(Agent::ping(&first_agent,AgentPulse::AttachApp(identified_app.unwrap())));
             }
             
             first_agent
@@ -520,7 +525,11 @@ impl Agent{
                         for app_handle_name in tools_select.iter(){
                             info!("Launching New App:{} | Agent:{}",app_handle_name,agent_card.get_name());
                             let new_app=agent_lock.app_store.clone_app(app_handle_name.clone());
-                            agent_lock.terminal.launch_app(new_app).await;
+                            if new_app.is_none(){
+                                error!("App:{} not found in app store",app_handle_name);
+                                continue;
+                            }
+                            agent_lock.terminal.launch_app(new_app.unwrap()).await;
                         }
                         let current_sys_info=get_sys_info();
                         let agent_prompt=agent_lock.get_sys_prompt(&current_sys_info,&app_chain_str);
