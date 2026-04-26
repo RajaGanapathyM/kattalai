@@ -256,11 +256,14 @@ class WebpageReaderApp(soul_engine_app):
         try:
             response=None
             try:
-                response  = await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_LOAD_WAIT_TIME)
+                response  = await page.goto(url, wait_until="networkidle", timeout=PAGE_LOAD_WAIT_TIME)
             except:
                 pass
+            print("wait until passed")
             final_url = page.url
+            print("Getting title")
             title     = await page.title()
+            print("getting content")
             html      = await page.content()
             status    = response.status if response else 0
             # Track last known good URL for response injection
@@ -271,7 +274,7 @@ class WebpageReaderApp(soul_engine_app):
         finally:
             # BUG FIX #1 — single close point; runs even after return-in-except
             await context.close()
-
+        print("returning")
         return result
 
     # ────────────────────────────────────────────────── content processing ───
@@ -319,6 +322,7 @@ class WebpageReaderApp(soul_engine_app):
         # codes passed through silently and the pipeline continued on 404/500.
         if page.get("status") == "error":
             return page
+        print("Checking HTTP status")
         http_status = page.get("status", 0)
         if isinstance(http_status, int) and http_status >= 400:
             return {
@@ -327,9 +331,12 @@ class WebpageReaderApp(soul_engine_app):
                 "url":     page.get("url", url),
             }
 
+        print("Converting HTML to Markdown")
         md = self._html_to_markdown(page["html"], base_url=page["url"])
+        print("Pruning Markdown")
         md = self._prune_markdown(md)
         if query:
+            print("Filtering Markdown")
             md = self._bm25_filter(md, query)
         return {
             "status":     "ok",
@@ -591,6 +598,7 @@ class WebpageReaderApp(soul_engine_app):
 
         # BUG FIX #6: removed redundant .encode("utf-8").decode("utf-8") pair.
         # ensure_ascii=False lets Unicode pass through correctly.
+        print("Sending Response...")
         se_interface.send_message(json.dumps(result, ensure_ascii=False))
 
 

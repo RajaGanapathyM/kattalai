@@ -317,6 +317,13 @@ struct ParsedResp{
 }
 pub struct AppResponseParser;
 
+#[derive(Debug, Deserialize)]
+struct SpillEnvelope {
+    #[serde(rename = "__spilled__")]
+    spilled: bool,
+    file: String,
+}
+
 impl AppResponseParser  {
     pub fn parse(resp:&String) -> Result<ParsedResp, AppParseError>{
         if resp.trim().len()==0{
@@ -333,6 +340,27 @@ impl AppResponseParser  {
         }
     }
 
+    fn resolve_spill(resp:&String)->String{
+        
+        info!("Resolving spilled content from file: {:?}",resp);
+        let spillResp:SpillEnvelope= serde_json::from_str(resp).unwrap();
+        
+
+        if spillResp.spilled{
+            let spilled_content=fs::read_to_string(&spillResp.file).map_err(|e| format!("{:?}",e)).unwrap();
+
+            if let Err(e)=fs::remove_file(&spillResp.file){
+                error!("Failed to remove spill file: {:?}. Error: {:?}",spillResp.file,e);
+            }
+
+
+            return spilled_content;
+        }
+        else{
+            return resp.clone();
+        }
+    }
+
     fn parse_appresp(resp:&String) -> Result<ParsedResp, AppParseError>{
         let resp_pattern=r"^\[#(?P<command>[A-Z_]+)>episode_id:(?P<episode_id>[^|]+)\|invocation_id:(?P<invocation_id>[^\]]+)\](?P<message>.*)$";
 ;
@@ -344,7 +372,11 @@ impl AppResponseParser  {
             let command=cap.name("command").unwrap().as_str().to_string();
             let episode_id=cap.name("episode_id").unwrap().as_str().to_string();
             let invocation_id=cap.name("invocation_id").unwrap().as_str().to_string();
-            let msg=cap.name("message").unwrap().as_str().to_string();
+            let mut msg=cap.name("message").unwrap().as_str().to_string();
+
+            if msg.contains("__spilled__"){
+                msg=AppResponseParser::resolve_spill(&msg);
+            }
 
             Ok(ParsedResp{episode_id,invocation_id,message:msg,command})
 

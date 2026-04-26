@@ -9,7 +9,7 @@ import sys
 import shlex
 import inspect
 import traceback
-
+sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 def smart_split(command: str):
     tokens = []
     current = []
@@ -49,18 +49,120 @@ def smart_split(command: str):
 
     return tokens
 
+####################
+
+import sys
+import os
+import json
+import uuid
+import time
+from pathlib import Path
+
+
+# ── Pipe-safe threshold ────────────────────────────────────────────────────────
+# Windows named-pipe default buffer: 4 KB.
+# Linux anonymous pipe: 64 KB.
+# Stay well under the worst case so write() always completes atomically.
+_PIPE_INLINE_LIMIT: int = 2048  # 2 KB
+
+
+
 class soul_engine_interface:
-    def __init__(self,args,app_name):
-        self.episode_id=args.episode_id
-        self.invocation_id=args.invocation_id
-        self.app_name=app_name
-    def send_message(self,msg):
-        sys.stdout.write(f"[#APP_MESSAGE>episode_id:{self.episode_id}|invocation_id:{self.invocation_id}]{msg}\n")
+    """
+    IPC bridge between a soul_engine app and the Rust runtime.
+
+    All writes go through _send() which:
+      1. Checks payload size against _PIPE_INLINE_LIMIT.
+      2. If the payload is large, spills it to a temp file and sends a tiny
+         envelope pointing to that file — the pipe write always completes
+         immediately and flush() fires before Rust's read_line() can block.
+      3. Writes the framed line to stdout and flushes explicitly.
+
+    Rust-side contract
+    ──────────────────
+    Parse the received JSON.  If it contains {"__spilled__": true, "file": "..."}
+    read the content from `file` (UTF-8), then delete the file.
+    Otherwise use the content directly.
+    """
+
+    # Temp files land next to the running script so they stay on the same
+    # filesystem / drive letter as the app (important on Windows).
+    _spill_dir: Path = Path(sys.argv[0]).resolve().parent / "_se_spill"
+
+    def __init__(self, args, app_name: str):
+        self.episode_id    = args.episode_id
+        self.invocation_id = args.invocation_id
+        self.app_name      = app_name
+
+    # ── internal ──────────────────────────────────────────────────────────────
+
+    def _spill(self, msg: str) -> str:
+        """
+        If *msg* exceeds _PIPE_INLINE_LIMIT bytes write it to a uniquely-named
+        temp file and return a tiny JSON envelope instead:
+
+            {"__spilled__": true, "file": "/abs/path/to/file"}
+
+        Filename format:
+            se_spill_<episode_id>_<invocation_id>_<unix_ms>_<uuid4>.json
+
+        Four sources of uniqueness combined:
+          - episode_id    : unique per conversation
+          - invocation_id : unique per call within a conversation
+          - unix_ms       : millisecond timestamp
+          - uuid4         : cryptographically random 128-bit token
+
+        This guarantees no two spill files ever collide, even under
+        concurrent invocations or rapid repeated calls.
+        """
+        if len(msg.encode("utf-8")) <= _PIPE_INLINE_LIMIT:
+            return msg
+
+        self._spill_dir.mkdir(parents=True, exist_ok=True)
+
+        unique_name = (
+            f"se_spill"
+            f"_ep{self.episode_id}"
+            f"_inv{self.invocation_id}"
+            f"_{int(time.time() * 1000)}"   # unix milliseconds
+            f"_{uuid.uuid4().hex}"           # 32 hex chars of randomness
+            f".json"
+        )
+        spill_path = self._spill_dir / unique_name
+        spill_path.write_text(msg + "\n", encoding="utf-8")
+
+        return json.dumps(
+            {"__spilled__": True, "file": str(spill_path)},
+            ensure_ascii=False,
+        )
+
+    def _send(self, frame_tag: str, msg: str) -> None:
+        """
+        Core write path shared by send_message and send_and_invoke.
+
+        frame_tag : "#APP_MESSAGE" | "#APP_INVOKE"
+        msg       : raw payload string (usually JSON)
+        """
+        safe_msg = self._spill(msg)
+        line = (
+            f"[{frame_tag}>"
+            f"episode_id:{self.episode_id}|"
+            f"invocation_id:{self.invocation_id}]"
+            f"{safe_msg}\n"
+        )
+        sys.stdout.write(line)
         sys.stdout.flush()
-    def send_and_invoke(self,msg):
-        sys.stdout.write(f"[#APP_INVOKE>episode_id:{self.episode_id}|invocation_id:{self.invocation_id}]{msg}\n")
-        sys.stdout.flush()
-        
+
+    # ── public API ────────────────────────────────────────────────────────────
+
+    def send_message(self, msg: str) -> None:
+        """Send a result/response message back to the Rust runtime."""
+        self._send("#APP_MESSAGE", msg)
+
+    def send_and_invoke(self, msg: str) -> None:
+        """Send a message that also triggers a follow-up invocation in Rust."""
+        self._send("#APP_INVOKE", msg)
+###################
 class soul_engine_app():
     def __init__(self,app_name):
         self.app_name=app_name
