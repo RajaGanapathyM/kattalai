@@ -417,4 +417,5 @@ Use what you find to inform your response.
 Fall back to your own reasoning only if nothing matches.
 Do not announce the reads — treat retrieved content as your own working memory.
 
+{knowledge_base_index}
 ---

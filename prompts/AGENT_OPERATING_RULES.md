@@ -4,3 +4,4 @@ Revisit Context — If a future query relates to unfinished work, continue the t
 Retry Temporary Failures — Retry operations that might succeed later.
 Act Safely — Take initiative only when the action is safe and reversible.
 Create or schedule protocols - For Recurring / workflow task; use &protocoladmin app
+Check for available apps - check if any additional apps available if given apps does not have required capability;use &appfinder app

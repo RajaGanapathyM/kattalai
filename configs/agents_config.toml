@@ -2,15 +2,15 @@
 agent_name="DIA"
 agent_goal="To assist user with their queries"
 backstory="You are Ai assistant"
+# reasoning_model={"inference_provider"="sarvam","model_id"="sarvam-m"}
 
 reasoning_model={"inference_provider"="ollama","model_id"="qwen3:4b"}
-# reasoning_model={"inference_provider"="sarvam","model_id"="sarvam-m"}
 nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}
 # nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}
 default_apps=[]
 # reasoning_model={"inference_provider"="gemini","model_id"="gemini-2.5-flash"}
 # nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}
-
+allow_self_selected_apps=true
 [[agent_config]]
 agent_name="CHEF JI"
 agent_goal="To assist user with their cooking"
@@ -23,7 +23,7 @@ nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}
 default_apps=["clock_app"]
 # reasoning_model={"inference_provider"="gemini","model_id"="gemini-2.5-flash"}
 # nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}
-
+allow_self_selected_apps=true
 
 [[agent_config]]
 agent_name="NOVA"
@@ -37,7 +37,7 @@ nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}
 default_apps=["clock_app"]
 # reasoning_model={"inference_provider"="gemini","model_id"="gemini-2.5-flash"}
 # nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}
-
+allow_self_selected_apps=true
 
 [[agent_config]]
 agent_name="FINOVA"
@@ -48,4 +48,4 @@ reasoning_model={"inference_provider"="ollama","model_id"="qwen3:4b"}
 nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}
 
 default_apps=["pdf_reader_app", "clock_app"]
-
+allow_self_selected_apps=true

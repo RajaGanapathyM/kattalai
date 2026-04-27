@@ -33,6 +33,7 @@ use std::{
     collections::{HashMap, HashSet},
     thread,
 };
+use memory::MemoryType;
 use sysinfo::System;
 use tokio::time::{interval, Duration};
 
@@ -91,6 +92,18 @@ pub struct episode{
     agent_lock:Mutex<bool>,
 }
 impl  episode {
+    pub fn get_episode_id(&self)->String{
+        self.episode_id.clone()
+    }
+    pub fn get_episode_memory_branch_id(&self)->String{
+        self.episode_memory.get_branch_id()
+    }
+    pub fn branch_episode_memory(&self)->Arc<Memory>{
+        self.episode_memory.branch()
+    }
+    pub async fn episode_memory_len(&self)->usize{
+        self.episode_memory.get_memory_len().await
+    }
     pub async fn get_agent_lock_status(&self)->bool{
         let locked_agent_lock=self.agent_lock.lock().await;
         (*locked_agent_lock).clone()
@@ -159,6 +172,7 @@ pub struct agent_config{
     reasoning_model:agent_model_config,
     nlp_model:agent_model_config,
     default_apps:Vec<String>,
+    allow_self_selected_apps:bool,
 }
 
 #[derive(Deserialize,Clone)]
@@ -175,7 +189,11 @@ pub struct AgentStore{
 impl AgentStore{
     pub fn load_agents(agent_config_path:&str,inference_store:Arc<InferenceStore>,app_store:Arc<AppStore>,protocols_store:Arc<ProtocolStore>)->Self{
         let content = fs::read_to_string(agent_config_path).unwrap();
-        let config: AgentConfigs = toml::from_str(&content).unwrap();
+        let cogitare_toml=fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.toml").unwrap();
+        let mut config: AgentConfigs = toml::from_str(&content).unwrap();
+        let cogitare_config: AgentConfigs = toml::from_str(&cogitare_toml).unwrap();
+        config.agent_config.push(cogitare_config.agent_config[0].clone());
+        
         let mut agent_map=HashMap::new();
 
         let std_apps=vec![
@@ -227,7 +245,8 @@ impl AgentStore{
                     nlp_model ,
                     None,
                     self.app_store.clone(),
-                    self.protocols_store.clone()
+                    self.protocols_store.clone(),
+                    aconfig.allow_self_selected_apps
                 );
 
             for dapp in &aconfig.default_apps{
@@ -264,6 +283,7 @@ pub struct Agent{
     _agent_rx: channel::Receiver<AgentPulse>,
     app_store:Arc<AppStore>,
     protocols_store:Arc<ProtocolStore>,
+    allow_self_selected_apps:bool,
     // _post_invoke_fn:Option<fn(String)->MemoryNode>
 }
 impl Agent{
@@ -276,7 +296,8 @@ impl Agent{
         nlp_model:Arc<dyn inference_api_trait + Send + Sync>,
         invoke_post_fn:Option<fn(String,&mut Agent)->MemoryNode>,
         app_store:Arc<AppStore>,
-        protocols_store:Arc<ProtocolStore>
+        protocols_store:Arc<ProtocolStore>,
+        allow_self_selected_apps:bool,
     )->Arc<RwLock<Arc<Self>>>{
         let (tx, rx) = channel::unbounded();
         let agent_card=Source::new(Role::Agent, agent_name.clone(), Some(agent_info));
@@ -296,7 +317,8 @@ impl Agent{
             _agent_tx:tx.clone(),
             _agent_rx:rx.clone(),
             app_store,
-            protocols_store
+            protocols_store,
+            allow_self_selected_apps
         })));
 
         let new_agent_clone=new_agent.clone();
@@ -476,7 +498,14 @@ impl Agent{
         new_agent.clone()
     }
 
-    
+    pub async fn get_episodes(&self)->Vec<Arc<episode>>{
+        let episodes=self.episodes.read().await;
+        let cloned_episodes =episodes.values().cloned().collect::<Vec<Arc<episode>>>();
+        cloned_episodes 
+    }
+    pub fn clone_reasoning_model(&self)->Arc<dyn inference_api_trait + Send + Sync>{
+        self.reasoning_model.clone()
+    }
     pub async fn get_tool_select_content(&self,episode_memory:Arc<Memory>,model: Arc<dyn inference_api_trait + Send + Sync>)->String{
 
         let history_lookup_len=50 as isize;
@@ -511,6 +540,7 @@ impl Agent{
         let episode_id=epid.clone();
         let validator_card=agent_lock.validator_card.clone();
         let agent_tx_clone=agent_lock._agent_tx.clone();
+        let allow_self_selected_apps=agent_lock.allow_self_selected_apps;
         match &epid{
             Some(eid)=>{
                 agent_tx_clone.send(AgentPulse::lockAgentForEpisode(eid.clone())).unwrap();
@@ -518,18 +548,20 @@ impl Agent{
                     Some(current_episode)=>{
                         let mlen=current_episode.episode_memory.get_memory_len().await;
                         info!("Episode Mem len:{}",mlen);
-                        
-                        let ner_content=agent_lock.get_tool_select_content(current_episode.episode_memory.clone(),nlp_model_clone.clone()).await;
-                        let (tools_select, app_chain_str)=agent_lock.app_store.resolve_tools(current_episode.episode_memory.clone(),ner_content,Some(&agent_card)).await;
+                        let mut app_chain_str="".to_string();
+                        if allow_self_selected_apps{
+                            let ner_content=agent_lock.get_tool_select_content(current_episode.episode_memory.clone(),nlp_model_clone.clone()).await;
+                            let (tools_select, app_chain_str)=agent_lock.app_store.resolve_tools(current_episode.episode_memory.clone(),ner_content,Some(&agent_card)).await;
 
-                        for app_handle_name in tools_select.iter(){
-                            info!("Launching New App:{} | Agent:{}",app_handle_name,agent_card.get_name());
-                            let new_app=agent_lock.app_store.clone_app(app_handle_name.clone());
-                            if new_app.is_none(){
-                                error!("App:{} not found in app store",app_handle_name);
-                                continue;
+                            for app_handle_name in tools_select.iter(){
+                                info!("Launching New App:{} | Agent:{}",app_handle_name,agent_card.get_name());
+                                let new_app=agent_lock.app_store.clone_app(app_handle_name.clone());
+                                if new_app.is_none(){
+                                    error!("App:{} not found in app store",app_handle_name);
+                                    continue;
+                                }
+                                agent_lock.terminal.launch_app(new_app.unwrap()).await;
                             }
-                            agent_lock.terminal.launch_app(new_app.unwrap()).await;
                         }
                         let current_sys_info=get_sys_info();
                         let agent_prompt=agent_lock.get_sys_prompt(&current_sys_info,&app_chain_str);
@@ -594,12 +626,16 @@ impl Agent{
     }
     pub async fn initiate_new_episode(agent_lock: Arc<RwLock<Arc<Agent>>>,episode_desc:String,episode_interface_memory:Option<Arc<Memory>>)->String{
         let agent_self=agent_lock.write().await;
-        let mut episode_id=Uuid::now_v7().to_string();
-        let episode_memory=Memory::new(None);
+        let mut episode_id=if episode_interface_memory.is_some(){
+            episode_interface_memory.as_ref().unwrap().get_branch_id()
+        } else {
+            Uuid::now_v7().to_string()
+        };
+        let episode_memory=Memory::new(None,MemoryType::AgentEpisode);
 
         let latest_fetched_id=match &episode_interface_memory{
             Some(mem)=>{
-                episode_id=mem._memory_id.clone();
+                episode_id=mem.get_branch_id();
                 mem.get_latest_memory_id()
             }
             None=>{None}
@@ -754,8 +790,8 @@ impl Agent{
         agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()),
         protocols_book=self.protocols_store.get_protocols_book(),
-        current_os_info=current_sys_info)
-        // knowledge_base_index=format!(include_str!("../knowledge_base/index.md")))
+        current_os_info=current_sys_info,
+        knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()))
         
     }
 
@@ -775,8 +811,8 @@ impl Agent{
         agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()),
         protocols_book=self.protocols_store.get_protocols_book(),
-        current_os_info=current_sys_info)
-        // knowledge_base_index=format!(include_str!("../knowledge_base/index.md")))
+        current_os_info=current_sys_info,
+        knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()))
     }
 
     
@@ -790,7 +826,8 @@ impl Agent{
         agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
         app_guidelines=block_on(self.terminal.get_app_guidebook()),
         protocols_book=self.protocols_store.get_protocols_book(),
-        current_os_info=current_sys_info)
+        current_os_info=current_sys_info,
+        knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()))
         // knowledge_base_index=format!(include_str!("../knowledge_base/index.md")))
     }
 
@@ -842,6 +879,7 @@ impl Agent{
 
 
     } 
+
     pub async fn invoke(
         latest_episode_id:Option<String>,
         current_episode_memory:Arc<Memory>,

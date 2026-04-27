@@ -204,25 +204,34 @@ impl MemoryStore {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MemoryType{
+    Topic,
+    AgentEpisode
+}
+
 #[derive(Debug)]
 pub struct Memory {
     pub _memory_id: String,
     _memory_store: Arc<MemoryStore>,
     _branch_id: String,
     _memory_tx: channel::Sender<AgentPulse>,
-    pub _kill_switch:Arc<AtomicBool>
+    pub _kill_switch:Arc<AtomicBool>,
+    pub _memory_type:MemoryType
 }
 
 impl Memory {
     /// construct a new Memory container
-    pub fn new(protocol_store: Option<Arc<ProtocolStore>>) -> Arc<Self> {
+    pub fn new(protocol_store: Option<Arc<ProtocolStore>>,memory_type:MemoryType) -> Arc<Self> {
         let (tx, rx) = channel::unbounded();
+        let my_memory_id=Uuid::now_v7().to_string();
         let arc_memory = Arc::new(Memory {
-            _memory_id: Uuid::now_v7().to_string(),
+            _memory_id: my_memory_id.clone(),
             _memory_store: MemoryStore::new(),
-            _branch_id: Uuid::now_v7().to_string(),
+            _branch_id: my_memory_id,
             _memory_tx: tx,
-            _kill_switch:Arc::new(AtomicBool::new(false))
+            _kill_switch:Arc::new(AtomicBool::new(false)),
+            _memory_type:memory_type
         });
 
         let rx_clone = rx.clone();
@@ -406,12 +415,16 @@ impl Memory {
             _memory_store: self._memory_store.clone(),
             _branch_id: Uuid::now_v7().to_string(),
             _memory_tx: self._memory_tx.clone(),
-            _kill_switch:Arc::new(AtomicBool::new(false))
+            _kill_switch:Arc::new(AtomicBool::new(false)),
+            _memory_type:self._memory_type.clone()
         })
     }
 
     pub async fn get_memory_len(&self) -> usize {
         self._memory_store.mem_vec.load().len()
+    }
+    pub fn get_branch_id(&self)->String{
+        self._branch_id.clone()
     }
 
     /// append an entry
