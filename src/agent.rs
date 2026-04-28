@@ -101,6 +101,9 @@ impl  episode {
     pub fn branch_episode_memory(&self)->Arc<Memory>{
         self.episode_memory.branch()
     }
+    pub fn get_read_only_episode_memory(&self)->Arc<Memory>{
+        self.episode_memory.get_ready_only_copy()
+    }
     pub async fn episode_memory_len(&self)->usize{
         self.episode_memory.get_memory_len().await
     }
@@ -189,7 +192,7 @@ pub struct AgentStore{
 impl AgentStore{
     pub fn load_agents(agent_config_path:&str,inference_store:Arc<InferenceStore>,app_store:Arc<AppStore>,protocols_store:Arc<ProtocolStore>)->Self{
         let content = fs::read_to_string(agent_config_path).unwrap();
-        let cogitare_toml=fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.toml").unwrap();
+        let cogitare_toml=fs::read_to_string("./configs/cogitare_config.toml").unwrap();
         let mut config: AgentConfigs = toml::from_str(&content).unwrap();
         let cogitare_config: AgentConfigs = toml::from_str(&cogitare_toml).unwrap();
         config.agent_config.push(cogitare_config.agent_config[0].clone());
@@ -455,7 +458,11 @@ impl Agent{
                             if incremental_memories.len()>0{
                                 let last_mem=incremental_memories.last();
 
-                                let need_invoke=check_for_invoke_trigger(&incremental_memories);
+                                let mut need_invoke=check_for_invoke_trigger(&incremental_memories);
+                                if imemory._read_only{
+                                    info!("Interface memory is read only, skipping invoke trigger check");
+                                    need_invoke=false;
+                                }
 
                                 info!("Need incoke:{} - {}",need_invoke,incremental_memories.len());
                                 info!("Last me : {:?}",last_mem);
@@ -633,13 +640,14 @@ impl Agent{
         };
         let episode_memory=Memory::new(None,MemoryType::AgentEpisode);
 
-        let latest_fetched_id=match &episode_interface_memory{
-            Some(mem)=>{
-                episode_id=mem.get_branch_id();
-                mem.get_latest_memory_id()
-            }
-            None=>{None}
-        };
+        let latest_fetched_id=None;
+        // match &episode_interface_memory{
+        //     Some(mem)=>{
+        //         episode_id=mem.get_branch_id();
+        //         mem.get_latest_memory_id()
+        //     }
+        //     None=>{None}
+        // };
         let mut writable_episode=agent_self.latest_episode_id.write().await;
         *writable_episode=Some(episode_id.clone());
 
@@ -782,6 +790,10 @@ impl Agent{
     
     fn get_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String)->String{
         // info!("App Guidebook:\n{}",self.terminal.get_app_guidebook());
+        // if self.agent_card.get_name()=="Cogitare"{
+        //     info!("Using custom prompt for Cogitare : Reasoning Prompt");
+        //     return fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.md").unwrap();
+        // }
         
         format!( include_str!("../prompts/AGENT_REASONING_PROMPT.md"),
         agent_name=self.agent_card.get_name(),
@@ -803,6 +815,11 @@ impl Agent{
     }
 
     fn get_tof_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String)->String{
+        // if self.agent_card.get_name()=="Cogitare"{
+        //     info!("Using custom prompt for Cogitare : TOF Prompt");
+        //     return fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.md").unwrap();
+        // }
+        
         
         format!(include_str!("../prompts/AGENT_TOT_PROMPT.md"),
         agent_name=self.agent_card.get_name(),
@@ -818,6 +835,11 @@ impl Agent{
     
 
     fn get_rac_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String)->String{
+        // if self.agent_card.get_name()=="Cogitare"{
+        //     info!("Using custom prompt for Cogitare : RAC Prompt");
+        //     return fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.md").unwrap();
+        // }
+        
         
         format!(include_str!("../prompts/AGENT_RAC_PROMPT.md"),
         agent_name=self.agent_card.get_name(),
@@ -1038,8 +1060,13 @@ impl Agent{
                             let output_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()),None);
                             match &interface_memory{
                                 Some(imemory)=>{
-                                    info!("Writing to interface memory");
-                                    imemory.insert(output_memory_node).await;
+                                    if imemory._read_only{
+                                        info!("Interface memory is read only, skipping write");
+                                    }
+                                    else{
+                                        info!("Writing to interface memory");
+                                        imemory.insert(output_memory_node).await;
+                                    }
                                 }
                                 None=>{}
                             }
@@ -1138,8 +1165,13 @@ impl Agent{
             let error_message=MemoryNode::new(&agent_card, "Error Processing Last Message.Please try again".to_string(), None, MemoryNodeType::Error,Some(invoc_id.clone()),None);
             match &interface_memory{
                 Some(imemory)=>{
-                    info!("Writing Error to interface memory");
-                    imemory.insert(error_message).await;
+                    if imemory._read_only{
+                        info!("Interface memory is read only, skipping write");
+                    }
+                    else{
+                        info!("Writing Error to interface memory");
+                        imemory.insert(error_message).await;
+                    }
                 }
                 None=>{}
             }

@@ -20,7 +20,7 @@ pub trait inference_api_trait {
     
     async fn invoke(&self,api_url: &str, payload: Value, invoke_type: invoke_type) -> String {
         let client = Client::new();
-        // info!("{}",payload);
+        // info!("PAYLOAD: {}",payload);
         let response = client
             .post(api_url)
             .json(&payload)
@@ -66,6 +66,7 @@ pub trait inference_api_trait {
                 let error_current_invocation_flag=if node.get_node_type()==MemoryNodeType::ModelError || node.get_node_type()==MemoryNodeType::ModelResponse{
                     match &invocation_id{
                         Some(in_id)=>{
+                            // info!("Filtering for invocation_id: {}, node invocation_id: {:?}", in_id, node.get_invocation_id());
                             if let Some(nivc_id)=&node.get_invocation_id(){
                                 nivc_id==in_id
                             }
@@ -91,6 +92,7 @@ pub trait inference_api_trait {
     async fn request_payload_builder(&self, message_history: &mut Vec<Value>,system_prompt:String)->Value;
     async fn _chat_invoke(&self,chat_api_url:&String, memory: Arc<Memory>,system_prompt:String,invocation_id:Option<String>,allowed_roles: &HashSet<Role>,non_tool_roles: &HashSet<Role>,source:Option<&Source>) -> String{
         let mut message_history=self.filter_messages(memory,invocation_id,allowed_roles,non_tool_roles,source).await;
+        
         let payload= self.request_payload_builder(&mut message_history,system_prompt).await;
         // print!("Request Payload: {}", serde_json::to_string_pretty(&payload).unwrap());
 

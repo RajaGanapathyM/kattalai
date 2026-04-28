@@ -217,7 +217,8 @@ pub struct Memory {
     _branch_id: String,
     _memory_tx: channel::Sender<AgentPulse>,
     pub _kill_switch:Arc<AtomicBool>,
-    pub _memory_type:MemoryType
+    pub _memory_type:MemoryType,
+    pub _read_only:bool
 }
 
 impl Memory {
@@ -231,7 +232,8 @@ impl Memory {
             _branch_id: my_memory_id,
             _memory_tx: tx,
             _kill_switch:Arc::new(AtomicBool::new(false)),
-            _memory_type:memory_type
+            _memory_type:memory_type,
+            _read_only:false
         });
 
         let rx_clone = rx.clone();
@@ -416,7 +418,19 @@ impl Memory {
             _branch_id: Uuid::now_v7().to_string(),
             _memory_tx: self._memory_tx.clone(),
             _kill_switch:Arc::new(AtomicBool::new(false)),
-            _memory_type:self._memory_type.clone()
+            _memory_type:self._memory_type.clone(),
+            _read_only:false
+        })
+    }
+    pub fn get_ready_only_copy(&self) -> Arc<Self> {
+        Arc::new(Memory {
+            _memory_id: self._memory_id.clone(),
+            _memory_store: self._memory_store.clone(),
+            _branch_id: self._branch_id.clone(),
+            _memory_tx: self._memory_tx.clone(),
+            _kill_switch:self._kill_switch.clone(),
+            _memory_type:self._memory_type.clone(),
+            _read_only:true
         })
     }
 
@@ -429,6 +443,10 @@ impl Memory {
 
     /// append an entry
     pub async fn insert(& self, memory_node: MemoryNode) {
+        if self._read_only{
+            info!("Memory is read only, skipping insert");
+            return
+        }
         let mut memory_node = memory_node.clone();
         memory_node.branch_id = Some(self._branch_id.clone());
 

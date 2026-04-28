@@ -147,6 +147,10 @@ impl Runtime{
                 drop(agents);
                 // info!("Agent Found with {} episodes",all_episodes.len());
                 for agent_episode in all_episodes{
+                    if agent_episode.get_agent_lock_status().await{
+                        // info!("Cogitare Agent: episode {} is currently locked, skipping...",agent_episode.get_episode_id());
+                        continue;
+                    }
                     let agent_episode_id=agent_episode.get_episode_id();
                 
                     if !agent_episode_lastseen_length.contains_key(&agent_episode_id){
@@ -173,12 +177,15 @@ impl Runtime{
                             info!("Cogitare Agent detached from previous focus branch {}",old_focus_branch_id.clone());
                         }
                         info!("Cogitate Checking agent episode {} for cogitare...",agent_episode_id.clone());
-                        let branched_agent_episode=agent_episode.branch_episode_memory();
-                        let focus_branch_id=branched_agent_episode.get_branch_id();
+                        let readonly_agent_episode_mem=agent_episode.get_read_only_episode_memory();
+                        for node in readonly_agent_episode_mem.iter_memory(Some(last_seen_length), None, None).await{
+                            info!("Cogitare read new memory node from agent episode {:?}: {:?}",agent_episode_id.clone(),node);
+                        }
+                        let focus_branch_id=readonly_agent_episode_mem.get_branch_id();
 
 
-                        Agent::ping(&cogitare_agent,AgentPulse::NewEpisode(format!("Cogitare Episode:{}",focus_branch_id.clone()),Some(branched_agent_episode))).await;
-                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        Agent::ping(&cogitare_agent,AgentPulse::NewEpisode(format!("Cogitare Episode:{}",focus_branch_id.clone()),Some(readonly_agent_episode_mem))).await;
+                        tokio::time::sleep(Duration::from_secs(10)).await;
                         info!("Cogitare Agent pinged on agent episode {} with new episode",focus_branch_id);
                         Agent::ping(&cogitare_agent,AgentPulse::Invoke(Some(focus_branch_id.clone()))).await;
                         agent_episode_lastseen_length.insert(agent_episode_id.clone(), agent_episode.episode_memory_len().await);
