@@ -90,3 +90,4 @@ _No corrections recorded yet._
 <!-- Format: YYYY-MM-DD | brief summary of what was done -->
 
 _No sessions logged yet._
+User provided credit card statement PDF: C:/Users/RG/Downloads/CC_sample.pdf
