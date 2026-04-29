@@ -1,1 +1,1 @@
-019d88a3-0844-7c62-9978-fc782da3d6fa|0 8 * * 1|morning_greeting
+019db886-dae7-7fa3-b534-dde8c68b8dd2|019db884-1368-7eb0-ae0d-73e366406039|"0 8 * * *"|morning_news_summary

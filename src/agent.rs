@@ -172,10 +172,14 @@ pub struct agent_config{
     agent_name:String,
     agent_goal:String,
     backstory:String,
-    reasoning_model:agent_model_config,
-    nlp_model:agent_model_config,
+    reasoning_model:Option<agent_model_config>,
+    nlp_model:Option<agent_model_config>,
     default_apps:Vec<String>,
     allow_self_selected_apps:bool,
+}#[derive(Deserialize,Clone)]
+pub struct DefaultModelConfig{
+    default_reasoning_model:agent_model_config,
+    default_nlp_model:agent_model_config,
 }
 
 #[derive(Deserialize,Clone)]
@@ -192,10 +196,25 @@ pub struct AgentStore{
 impl AgentStore{
     pub fn load_agents(agent_config_path:&str,inference_store:Arc<InferenceStore>,app_store:Arc<AppStore>,protocols_store:Arc<ProtocolStore>)->Self{
         let content = fs::read_to_string(agent_config_path).unwrap();
-        let cogitare_toml=fs::read_to_string("./configs/cogitare_config.toml").unwrap();
+        let cogitare_toml=include_str!("../prompts/cogitare_config.toml").to_string();
+        let default_model_toml=fs::read_to_string("./configs/model_config.toml").unwrap();
         let mut config: AgentConfigs = toml::from_str(&content).unwrap();
         let cogitare_config: AgentConfigs = toml::from_str(&cogitare_toml).unwrap();
+        let default_model_config: DefaultModelConfig = toml::from_str(&default_model_toml).unwrap();
         config.agent_config.push(cogitare_config.agent_config[0].clone());
+
+        for agent_conf in config.agent_config.iter_mut(){
+            if agent_conf.reasoning_model.is_none(){
+                agent_conf.reasoning_model=Some(default_model_config.default_reasoning_model.clone());
+            }
+            if agent_conf.nlp_model.is_none(){
+                agent_conf.nlp_model=Some(default_model_config.default_nlp_model.clone());
+            }
+
+            if agent_conf.reasoning_model.is_none() || agent_conf.nlp_model.is_none(){
+                panic!("Agent:{} does not have valid model configuration",agent_conf.agent_name);
+            }
+        }
         
         let mut agent_map=HashMap::new();
 
@@ -236,8 +255,8 @@ impl AgentStore{
 
             
 
-            let reasoning_model=self.inference_store.get_model(aconfig.reasoning_model.inference_provider.clone(),&aconfig.reasoning_model.model_id);
-            let nlp_model=self.inference_store.get_model(aconfig.nlp_model.inference_provider.clone(),&aconfig.nlp_model.model_id);
+            let reasoning_model=self.inference_store.get_model(aconfig.reasoning_model.as_ref().unwrap().inference_provider.clone(),&aconfig.reasoning_model.as_ref().unwrap().model_id);
+            let nlp_model=self.inference_store.get_model(aconfig.nlp_model.as_ref().unwrap().inference_provider.clone(),&aconfig.nlp_model.as_ref().unwrap().model_id);
 
             let first_agent=Agent::new(
                     aconfig.agent_name.clone(), 

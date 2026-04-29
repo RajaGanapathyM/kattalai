@@ -285,7 +285,7 @@ impl AppStore{
         // }
         for (p,cs) in produces_mapped.iter(){
             // println!("Producing:{}|{:?}|{:?}",p,cs,self.tool_chain_node_map);
-            println!("Producing:{}|{:?}",p,cs);
+            // println!("Producing:{}|{:?}",p,cs);
             
             let t=self.tool_chain_node_map.get(p).unwrap();
             for c in cs.iter(){
@@ -306,7 +306,7 @@ impl AppStore{
                         let new_embeds=self.embedder.get_embeddings(vec![old_coversion,new_coversion]).await.unwrap();
 
                         let new_sim=cosine(&new_embeds[0], &new_embeds[1]);
-                        info!("NEW TOOL CHAIN {}->{}|{}",p,np,new_sim);
+                        // info!("NEW TOOL CHAIN {}->{}|{}",p,np,new_sim);
                         if new_sim>0.75{
                             for capps in consuming_app_name.iter(){
                                 
@@ -659,7 +659,7 @@ impl AppStore{
         for (target, emb) in target_map.iter() {
             let cos_sim=cosine(candidate_embedding, emb);
             // print!("Comparing '{}' with '{}': {}", candidate, target, cos_sim);
-            if cos_sim > 0.6 {
+            if cos_sim > 0.7 {
                 matched.push(target.clone());
             }
         }

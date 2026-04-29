@@ -9,6 +9,8 @@ import glob as glob_module
 import re
 from datetime import datetime
 from pathlib import Path
+import tkinter as tk
+from tkinter import ttk
 
 import sys
 
@@ -58,28 +60,88 @@ class FileHandlerApp(soul_engine_app):
         super().__init__(app_name="File Handler App")
 
     # ── Permission dialog ──────────────────────────────────────────────────────
-    def _request_permission(self, se_interface, command: str, context: dict) -> bool:
+    def _request_permission(self, _si, command: str, context: dict) -> bool:
         """
-        Sends a structured permission_dialog message through se_interface,
-        then blocks on stdin for the user's yes/no reply.
-
-        Returns True if the user allowed the operation, False otherwise.
+        Opens a blocking tkinter dialog.
+        Returns True if the user clicked Allow, False if Deny / closed the window.
         """
-        dialog_payload = json.dumps({
-            "type": "permission_dialog",
-            "command": command,
-            "message": DIALOG_MESSAGES[command],
-            "context": context,
-            "prompt": "Type 'yes' to allow or 'no' to deny: ",
-        })
-        se_interface.send_message(dialog_payload)
+        result = {"allowed": False}
 
-        try:
-            raw = input().strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            raw = "no"
+        root = tk.Tk()
+        root.title("File Operation Permission")
+        root.resizable(False, False)
+        root.configure(bg="#1e1e2e")
 
-        return raw in ("yes", "y", "allow", "ok")
+        # Centre on screen
+        root.update_idletasks()
+        w, h = 460, 260
+        x = (root.winfo_screenwidth() - w) // 2
+        y = (root.winfo_screenheight() - h) // 2
+        root.geometry(f"{w}x{h}+{x}+{y}")
+
+        # ── Icon row ──────────────────────────────────────────────────────────
+        icon_frame = tk.Frame(root, bg="#1e1e2e")
+        icon_frame.pack(fill="x", padx=20, pady=(18, 0))
+
+        icon_lbl = tk.Label(icon_frame, text="⚠", font=("Segoe UI", 26),
+                            fg="#f38ba8", bg="#1e1e2e")
+        icon_lbl.pack(side="left")
+
+        title_lbl = tk.Label(icon_frame,
+                             text=f"Permission Required — {command.upper()}",
+                             font=("Segoe UI", 11, "bold"),
+                             fg="#cdd6f4", bg="#1e1e2e")
+        title_lbl.pack(side="left", padx=(10, 0), pady=4)
+
+        # ── Message ───────────────────────────────────────────────────────────
+        msg_lbl = tk.Label(root, text=DIALOG_MESSAGES[command],
+                           font=("Segoe UI", 10), fg="#a6adc8", bg="#1e1e2e",
+                           wraplength=420, justify="left")
+        msg_lbl.pack(fill="x", padx=20, pady=(8, 0))
+
+        # ── Context details ───────────────────────────────────────────────────
+        detail_frame = tk.Frame(root, bg="#313244", highlightthickness=0)
+        detail_frame.pack(fill="x", padx=20, pady=10)
+
+        for key, val in context.items():
+            row = tk.Frame(detail_frame, bg="#313244")
+            row.pack(fill="x", padx=10, pady=2)
+            tk.Label(row, text=f"{key}:", font=("Consolas", 9, "bold"),
+                     fg="#89b4fa", bg="#313244", width=12, anchor="w").pack(side="left")
+            tk.Label(row, text=str(val), font=("Consolas", 9),
+                     fg="#cdd6f4", bg="#313244", anchor="w").pack(side="left", fill="x")
+
+        # ── Buttons ───────────────────────────────────────────────────────────
+        btn_frame = tk.Frame(root, bg="#1e1e2e")
+        btn_frame.pack(pady=(0, 16))
+
+        def on_allow():
+            result["allowed"] = True
+            root.destroy()
+
+        def on_deny():
+            result["allowed"] = False
+            root.destroy()
+
+        deny_btn = tk.Button(btn_frame, text="✕  Deny", command=on_deny,
+                             font=("Segoe UI", 10, "bold"), cursor="hand2",
+                             bg="#f38ba8", fg="#1e1e2e", activebackground="#eba0ac",
+                             relief="flat", padx=18, pady=6, bd=0)
+        deny_btn.pack(side="left", padx=(0, 12))
+
+        allow_btn = tk.Button(btn_frame, text="✓  Allow", command=on_allow,
+                              font=("Segoe UI", 10, "bold"), cursor="hand2",
+                              bg="#a6e3a1", fg="#1e1e2e", activebackground="#94e2d5",
+                              relief="flat", padx=18, pady=6, bd=0)
+        allow_btn.pack(side="left")
+
+        root.protocol("WM_DELETE_WINDOW", on_deny)  # closing = deny
+        root.lift()
+        root.attributes("-topmost", True)
+        root.focus_force()
+        root.mainloop()
+
+        return result["allowed"]
 
     def _denied(self, command: str, **extra) -> dict:
         return {

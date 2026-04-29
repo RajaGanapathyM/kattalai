@@ -1,0 +1,121 @@
+app_name="Codex App"
+app_path="./apps/core_apps/codex_app/codex_app.py"
+app_start_command="python"
+app_start_args="./apps/core_apps/codex_app/codex_app.py"
+app_handle_name="codex_app"
+app_launch_mode="REPL"
+app_usage_guideline="""
+Use this app for full LLM knowledge-base management under ./knowledge_base.
+
+The knowledge base is a tree of Markdown (.md) files organised into topic folders.
+A root index.md acts as the auto-managed table of contents; it is updated
+automatically on every create / delete / move operation.
+
+## Path Conventions
+  ./knowledge_base/topic.md          -> file at root of knowledge base
+  ./knowledge_base/category/topic.md -> file inside a category folder
+  Paths may be given relative to workspace root or relative to knowledge_base root.
+  The app normalises both forms automatically.
+
+## Commands
+
+### Read
+  Index listing       -> &codex_app index
+  Read a document     -> &codex_app read path=./knowledge_base/topic.md
+  Search knowledge    -> &codex_app search pattern="authentication" [path=./knowledge_base/auth]
+
+### Write
+  New document        -> &codex_app new path=./knowledge_base/topic.md title="Topic Title" [description="One-line summary"]
+  New category folder -> &codex_app mkdir path=./knowledge_base/category
+  Edit document       -> &codex_app edit path=./knowledge_base/topic.md content="# New content..."
+  Append to document  -> &codex_app append path=./knowledge_base/topic.md content="## New Section..."
+  Delete document     -> &codex_app delete path=./knowledge_base/topic.md
+  Move / rename doc   -> &codex_app move src=./knowledge_base/old.md dest=./knowledge_base/new.md
+  Link two documents  -> &codex_app link src=./knowledge_base/a.md dest=./knowledge_base/b.md [label="See also"]
+
+## index.md Behaviour
+  * Created automatically if absent when the app starts.
+  * Every entry records: title, relative path, optional description.
+  * Rebuilt fully after every new / delete / move operation.
+  * The file itself is NOT listed inside the index entries.
+
+## link Command Behaviour
+  * Validates that BOTH src and dest exist before any write.
+  * Adds or extends a "## Related" section at the bottom of the src document
+    with a Markdown link pointing to dest.
+  * Requires user permission (permission dialog) before writing.
+
+## Output Behaviour
+  * index  -> returns { status, content (raw markdown), entries[] }
+  * read   -> returns { status, path, title, content }
+  * search -> returns { status, pattern, matches[{path, line_number, snippet}] }
+  * new / mkdir / edit / append / delete / move / link ->
+      returns { status, command, path|src_path|dest_path,
+                permission_dialog_show timestamp }
+  * Errors always include error_code and reason.
+"""
+
+
+# ── READ-CLASS ─────────────────────────────────────────────────────────────────
+
+[[app_command_signatures]]
+command = "index"
+consumes = []
+produces = ["content", "entries"]
+action = "read"
+
+[[app_command_signatures]]
+command = "read"
+consumes = ["path"]
+produces = ["path", "title", "content"]
+action = "read"
+
+[[app_command_signatures]]
+command = "search"
+consumes = ["pattern", "path"]
+produces = ["matches"]
+action = "read"
+
+# ── WRITE-CLASS (permission dialog required) ───────────────────────────────────
+
+[[app_command_signatures]]
+command = "new"
+consumes = ["path", "title", "description"]
+produces = ["path", "status", "timestamp"]
+action = "write"
+
+[[app_command_signatures]]
+command = "mkdir"
+consumes = ["path"]
+produces = ["path", "status", "timestamp"]
+action = "write"
+
+[[app_command_signatures]]
+command = "edit"
+consumes = ["path", "content"]
+produces = ["path", "status", "timestamp"]
+action = "update"
+
+[[app_command_signatures]]
+command = "append"
+consumes = ["path", "content"]
+produces = ["path", "status", "timestamp"]
+action = "update"
+
+[[app_command_signatures]]
+command = "delete"
+consumes = ["path"]
+produces = ["path", "status", "timestamp"]
+action = "delete"
+
+[[app_command_signatures]]
+command = "move"
+consumes = ["src_path", "dest_path"]
+produces = ["src_path", "dest_path", "status", "timestamp"]
+action = "move"
+
+[[app_command_signatures]]
+command = "link"
+consumes = ["src_path", "dest_path", "label"]
+produces = ["src_path", "dest_path", "status", "timestamp"]
+action = "update"

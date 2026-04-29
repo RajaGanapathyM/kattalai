@@ -1,0 +1,2 @@
+default_reasoning_model={"inference_provider"="ollama","model_id"="qwen3:4b"}
+default_nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}

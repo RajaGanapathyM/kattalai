@@ -1,0 +1,21 @@
+protocol_name = "Credit Card Statement Summary"
+protocol_handle_name = "credit_card_summary"
+protocol_description = "Summarizes credit card statements and saves to notes"
+trigger_prompt = "summarize credit card statement"
+protocol_result = ""
+apps_used = ["[pdf_reader,"]
+
+[[step]]
+id = 1
+label = "Read PDF"
+app_command = "&pdf_reader read path=\\\"C:/Users/RG/Downloads/CC_sample.pdf\\\""
+
+[[step]]
+id = 2
+label = "Summarize"
+app_command = "&summarizer summarize content"
+
+[[step]]
+id = 3
+label = "Save to Notes"
+app_command = "&notes_app save summary"
