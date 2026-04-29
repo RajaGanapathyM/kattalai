@@ -1,6 +1,6 @@
 protocol_name = "Morning News Summary"
 protocol_handle_name = "morning_news_summary"
-protocol_description = "Retrieves and summarizes top morning news"
+protocol_description = "Retrieves and summarizes top morning news from Indian Express and other trusted sources"
 trigger_prompt = "morning news"
 protocol_result = "Summarized news"
 apps_used = ["webpage_reader"]

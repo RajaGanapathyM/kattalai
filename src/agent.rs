@@ -616,6 +616,9 @@ impl Agent{
     pub fn get_agent_id(&self)->String{
         self.agent_card.get_id()
     }
+    pub fn get_agent_card(&self)->Source{
+        self.agent_card.clone()
+    }
     
     pub async fn ping(agent_self:&Arc<RwLock<Arc<Self>>>,ping_type:AgentPulse){
         let agent_locked=agent_self.read().await;
@@ -1089,8 +1092,13 @@ impl Agent{
                                     let output_memory_node=MemoryNode::new(&agent_card, comnds.trim().to_string().clone(), None, MemoryNodeType::Message,Some(invoc_id.clone()),None);
                                     match &interface_memory{
                                         Some(imemory)=>{
-                                            info!("Writing to interface memory");
-                                            imemory.insert(output_memory_node).await;
+                                            if imemory._read_only{
+                                                info!("Interface memory is read only, skipping write");
+                                            }
+                                            else{
+                                                info!("Writing to interface memory");
+                                                imemory.insert(output_memory_node).await;
+                                            }
                                         }
                                         None=>{}
                                     }

@@ -178,16 +178,21 @@ impl Runtime{
                         }
                         info!("Cogitate Checking agent episode {} for cogitare...",agent_episode_id.clone());
                         let readonly_agent_episode_mem=agent_episode.get_read_only_episode_memory();
-                        for node in readonly_agent_episode_mem.iter_memory(Some(last_seen_length), None, None).await{
-                            info!("Cogitare read new memory node from agent episode {:?}: {:?}",agent_episode_id.clone(),node);
-                        }
+                        // for node in readonly_agent_episode_mem.iter_memory(Some(last_seen_length), None, None).await{
+                        //     info!("Cogitare read new memory node from agent episode {:?}: {:?}",agent_episode_id.clone(),node);
+                        // }
                         let focus_branch_id=readonly_agent_episode_mem.get_branch_id();
 
 
                         Agent::ping(&cogitare_agent,AgentPulse::NewEpisode(format!("Cogitare Episode:{}",focus_branch_id.clone()),Some(readonly_agent_episode_mem))).await;
-                        tokio::time::sleep(Duration::from_secs(10)).await;
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+
+                        let cogitare_user=Source::new(source::Role::User, "CogitareUser".to_string(), None);
+                        let invk_msg=MemoryNode::new(&cogitare_user, "COGITARE:REFLECT".to_string(), None, MemoryNodeType::Message,None, None);
+
                         info!("Cogitare Agent pinged on agent episode {} with new episode",focus_branch_id);
-                        Agent::ping(&cogitare_agent,AgentPulse::Invoke(Some(focus_branch_id.clone()))).await;
+                        Agent::ping(&cogitare_agent,AgentPulse::AddMemoryAndInvoke(invk_msg, Some(focus_branch_id.clone()))).await;
+                        // Agent::ping(&cogitare_agent,AgentPulse::Invoke(Some(focus_branch_id.clone()))).await;
                         agent_episode_lastseen_length.insert(agent_episode_id.clone(), agent_episode.episode_memory_len().await);
                         agent_last_focus_branch_id.insert(agent_episode_id.clone(), focus_branch_id.clone());
                         tokio::time::sleep(Duration::from_mins(10)).await;

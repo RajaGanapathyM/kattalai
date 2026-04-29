@@ -11,6 +11,8 @@ use petgraph::graph::NodeIndex;
 use petgraph::dot::{Dot, Config};
 use std::process::Stdio;
 use std::sync::{Arc, RwLock};
+
+use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 // use std::thread::sleep;
 use std::fs;
@@ -71,6 +73,7 @@ pub struct AppStore{
     object_apps:HashMap<String,HashSet<String>>,
     cp_embeddings:HashMap<String,Vec<f32>>,
     tool_chain_graph:Graph<String, u32>,
+    tool_chain_node_map:HashMap<String,NodeIndex>,
     guidelines_embeddings:HashMap<String,Vec<f32>>,
 }
 impl AppStore{
@@ -86,6 +89,7 @@ impl AppStore{
             object_apps:HashMap::new(),
             cp_embeddings:HashMap::new(),
             tool_chain_graph: DiGraph::<String, u32>::new(),
+            tool_chain_node_map:HashMap::new(),
             guidelines_embeddings:HashMap::new(),
         };
 
@@ -136,6 +140,7 @@ impl AppStore{
         let mut consumptions: Vec<String> = Vec::new();
         let mut blocked_path:HashSet<(String,String)>=HashSet::new();
         let readble_apps=self.apps.read().unwrap();
+        // let mut self.tool_chain_node_map=HashMap::new();
         for (app_handle_name,app) in readble_apps.iter() {
             
             let desc_embed=self.embedder.get_embeddings(vec![app.get_guidelines()]).await.unwrap();
@@ -143,17 +148,33 @@ impl AppStore{
             self.guidelines_embeddings.insert(app_handle_name.clone(), desc_embed[0].clone());
 
             for cmd_signature in app.get_cmd_signatures() {
-                consumptions.extend(cmd_signature.consumes.iter().cloned());
-                produces.extend(cmd_signature.produces.iter().cloned());
-
+                
                 for c in cmd_signature.consumes.iter(){
+                    consumptions.push(c.clone());
+                    if !self.tool_chain_node_map.contains_key(c){
+                        // println!("Adding node to tool chain graph C: {}",c);
+                        self.tool_chain_node_map.insert(c.clone(),self.tool_chain_graph.add_node(c.clone()));
+                    }
                     if !consumptions_to_produce.contains_key(c){
                         consumptions_to_produce.insert(c.clone(),HashSet::new());
                     }
                     if !consumption_apps.contains_key(c){
                         consumption_apps.insert(c.clone(),HashSet::new());
                     }
+                    if !cp_standalone_apps.contains_key(c){
+                        cp_standalone_apps.insert(c.clone(),HashSet::new());
+                    }
+                    
+                    cp_standalone_apps.get_mut(c).unwrap().insert(app.app_config.get_app_handle_name().clone());
+                    consumption_apps.get_mut(c).unwrap().insert(app.app_config.get_app_handle_name().clone());
+
                     for p in cmd_signature.produces.iter(){
+                        produces.push(p.clone());
+                        // println!("Consuming:{}->Producing:{}|App:{}",c,p,app_handle_name);
+                        if !self.tool_chain_node_map.contains_key(p){
+                            // println!("Adding node to tool chain graph: {}",p);
+                            self.tool_chain_node_map.insert(p.clone(),self.tool_chain_graph.add_node(p.clone()));
+                        }
                         let n_key=(c.clone(),p.clone());
                         if !cp_apps.contains_key(&n_key){
                             cp_apps.insert(n_key.clone(),HashSet::new());
@@ -161,19 +182,18 @@ impl AppStore{
                         if !cp_apps.contains_key(&n_key){
                             cp_apps.insert(n_key.clone(),HashSet::new());
                         }
-                        if !cp_standalone_apps.contains_key(c){
-                            cp_standalone_apps.insert(c.clone(),HashSet::new());
-                        }
                         if !cp_standalone_apps.contains_key(p){
                             cp_standalone_apps.insert(p.clone(),HashSet::new());
                         }
+                        
                         consumptions_to_produce.get_mut(c).unwrap().insert((cmd_signature.action.clone(),p.clone()));
                         blocked_path.insert((p.clone(),c.clone()));
-                        consumption_apps.get_mut(c).unwrap().insert(app.app_config.get_app_handle_name().clone());
                         cp_apps.get_mut(&n_key).unwrap().insert(app.app_config.get_app_handle_name().clone());
-                        cp_standalone_apps.get_mut(c).unwrap().insert(app.app_config.get_app_handle_name().clone());
                         cp_standalone_apps.get_mut(p).unwrap().insert(app.app_config.get_app_handle_name().clone());
-                        // let t=node_idx_map.get(p).unwrap();
+                        let f=self.tool_chain_node_map.get(c).unwrap();
+                        let t=self.tool_chain_node_map.get(p).unwrap();
+                        self.tool_chain_graph.add_edge(f.clone(),t.clone(),0);
+                        // let t=self.tool_chain_node_map.get(p).unwrap();
                         // g.add_edge(f.clone(),t.clone(),0);
                     }
                 }
@@ -238,39 +258,36 @@ impl AppStore{
         // }
         
         
-        let mut node_idx_map=HashMap::new();
-        for n in consumptions.iter(){
-            if !node_idx_map.contains_key(n){
-                node_idx_map.insert(n,self.tool_chain_graph.add_node(n.clone()));
-            }
-        }
-        for n in produces.iter(){
-            if !node_idx_map.contains_key(n){
-                node_idx_map.insert(n,self.tool_chain_graph.add_node(n.clone()));
-            }
-        }
+        
+        // for n in consumptions.iter(){
+        // }
+        // for n in produces.iter(){
+        //     if !self.tool_chain_node_map.contains_key(n){
+        //         self.tool_chain_node_map.insert(n,self.tool_chain_graph.add_node(n.clone()));
+        //     }
+        // }
 
         // for (c,ps) in consumes_mapped.iter(){
-        //     let f=node_idx_map.get(c).unwrap();
+        //     let f=self.tool_chain_node_map.get(c).unwrap();
         //     for p in ps.iter(){
-        //         let t=node_idx_map.get(p).unwrap();
+        //         let t=self.tool_chain_node_map.get(p).unwrap();
         //         g.add_edge(f.clone(),t.clone(),0);
         //     }
         // }
         
-        for (app_handle_name,app) in readble_apps.iter() {
-            for cmd_signature in app.get_cmd_signatures() {
-                for c in cmd_signature.consumes.iter(){
-                    for p in cmd_signature.produces.iter(){
-                        let f=node_idx_map.get(c).unwrap();
-                        let t=node_idx_map.get(p).unwrap();
-                        self.tool_chain_graph.add_edge(f.clone(),t.clone(),0);
-                    }
-                }
-            }
-        }
+        // for (app_handle_name,app) in readble_apps.iter() {
+        //     for cmd_signature in app.get_cmd_signatures() {
+        //         for c in cmd_signature.consumes.iter(){
+        //             for p in cmd_signature.produces.iter(){
+        //             }
+        //         }
+        //     }
+        // }
         for (p,cs) in produces_mapped.iter(){
-            let t=node_idx_map.get(p).unwrap();
+            // println!("Producing:{}|{:?}|{:?}",p,cs,self.tool_chain_node_map);
+            println!("Producing:{}|{:?}",p,cs);
+            
+            let t=self.tool_chain_node_map.get(p).unwrap();
             for c in cs.iter(){
                 if blocked_path.contains(&(p.clone(),c.clone())){
                     continue;
@@ -289,8 +306,8 @@ impl AppStore{
                         let new_embeds=self.embedder.get_embeddings(vec![old_coversion,new_coversion]).await.unwrap();
 
                         let new_sim=cosine(&new_embeds[0], &new_embeds[1]);
-                        // info!("NEW TOOL CHAIN {}->{}|{}",p,np,new_sim);
-                        if new_sim>0.7{
+                        info!("NEW TOOL CHAIN {}->{}|{}",p,np,new_sim);
+                        if new_sim>0.75{
                             for capps in consuming_app_name.iter(){
                                 
                                 let n_key=(p.clone(),np.clone());
@@ -300,7 +317,7 @@ impl AppStore{
                                 cp_apps.get_mut(&n_key).unwrap().insert(capps.clone());
                             }
 
-                            let f=node_idx_map.get(np).unwrap();
+                            let f=self.tool_chain_node_map.get(np).unwrap();
                             self.tool_chain_graph.add_edge(t.clone(),f.clone(),0);
                         }
                     }
@@ -309,9 +326,9 @@ impl AppStore{
         }
         
 
-        let infered_tool_chains=generate_all_paths(&self.tool_chain_graph);
+        // let infered_tool_chains=generate_all_paths(&self.tool_chain_graph);
         // info!("{:?}",cp_apps);
-        self.tool_chains=infered_tool_chains;
+        // self.tool_chains=infered_tool_chains;
         self.consume_produce_apps=cp_apps;
         self.object_apps=cp_standalone_apps;
         self.cp_embeddings.extend(consumes_embed_dict);
@@ -321,7 +338,76 @@ impl AppStore{
 
     }
 
-    
+    fn shortest_path(
+        g: &Graph<String, u32>,
+        start: NodeIndex,
+        target: NodeIndex,
+    ) -> Option<Vec<NodeIndex>> {
+        let mut visited = vec![false; g.node_count()];
+        let mut parent: Vec<Option<NodeIndex>> = vec![None; g.node_count()];
+        let mut queue = VecDeque::new();
+
+        visited[start.index()] = true;
+        queue.push_back(start);
+
+        while let Some(node) = queue.pop_front() {
+            if node == target {
+                // reconstruct path
+                let mut path = Vec::new();
+                let mut current = Some(node);
+
+                while let Some(n) = current {
+                    path.push(n);
+                    current = parent[n.index()];
+                }
+
+                path.reverse();
+                return Some(path);
+            }
+
+            for neighbor in g.neighbors(node) {
+                if !visited[neighbor.index()] {
+                    visited[neighbor.index()] = true;
+                    parent[neighbor.index()] = Some(node);
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+
+        None
+    }
+    pub fn get_minimal_tool_chain(&self,c:&String,p:&String)->Option<Vec<String>>{
+        let start_node_idx=self.tool_chain_node_map.get(c);
+        let end_node_idx=self.tool_chain_node_map.get(p);
+        // println!("Finding tool chain for {:?} -> {:?}",start_node_idx,end_node_idx);
+        if start_node_idx.is_none() || end_node_idx.is_none(){
+            info!("No Node found for {} -> {}",c,p);
+            return None;
+        }
+
+        let start_node_idx=start_node_idx.unwrap();
+        let end_node_idx=end_node_idx.unwrap();
+
+        if let Some(path) = Self::shortest_path(&self.tool_chain_graph, start_node_idx.clone(), end_node_idx.clone()) {
+            let tool_chain: Vec<String> = path.iter().map(|idx| self.tool_chain_graph[*idx].clone()).collect();
+            Some(tool_chain)
+        } else {
+            // info!("No tool chain found for {} -> {}",c,p);
+            None
+        }
+
+    }
+    fn all_pairs(&self,set: &HashSet<String>) -> Vec<(String, String)> {
+        let items: Vec<_> = set.iter().cloned().collect();
+        let mut res = Vec::new();
+
+        for a in &items {
+            for b in &items {
+                res.push((a.clone(), b.clone()));
+            }
+        }
+        res
+    }
 
     pub async fn resolve_tools(&self,episode_memory:Arc<Memory>,cntxt_content:String,source:Option<&Source>)->(HashSet<String>, String){
 
@@ -372,76 +458,159 @@ impl AppStore{
             .into_iter().collect();
         
         info!("types_mapped{:?}",types_mapped);
-
         let mut collected_pairs: HashSet<String> = HashSet::new();
+        for (s,t) in self.all_pairs(&types_mapped).iter(){
+            if s==t{
+                continue;
+            }
 
-        for tc in self.tool_chains.iter() {
-            let parts: Vec<&str> = tc.split(" -> ").collect();
-            // let first_match = parts.iter().position(|&p| types_mapped.contains(p));
-            let last_match = parts.iter().rposition(|&p| types_mapped.contains(p));
+            let tool_chain=self.get_minimal_tool_chain(s, t);
 
-            // info!("{:?}",last_match);
-            if let Some(end) = last_match {
-                
-                let trimmed_sequence = &parts[0..=end];
-                // info!("trimmed_sequence{:?}",trimmed_sequence);
-                
-                for obj in trimmed_sequence.iter().cloned(){
-                    if let Some(app)=self.object_apps.get(obj){
-                        collected_pairs.extend(app.clone());
-                    }
+            if tool_chain.is_none(){
+                continue;
+            }
+            
+            let tool_chain=tool_chain.unwrap();
+            for obj in tool_chain.clone().iter(){
+                if let Some(app)=self.object_apps.get(obj){
+                    collected_pairs.extend(app.clone());
                 }
+            }
+
+            let mut app_chains:Vec<Vec<String>>=Vec::new();
+            include_chain=false;
+
+            let tool_chain_window=tool_chain.windows(2);
                 
-                let mut app_chains:Vec<Vec<String>>=Vec::new();
-                include_chain=false;
-                
-                for window in trimmed_sequence.windows(2) {
-                    if let [a, b] = window {
-                        let nkey=(a.to_string(), b.to_string());
+            for window in  tool_chain_window.into_iter(){
+                if let [a, b] = window {
+                    let nkey=(a.to_string(), b.to_string());
 
-                        if self.consume_produce_apps.contains_key(&nkey){
-                            if let Some(app)=self.consume_produce_apps.get(&nkey){
-                                collected_pairs.extend(app.clone());
+                    if self.consume_produce_apps.contains_key(&nkey){
+                        if let Some(app)=self.consume_produce_apps.get(&nkey){
+                            collected_pairs.extend(app.clone());
 
-                                
-                                let mut temp_chain=Vec::new();
+                            
+                            let mut temp_chain=Vec::new();
 
-                                for each_app in app.iter(){
-                                    if app_chains.len()>0{
-                                        include_chain=true;
-                                        for each_chain in app_chains.iter(){
-                                            let mut new_chain=each_chain.clone();
-                                            
-                                            new_chain.push(format!("&{} {}",each_app,b));
-                                            if new_chain.len()>3{
-                                                new_chain.remove(0);
-                                            }
-                                            temp_chain.push(new_chain);
-
-                                            // temp_chain.push(format!("{} -> &{} {}",each_chain,each_app,b));
-                                            // temp_chain.push(format!("{} -> &{}",each_chain,each_app));
+                            for each_app in app.iter(){
+                                if app_chains.len()>0{
+                                    include_chain=true;
+                                    for each_chain in app_chains.iter(){
+                                        let mut new_chain=each_chain.clone();
+                                        
+                                        new_chain.push(format!("&{} {}",each_app,b));
+                                        if new_chain.len()>3{
+                                            new_chain.remove(0);
                                         }
-                                    }
-                                    else{
-                                        for each_app in app.iter(){
-                                            temp_chain.push(vec![format!("&{} {}",each_app,b)]);
-                                            // temp_chain.push(format!("&{}",each_app));
-                                        }
+                                        temp_chain.push(new_chain);
+
+                                        // temp_chain.push(format!("{} -> &{} {}",each_chain,each_app,b));
+                                        // temp_chain.push(format!("{} -> &{}",each_chain,each_app));
                                     }
                                 }
-                                app_chains=temp_chain;
-                                // app_chains.push(app.clone());
+                                else{
+                                    for each_app in app.iter(){
+                                        temp_chain.push(vec![format!("&{} {}",each_app,b)]);
+                                        // temp_chain.push(format!("&{}",each_app));
+                                    }
+                                }
                             }
+                            app_chains=temp_chain;
+                            // app_chains.push(app.clone());
                         }
                     }
                 }
-
-                if include_chain{
-                    detected_app_chains.extend(app_chains.into_iter().map(|chain| chain.join(" -> ")).filter(|chain| !chain.trim().is_empty()));
-                }
-                // detected_app_chains.insert(app_chains.join(" -> "));
             }
+
+            if include_chain{
+                detected_app_chains.extend(app_chains.into_iter().map(|chain| chain.join(" -> ")).filter(|chain| !chain.trim().is_empty()));
+            }
+
+            
+
+
+
+
+
         }
+
+
+        
+
+        // let mapped_nodes=Vec::new();
+
+        // for tc in self.tool_chain_node_map.iter() {
+            
+
+
+        //     let parts = self.tool_chain_node_map.keys();
+
+        //     // let first_match = parts.iter().position(|&p| types_mapped.contains(p));
+        //     let last_match = parts.iter().rposition(|&p| types_mapped.contains(p));
+
+        //     // info!("{:?}",last_match);
+        //     if let Some(end) = last_match {
+                
+        //         let trimmed_sequence = &parts[0..=end];
+        //         // info!("trimmed_sequence{:?}",trimmed_sequence);
+                
+        //         for obj in trimmed_sequence.iter().cloned(){
+        //             if let Some(app)=self.object_apps.get(obj){
+        //                 collected_pairs.extend(app.clone());
+        //             }
+        //         }
+                
+        //         let mut app_chains:Vec<Vec<String>>=Vec::new();
+        //         include_chain=false;
+                
+        //         for window in trimmed_sequence.windows(2) {
+        //             if let [a, b] = window {
+        //                 let nkey=(a.to_string(), b.to_string());
+
+        //                 if self.consume_produce_apps.contains_key(&nkey){
+        //                     if let Some(app)=self.consume_produce_apps.get(&nkey){
+        //                         collected_pairs.extend(app.clone());
+
+                                
+        //                         let mut temp_chain=Vec::new();
+
+        //                         for each_app in app.iter(){
+        //                             if app_chains.len()>0{
+        //                                 include_chain=true;
+        //                                 for each_chain in app_chains.iter(){
+        //                                     let mut new_chain=each_chain.clone();
+                                            
+        //                                     new_chain.push(format!("&{} {}",each_app,b));
+        //                                     if new_chain.len()>3{
+        //                                         new_chain.remove(0);
+        //                                     }
+        //                                     temp_chain.push(new_chain);
+
+        //                                     // temp_chain.push(format!("{} -> &{} {}",each_chain,each_app,b));
+        //                                     // temp_chain.push(format!("{} -> &{}",each_chain,each_app));
+        //                                 }
+        //                             }
+        //                             else{
+        //                                 for each_app in app.iter(){
+        //                                     temp_chain.push(vec![format!("&{} {}",each_app,b)]);
+        //                                     // temp_chain.push(format!("&{}",each_app));
+        //                                 }
+        //                             }
+        //                         }
+        //                         app_chains=temp_chain;
+        //                         // app_chains.push(app.clone());
+        //                     }
+        //                 }
+        //             }
+        //         }
+
+        //         if include_chain{
+        //             detected_app_chains.extend(app_chains.into_iter().map(|chain| chain.join(" -> ")).filter(|chain| !chain.trim().is_empty()));
+        //         }
+        //         // detected_app_chains.insert(app_chains.join(" -> "));
+        //     }
+        // }
         info!("detected_app_chains{:?}",detected_app_chains);
         let app_chain_str=detected_app_chains.iter().cloned().collect::<Vec<String>>().join("\n");
         let conv_str=conv.join("\n");
@@ -474,21 +643,23 @@ impl AppStore{
             return matched;
         }
 
-        // step 2 - typo match
-        for (target, _) in target_map.iter() {
-            if jaro_winkler(candidate, target) > 0.75 {
-                matched.push(target.clone());
-            }
-        }
+        // // step 2 - typo match
+        // for (target, _) in target_map.iter() {
+        //     if jaro_winkler(candidate, target) > 0.75 {
+        //         matched.push(target.clone());
+        //     }
+        // }
 
-        if !matched.is_empty() {
-            matched.dedup();
-            return matched;
-        }
+        // if !matched.is_empty() {
+        //     matched.dedup();
+        //     return matched;
+        // }
 
         // step 3 - semantic match
         for (target, emb) in target_map.iter() {
-            if cosine(candidate_embedding, emb) > 0.7 {
+            let cos_sim=cosine(candidate_embedding, emb);
+            // print!("Comparing '{}' with '{}': {}", candidate, target, cos_sim);
+            if cos_sim > 0.6 {
                 matched.push(target.clone());
             }
         }
@@ -554,13 +725,8 @@ fn generate_all_paths(g: &Graph<String, u32>) ->HashSet<String>{
         for path in &paths {
             let s: Vec<String> = path.iter().map(|n| g[*n].clone()).collect();
 
-            // let pairs: Vec<(&str, &str)> = s.windows(2)
-            // .map(|w| (w[0], w[1]))
-            // .collect();
             let tc=s.join(" -> ");
-            // info!("{}", tc);
             tool_chains.insert(tc);
-            // tool_chains.insert(())
         }
     }
     tool_chains
