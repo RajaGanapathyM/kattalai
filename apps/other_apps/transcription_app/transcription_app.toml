@@ -1,0 +1,87 @@
+app_name            = "Transcription App"
+app_path            = "./apps/other_apps/transcription_app/transcription_app.py"
+app_start_command   = "python"
+app_start_args      = "./apps/other_apps/transcription_app/transcription_app.py"
+app_handle_name     = "transcribe"
+app_launch_mode     = "ONE_SHOT"
+
+app_usage_guideline = """
+Use this app to record audio from the user's microphone and convert it to text
+using a fast local Whisper model (no cloud, fully private).
+
+## Behaviour
+
+1. A **permission dialog** (showing a GUID session ID) opens — the user must
+   click Allow before any audio is captured.
+2. After permission, a **recording window** opens with a live scrolling
+   transcript so the user can watch words appear in real time.
+3. The user clicks **Stop Recording** when done.
+4. A second **save-permission dialog** (showing the same session GUID and a
+   preview) asks for confirmation before writing to disk.
+5. The saved `.txt` file path is returned as the result.
+
+Model: `faster-whisper base` (int8-quantised, ~145 MB, CPU-only, ~2-4× real-time).
+
+## Commands & Examples
+
+### Record and auto-save (timestamped file in ~/transcriptions/)
+&transcribe transcribe
+
+### Record and save to a specific path
+&transcribe transcribe /home/user/notes/meeting_2025.txt
+
+### Aliases — all do the same thing
+&transcribe record
+&transcribe start
+
+## Output
+
+On success the app returns:
+```json
+{
+  "status":     "ok",
+  "session_id": "<uuid>",
+  "file":       "/home/user/transcriptions/transcript_20250501_143022.txt",
+  "word_count": 312,
+  "preview":    "First 300 chars of transcription…",
+  "markdown":   "## Transcription saved\\n\\n- **File**: …"
+}
+```
+
+On cancellation / denial:
+```json
+{ "status": "cancelled", "message": "User denied microphone permission." }
+```
+
+On missing dependencies:
+```json
+{ "status": "error", "message": "Missing dependencies: faster-whisper sounddevice numpy …" }
+```
+
+## Required pip packages (install once)
+```
+pip install faster-whisper sounddevice numpy
+```
+The first run downloads the `base` Whisper model weights (~145 MB) and caches
+them in `~/.cache/huggingface/hub`.  Subsequent runs start instantly.
+"""
+
+# ── command signatures ────────────────────────────────────────────────────────
+
+[[app_command_signatures]]
+command  = "transcribe"
+consumes = ["speech", "voice", "audio", "microphone", "output_path?", "filepath?"]
+produces = ["text", "filepath", "transcription"]
+action   = "transcribe"
+
+[[app_command_signatures]]
+command  = "record"
+consumes = ["speech", "voice", "audio", "microphone", "output_path?", "filepath?"]
+produces = ["text", "filepath", "transcription"]
+action   = "transcribe"
+
+[[app_command_signatures]]
+command  = "start"
+consumes = ["speech", "voice", "audio", "microphone", "output_path?"]
+produces = ["text", "filepath", "transcription"]
+action   = "transcribe"

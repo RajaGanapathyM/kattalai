@@ -676,7 +676,7 @@ class KattalaiApp(App):
                     placeholder="Ctrl+Enter to send  |  Ctrl+O to attach file",
                     id="user-input",
                 )
-                yield Button("📎", id="attach-btn")
+                yield Button("🔗", id="attach-btn")
 
         # ── AGENT MIND ─────────────────────────────────
         with Container(id="agent-pane-box", classes="tab-pane"):
@@ -1137,7 +1137,7 @@ class KattalaiApp(App):
             if self.active_tab == "Terminal":
                 self.query_one("#term-input", Input).focus()
             else:
-                self.query_one("#user-input", Input).focus()
+                self.query_one("#user-input", TextArea).focus()
         except NoMatches:
             pass
 

@@ -377,7 +377,7 @@ impl PyRuntime {
 
             init_tracing();
             // env_logger::init();
-            let rt = block_on(Runtime::new(bind));
+            let rt = Runtime::new(bind).await;
 
             Python::with_gil(|py| {
                 Py::new(py, PyRuntime {

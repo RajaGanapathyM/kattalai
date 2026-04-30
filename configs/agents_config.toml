@@ -11,6 +11,8 @@ default_apps=[]
 # reasoning_model={"inference_provider"="gemini","model_id"="gemini-2.5-flash"}
 # nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}
 allow_self_selected_apps=true
+
+
 [[agent_config]]
 agent_name="CHEF JI"
 agent_goal="To assist user with their cooking"

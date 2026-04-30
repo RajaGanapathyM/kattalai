@@ -49,6 +49,7 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
     dot / (norm_a * norm_b)
 }
 
+#[derive(Debug, Clone)]
 pub struct AppInit{
     app_toml_path:String,
     app_info: HashMap<String, String>,
@@ -139,9 +140,18 @@ impl AppStore{
         let mut produces: Vec<String> = Vec::new();
         let mut consumptions: Vec<String> = Vec::new();
         let mut blocked_path:HashSet<(String,String)>=HashSet::new();
-        let readble_apps=self.apps.read().unwrap();
+        let apps_list:Vec<(String,AppInit)>={
+            let readable_apps=self.apps.read().unwrap();
         // let mut self.tool_chain_node_map=HashMap::new();
-        for (app_handle_name,app) in readble_apps.iter() {
+            let mut apps_list_local=Vec::new();
+
+            for (handle_name, app_init) in readable_apps.iter() {
+                // info!("App found: {}", handle_name);
+                apps_list_local.push((handle_name.clone(), app_init.clone()));
+            }
+            apps_list_local
+        };
+        for (app_handle_name,app) in apps_list.iter() {
             
             let desc_embed=self.embedder.get_embeddings(vec![app.get_guidelines()]).await.unwrap();
 
