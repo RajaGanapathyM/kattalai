@@ -90,6 +90,7 @@ pub struct episode{
     interface_memory:Option<Arc<Memory>>,
     last_fetched_imemory_id:Mutex<Option<String>>,
     agent_lock:Mutex<bool>,
+    followup_planned:Mutex<bool>,
 }
 impl  episode {
     pub fn get_episode_id(&self)->String{
@@ -111,7 +112,16 @@ impl  episode {
         let locked_agent_lock=self.agent_lock.lock().await;
         (*locked_agent_lock).clone()
     }
+    pub async fn get_followup_planned_status(&self)->bool{
+        let followup_status=self.followup_planned.lock().await;
+        (*followup_status).clone()  
+    }
+    pub async fn is_episode_active(&self)->bool{
+        let locked_agent_lock=self.agent_lock.lock().await;
+        let followup_status=self.followup_planned.lock().await;
 
+        (*locked_agent_lock).clone() || (*followup_status).clone()
+    }
     pub async fn lock_agent(&self){
         let mut locked_agent_lock=self.agent_lock.lock().await;
         *locked_agent_lock=true;
@@ -126,6 +136,10 @@ impl  episode {
         let mut locked_id=self.last_fetched_imemory_id.lock().await;
         *locked_id=Some(lid);
 
+    }
+    pub async fn set_followup_planned(&self, followup_planned: bool){
+        let mut followup_status=self.followup_planned.lock().await;
+        *followup_status=followup_planned;
     }
     
 }
@@ -143,6 +157,7 @@ pub enum AgentPulse{
     UpdateEpisode(String,String),
     unlockAgentForEpisode(String),
     lockAgentForEpisode(String),
+    SetAgentFollowupStatus(String,bool),
 }
 
 #[derive(Debug)]
@@ -378,6 +393,19 @@ impl Agent{
                                     match req_episode{
                                         Some(repisode)=>{
                                             repisode.lock_agent().await;
+                                        },
+                                        None=>{}
+                                    }
+                                });
+                            },
+                            AgentPulse::SetAgentFollowupStatus(epid, followup_planned)=>{
+                                tokio_rt.spawn(async move{
+                                    let agent_lock = aclone.read().await;
+                                    let readble_episode=agent_lock.episodes.read().await;
+                                    let req_episode=readble_episode.get(&epid);
+                                    match req_episode{
+                                        Some(repisode)=>{
+                                            repisode.set_followup_planned(followup_planned).await;
                                         },
                                         None=>{}
                                     }
@@ -677,7 +705,7 @@ impl Agent{
         *writable_episode=Some(episode_id.clone());
 
         let mut writable_episodes=agent_self.episodes.write().await;    
-        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc,interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false)}));
+        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc,interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false) }));
     
         
         info!("New Episode Launched:{}",episode_id);
@@ -947,7 +975,7 @@ impl Agent{
         const  MAX_RUN_ALLOWED:i32=7;
         // let repair_prompt_template=;
         let mut repair_prompt=String::new();
-        let mut parsed_reponse=ParsedResponse{validation_block:None,thoughts:None,commands:None,outputs:None,followup_context:None,success:false};
+        let mut parsed_response=ParsedResponse{validation_block:None,thoughts:None,commands:None,outputs:None,followup_context:None,success:false};
 
         let invoking_episode_id:Option<String>=match &episode_id{
             Some(eid)=>{Some(eid.clone())},
@@ -961,6 +989,7 @@ impl Agent{
         };
 
         let mut invoc_id=Uuid::now_v7().to_string();
+        let mut followup_planned=false;
 
         while need_rerun && run_count<MAX_RUN_ALLOWED {
             
@@ -1014,7 +1043,7 @@ impl Agent{
                     Ok(lval_block)=>{
                         val_block=Some(lval_block);
                         info!("Validation Sucessful:{:?}",val_block);
-                        parsed_reponse.validation_block=val_block.clone();
+                        parsed_response.validation_block=val_block.clone();
                     }
                     Err(e)=>{error_ls.push(e);}
                 }
@@ -1027,7 +1056,7 @@ impl Agent{
                             }
                             else{
                                 info!("Found successful commands {:?}",commands);
-                                parsed_reponse.commands=Some(commands);
+                                parsed_response.commands=Some(commands);
                             }
                     },
                     Err(e)=>{error_ls.push(e);}
@@ -1036,14 +1065,14 @@ impl Agent{
                 match AgentResponseParser::parse_thoughts(&mut val_block, &resp) {
                     Ok(ThoughtsBlock{thoughts})=>{
                         info!("found thoughts: {:?}",thoughts);
-                        parsed_reponse.thoughts=Some(thoughts);
+                        parsed_response.thoughts=Some(thoughts);
                     },
                     Err(e)=>{error_ls.push(e);}  
                 }
                 match AgentResponseParser::parse_outputs(&mut val_block, &resp) {
                     Ok(OutputsBlock{outputs})=>{
                         info!("found outputs: {:?}",outputs);
-                        parsed_reponse.outputs=Some(outputs);
+                        parsed_response.outputs=Some(outputs);
                     }
                     Err(e)=>{error_ls.push(e);}
                 
@@ -1051,7 +1080,7 @@ impl Agent{
                 match AgentResponseParser::parse_followup_context(&mut val_block, &resp) {
                     Ok(FollowupContextBlock{followup_context    })=>{
                         info!("found followup_context    : {:?}",followup_context    );
-                        parsed_reponse.followup_context =Some(followup_context   );
+                        parsed_response.followup_context =Some(followup_context   );
                     }
                     Err(e)=>{error_ls.push(e);}
                 
@@ -1076,12 +1105,18 @@ impl Agent{
                         validator_errors=error_str);
                 }
 
-                parsed_reponse.success=!need_rerun;
+                parsed_response.success=!need_rerun;
 
-                if parsed_reponse.success{
+                if parsed_response.success{
+                    if let(Some(validation_block))=&parsed_response.validation_block{
+                        if validation_block.needs_followup{
+                            followup_planned=true;
+                        }
+                    }
 
-                    if let Some(outputs)=&parsed_reponse.outputs{
+                    if let Some(outputs)=&parsed_response.outputs{
                         if outputs.len()>0{
+                            followup_planned=outputs.iter().any(|o| o.starts_with("/"));
                             let output_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()),None);
                             match &interface_memory{
                                 Some(imemory)=>{
@@ -1099,15 +1134,16 @@ impl Agent{
                     }
                     
                     
-                    // if let Some(thoughts)=&parsed_reponse.thoughts{
+                    // if let Some(thoughts)=&parsed_response.thoughts{
                     //     if thoughts.len()>0{
                     //         let thoughts_memory_node=MemoryNode::new(&agent_card, thoughts.join("\n"), None, MemoryNodeType::Thought,Some(invoc_id.clone()));
                     //         current_episode_memory.insert(thoughts_memory_node).await;
                     //     }
                     // }
                     
-                    if let Some(commands)=&parsed_reponse.commands{
+                    if let Some(commands)=&parsed_response.commands{
                         if commands.len()>0{
+                            followup_planned=true;
                             let mut filtered_cmds=Vec::new();
                             for comnds in commands.iter(){
                                 if comnds.trim().starts_with("/"){
@@ -1141,19 +1177,19 @@ impl Agent{
                             }
                         }
                     }
-                    // if let Some(outputs)=&parsed_reponse.outputs{
+                    // if let Some(outputs)=&parsed_response.outputs{
                     //     if outputs.len()>0{
                     //         let outputs_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()));
                     //         current_episode_memory.insert(outputs_memory_node).await;
                     //     }
                     // }
-                    // if let Some(followupcontext)=&parsed_reponse.followup_context{
+                    // if let Some(followupcontext)=&parsed_response.followup_context{
                     //     if followupcontext.len()>0{
                     //         let followupcontext_memory_node=MemoryNode::new(&agent_card, followupcontext.join("\n"), None, MemoryNodeType::FollowupContext,Some(invoc_id.clone()));
                     //         current_episode_memory.insert(followupcontext_memory_node).await;
                     //     }
                     // }
-                    // if let Some(validationblock)=&parsed_reponse.validation_block{
+                    // if let Some(validationblock)=&parsed_response.validation_block{
                     //     let validationblock_memory_node=MemoryNode::new(&agent_card, validationblock.to_string(), None, MemoryNodeType::ValidationBlock,Some(invoc_id.clone()));
                     //     current_episode_memory.insert(validationblock_memory_node).await;
                         
@@ -1170,6 +1206,8 @@ impl Agent{
                     info!("Unlocking agent for episode:{}",lookupid);
                     
                     agent_tx.send(AgentPulse::unlockAgentForEpisode(invoke_epid.clone())).unwrap();
+                    agent_tx.send(AgentPulse::SetAgentFollowupStatus(invoke_epid.clone(),followup_planned.clone())).unwrap();
+
                     break;
                 }
 
@@ -1191,7 +1229,7 @@ impl Agent{
         
         info!("Last rerun:{}",need_rerun);
 
-        if !parsed_reponse.success{
+        if !parsed_response.success{
             let error_message=MemoryNode::new(&agent_card, "Error Processing Last Message.Please try again".to_string(), None, MemoryNodeType::Error,Some(invoc_id.clone()),None);
             match &interface_memory{
                 Some(imemory)=>{

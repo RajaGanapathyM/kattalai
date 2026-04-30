@@ -1178,7 +1178,7 @@ def open_folder():
 def setup():
     os.chdir(Path(__file__).parent)
     base = Path(__file__).parent
-    folders = ["apps", "configs", "model_assets", "prompts"]
+    folders = ["apps", "configs", "model_assets", "protocols","knowledge_base"]
 
     if all((base / f).exists() for f in folders):
         print("Already set up.")
@@ -1213,7 +1213,7 @@ def setup():
 def upgrade():
     os.chdir(Path(__file__).parent)
     base = Path(__file__).parent
-    folders = ["apps", "configs", "model_assets", "prompts"]
+    folders = ["apps", "configs", "model_assets", "protocols","knowledge_base"]
 
     print("Upgrading kattalai package...")
     subprocess.run(

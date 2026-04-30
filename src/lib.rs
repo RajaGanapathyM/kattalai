@@ -147,7 +147,7 @@ impl Runtime{
                 drop(agents);
                 // info!("Agent Found with {} episodes",all_episodes.len());
                 for agent_episode in all_episodes{
-                    if agent_episode.get_agent_lock_status().await{
+                    if agent_episode.is_episode_active().await{
                         // info!("Cogitare Agent: episode {} is currently locked, skipping...",agent_episode.get_episode_id());
                         continue;
                     }
