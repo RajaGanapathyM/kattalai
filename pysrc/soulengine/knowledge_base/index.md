@@ -24,6 +24,10 @@
 5. **Feature Backlogs**  
    `./knowledge_base/feature_backlogs.md`
 
-6. **Indian Express News**  
+6. **Kattalai Roadmap**  
+   `./knowledge_base/kattalai_roadmap.md`  
+  _User feedback on path formatting issues_
+
+7. **Indian Express News**  
    `./knowledge_base/news/indianexpress.md`  
   _Latest news source for Indian Express website_

@@ -184,7 +184,7 @@ impl Runtime{
                         let focus_branch_id=readonly_agent_episode_mem.get_branch_id();
 
 
-                        Agent::ping(&cogitare_agent,AgentPulse::NewEpisode(format!("Cogitare Episode:{}",focus_branch_id.clone()),Some(readonly_agent_episode_mem))).await;
+                        Agent::ping(&cogitare_agent,AgentPulse::NewEpisode(format!("Cogitare Episode:{}",focus_branch_id.clone()),Some(readonly_agent_episode_mem),true)).await;
                         tokio::time::sleep(Duration::from_secs(5)).await;
 
                         let cogitare_user=Source::new(source::Role::User, "CogitareUser".to_string(), None);
@@ -286,7 +286,7 @@ impl Runtime{
                 let agent=self.agents.get(agent_id).unwrap().clone();
                 let topic=self.topics.get(topic_id).unwrap().clone();
 
-                Agent::ping(&agent,AgentPulse::NewEpisode(format!("Interface Episode:{}",topic_id.clone()),Some(topic))).await;
+                Agent::ping(&agent,AgentPulse::NewEpisode(format!("Interface Episode:{}",topic_id.clone()),Some(topic),false)).await;
 
                 Ok("Agent added successfully")
             }

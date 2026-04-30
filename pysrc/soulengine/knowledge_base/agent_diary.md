@@ -90,3 +90,4 @@ _No corrections recorded yet._
 <!-- Format: YYYY-MM-DD | brief summary of what was done -->
 
 _No sessions logged yet._
+User path C:\Users\RG\Documents\GoRDB.py does not exist. Correct path format: C:\Users\RG\Documents\GoRDB.py

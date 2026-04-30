@@ -20,6 +20,14 @@ import se_app_utils
 from se_app_utils.soulengine import soul_engine_app
 
 
+# ── Constants ──────────────────────────────────────────────────────────────────
+# Maximum file size allowed for a full read without a range (10 MB).
+# Files larger than this require the caller to supply start= / end= line args.
+READ_SIZE_LIMIT_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# Encodings tried in order when UTF-8 decoding fails.
+FALLBACK_ENCODINGS = ["latin-1", "cp1252", "utf-16"]
+
 # ── Dialog messages mirrored from TOML ────────────────────────────────────────
 DIALOG_MESSAGES = {
     "new":    "Allow creating a new file at the specified path?",
@@ -53,6 +61,25 @@ def _stat_dict(path: Path) -> dict:
 
 def _now() -> str:
     return datetime.now().isoformat()
+
+
+def _read_text(path: Path) -> tuple[str, str]:
+    """
+    Read *path* as text.  Returns (content, encoding_used).
+    Tries UTF-8 first, then falls back through FALLBACK_ENCODINGS.
+    Raises ValueError if no encoding succeeds.
+    """
+    for enc in ["utf-8"] + FALLBACK_ENCODINGS:
+        try:
+            content = path.read_text(encoding=enc)
+            return content, enc
+        except (UnicodeDecodeError, LookupError):
+            continue
+    raise ValueError(
+        f"Could not decode '{path}' as text with any supported encoding "
+        f"(tried utf-8, {', '.join(FALLBACK_ENCODINGS)}). "
+        "The file may be binary."
+    )
 
 
 class FileHandlerApp(soul_engine_app):
@@ -196,7 +223,7 @@ class FileHandlerApp(soul_engine_app):
             se_interface.send_message(json.dumps({
                 "status": "error",
                 "reason": f"Unknown command '{command}'. "
-                          "Valid commands: list, stat, search, new, mkdir, edit, "
+                          "Valid commands: list, stat, read, search, new, mkdir, edit, "
                           "append, copy, move, rename, delete, rmdir",
             }))
             return
@@ -259,6 +286,96 @@ class FileHandlerApp(soul_engine_app):
             return {"status": "error", "command": "stat", "error_code": "path_not_found",
                     "reason": f"Path does not exist: {path}"}
         return {"status": "success", "command": "stat", **_stat_dict(path)}
+
+    async def _cmd_read(self, _si, kv: dict) -> dict:
+        """
+        Read a file as text and return its content.
+
+        Optional args:
+          start=<int>  – 1-based first line to return (default: 1)
+          end=<int>    – 1-based last line to return, inclusive (default: last line)
+
+        Without start/end the whole file is returned, subject to READ_SIZE_LIMIT_BYTES.
+        With start/end only the requested slice is decoded (no size cap).
+        """
+        raw = kv.get("path")
+        if not raw:
+            return {"status": "error", "command": "read", "reason": "Missing 'path' argument."}
+
+        path = _resolve(raw)
+
+        if not path.exists():
+            return {"status": "error", "command": "read", "error_code": "path_not_found",
+                    "reason": f"File does not exist: {path}"}
+        if path.is_dir():
+            return {"status": "error", "command": "read", "error_code": "is_directory",
+                    "reason": "Path is a directory. Use 'list' to inspect directories."}
+
+        size = path.stat().st_size
+
+        # Parse optional line-range args
+        start_arg = kv.get("start")
+        end_arg = kv.get("end")
+        has_range = start_arg is not None or end_arg is not None
+
+        if not has_range and size > READ_SIZE_LIMIT_BYTES:
+            return {
+                "status": "error",
+                "command": "read",
+                "error_code": "file_too_large",
+                "reason": (
+                    f"File is {size:,} bytes which exceeds the {READ_SIZE_LIMIT_BYTES:,}-byte "
+                    "limit for a full read. Supply start= and end= line numbers to read a slice."
+                ),
+                "size": size,
+                "path": str(path),
+            }
+
+        try:
+            content, encoding = _read_text(path)
+        except ValueError as exc:
+            return {"status": "error", "command": "read", "error_code": "binary_file",
+                    "reason": str(exc), "path": str(path)}
+
+        all_lines = content.splitlines(keepends=True)
+        total_lines = len(all_lines)
+
+        if has_range:
+            try:
+                start = max(1, int(start_arg)) if start_arg is not None else 1
+                end = min(total_lines, int(end_arg)) if end_arg is not None else total_lines
+            except ValueError:
+                return {"status": "error", "command": "read",
+                        "reason": "start= and end= must be integers."}
+
+            if start > total_lines:
+                return {
+                    "status": "error", "command": "read",
+                    "error_code": "range_out_of_bounds",
+                    "reason": f"start={start} exceeds total lines ({total_lines}).",
+                    "total_lines": total_lines,
+                }
+
+            sliced = all_lines[start - 1: end]
+            content = "".join(sliced)
+            returned_lines = len(sliced)
+        else:
+            start = 1
+            end = total_lines
+            returned_lines = total_lines
+
+        return {
+            "status": "success",
+            "command": "read",
+            "path": str(path),
+            "encoding": encoding,
+            "size": size,
+            "total_lines": total_lines,
+            "start": start,
+            "end": end,
+            "lines_returned": returned_lines,
+            "content": content,
+        }
 
     async def _cmd_search(self, _si, kv: dict) -> dict:
         raw_path = kv.get("path", ".")

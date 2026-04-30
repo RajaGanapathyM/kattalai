@@ -13,6 +13,7 @@ import zipfile
 import shutil
 import subprocess
 import sys
+from rich.markup import escape
 
 GITHUB_REPO = "RajaGanapathyM/kattalai"
 BRANCH = "main"
@@ -304,7 +305,7 @@ SelectOverlay > .option-list--option {
 
 /* ── Attach button ── */
 #attach-btn {
-    width: 5;
+    width: 7;
     height: 3;
     min-width: 3;
     background: #13161d;
@@ -560,7 +561,7 @@ class MsgBlock(Static):
     def compose(self) -> ComposeResult:
         if self._kind.upper() != "OUTPUT":
             yield Label(f"{self._icon} {self._kind.upper()}", classes="blk-hdr")
-        yield Label(self._body, classes="blk-body")
+        yield Label(escape(self._body), classes="blk-body",markup=False)  # ← escape here
 
 
 class UserMsg(Static):
@@ -571,7 +572,7 @@ class UserMsg(Static):
 
     def compose(self) -> ComposeResult:
         yield Label(f"  YOU  {datetime.now().strftime('%H:%M')}", classes="usr-lbl")
-        yield Label(self._text, classes="usr-txt")
+        yield Label(escape(self._text), classes="usr-txt",markup=False)  # ← escape here
 
 
 class AgentMsg(Static):
@@ -581,7 +582,7 @@ class AgentMsg(Static):
         self.add_class("msg-row")
 
     def compose(self) -> ComposeResult:
-        yield Label(f"  {self._agent.upper()}  {datetime.now().strftime('%H:%M')}", classes="agt-lbl")
+        yield Label(f"  {escape(self._agent.upper())}  {datetime.now().strftime('%H:%M')}", classes="agt-lbl")
         for kind, body in self._blocks:
             yield MsgBlock(kind, body)
 
@@ -686,7 +687,7 @@ class KattalaiApp(App):
 
         # ── TERMINAL ───────────────────────────────────
         with Container(id="terminal-pane-box", classes="tab-pane"):
-            yield RichLog(id="term-log", highlight=True, markup=True)
+            yield RichLog(id="term-log", highlight=True, markup=False)
             with Container(id="term-input-row"):
                 yield Static("")
 
@@ -1151,7 +1152,7 @@ class KattalaiApp(App):
                     ta = self.query_one("#user-input", TextArea)
                     current = ta.text
                     separator = "\n" if current.strip() else ""
-                    ta.load_text(current + separator + f"[file: {path}]")
+                    ta.load_text(current + separator + f"FilePath:{path}")
                     ta.move_cursor(ta.document.end)
                     ta.focus()
                 except NoMatches:

@@ -134,7 +134,7 @@ impl  episode {
 pub enum AgentPulse{
     Invoke(Option<String>),
     Generate,
-    NewEpisode(String,Option<Arc<Memory>>),
+    NewEpisode(String,Option<Arc<Memory>>,bool),
     AttachApp(App),
     AddMemory(MemoryNode,Option<String>),
     AddMultipleMemories(Vec<MemoryNode>,Option<String>),
@@ -364,8 +364,8 @@ impl Agent{
                                tokio_rt.spawn(Agent::_invoke(aclone, epid));
                                 
                             },
-                            AgentPulse::NewEpisode(edesc,i_mem)=>{
-                                tokio_rt.spawn(Agent::initiate_new_episode(aclone,edesc.clone(),i_mem));
+                            AgentPulse::NewEpisode(edesc,i_mem,react_for_history)=>{
+                                tokio_rt.spawn(Agent::initiate_new_episode(aclone,edesc.clone(),i_mem,react_for_history));
                             },
                             AgentPulse::AttachApp(app)=>{  
                                tokio_rt.spawn(Agent::attach_app(aclone, app));
@@ -653,7 +653,7 @@ impl Agent{
             ep.set_lastfetch_memoryid(lnodeid).await;
         }
     }
-    pub async fn initiate_new_episode(agent_lock: Arc<RwLock<Arc<Agent>>>,episode_desc:String,episode_interface_memory:Option<Arc<Memory>>)->String{
+    pub async fn initiate_new_episode(agent_lock: Arc<RwLock<Arc<Agent>>>,episode_desc:String,episode_interface_memory:Option<Arc<Memory>>,react_for_history:bool)->String{
         let agent_self=agent_lock.write().await;
         let mut episode_id=if episode_interface_memory.is_some(){
             episode_interface_memory.as_ref().unwrap().get_branch_id()
@@ -661,15 +661,18 @@ impl Agent{
             Uuid::now_v7().to_string()
         };
         let episode_memory=Memory::new(None,MemoryType::AgentEpisode);
-
-        let latest_fetched_id=None;
-        // match &episode_interface_memory{
-        //     Some(mem)=>{
-        //         episode_id=mem.get_branch_id();
-        //         mem.get_latest_memory_id()
-        //     }
-        //     None=>{None}
-        // };
+        
+        let latest_fetched_id=match &episode_interface_memory{
+            Some(mem)=>{
+                episode_id=mem.get_branch_id();
+                if react_for_history{
+                    None
+                } else {
+                    mem.get_latest_memory_id()
+                }
+            }
+            None=>{None}
+        };
         let mut writable_episode=agent_self.latest_episode_id.write().await;
         *writable_episode=Some(episode_id.clone());
 
