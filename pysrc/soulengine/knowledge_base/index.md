@@ -31,3 +31,7 @@
 7. **Indian Express News**  
    `./knowledge_base/news/indianexpress.md`  
   _Latest news source for Indian Express website_
+
+8. **User Input Patterns**  
+   `./knowledge_base/user_behavior.md`  
+  _Tracks patterns in user messages like typos_

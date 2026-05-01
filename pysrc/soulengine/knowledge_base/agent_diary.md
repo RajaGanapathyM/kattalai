@@ -91,3 +91,4 @@ _No corrections recorded yet._
 
 _No sessions logged yet._
 User path C:\Users\RG\Documents\GoRDB.py does not exist. Correct path format: C:\Users\RG\Documents\GoRDB.py
+User uses Japanese greetings: 'ji' (hello) and 'mi' (what) as greetings.

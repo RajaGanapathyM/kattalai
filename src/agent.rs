@@ -191,6 +191,7 @@ pub struct agent_config{
     nlp_model:Option<agent_model_config>,
     default_apps:Vec<String>,
     allow_self_selected_apps:bool,
+    is_public:Option<bool>
 }#[derive(Deserialize,Clone)]
 pub struct DefaultModelConfig{
     default_reasoning_model:agent_model_config,
@@ -258,7 +259,13 @@ impl AgentStore{
 
     }
     pub fn list_agents(&self)->Vec<String>{
-        let mut agents = self.agents_config.keys().cloned().collect::<Vec<String>>();
+
+        let mut agents =Vec::new();
+        for (name, config) in &self.agents_config {
+            if config.is_public.unwrap_or(true) {
+                agents.push(name.clone());
+            }
+        }
         agents.sort();
         agents
     }
