@@ -1,0 +1,144 @@
+app_name="REST API App"
+app_path="./apps/other_apps/rest_api_app/rest_api_app.py"
+app_start_command="python"
+app_start_args="./apps/other_apps/rest_api_app/rest_api_app.py"
+app_handle_name="rest_api_app"
+app_launch_mode="REPL"
+app_usage_guideline="""
+Use this app for making HTTP requests to REST APIs and inspecting responses.
+Supports GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS methods.
+
+## Supported Commands
+
+### get
+  Send an HTTP GET request.
+  Optional: headers=key:val,key:val  params=key:val,key:val  timeout=30  auth=user:pass
+  &rest_api_app get url=https://api.example.com/users
+  &rest_api_app get url=https://api.example.com/users params=page:1,limit:10
+  &rest_api_app get url=https://api.example.com/me headers=Authorization:Bearer TOKEN
+
+### post
+  Send an HTTP POST request with a JSON body. Requires user confirmation.
+  Optional: headers=key:val  body={"key":"value"}  form=key:val,key:val  timeout=30
+  &rest_api_app post url=https://api.example.com/users body={"name":"Alice","role":"admin"}
+  &rest_api_app post url=https://api.example.com/login form=username:alice,password:secret
+
+### put
+  Send an HTTP PUT request (full replacement). Requires user confirmation.
+  &rest_api_app put url=https://api.example.com/users/1 body={"name":"Alice Updated"}
+
+### patch
+  Send an HTTP PATCH request (partial update). Requires user confirmation.
+  &rest_api_app patch url=https://api.example.com/users/1 body={"role":"moderator"}
+
+### delete
+  Send an HTTP DELETE request. Requires user confirmation.
+  &rest_api_app delete url=https://api.example.com/users/1
+
+### head
+  Send an HTTP HEAD request — returns headers only, no body.
+  &rest_api_app head url=https://api.example.com/users
+
+### options
+  Send an HTTP OPTIONS request — discover allowed methods.
+  &rest_api_app options url=https://api.example.com/users
+
+### inspect
+  Parse and pretty-print a stored response from a previous request (last response is
+  cached in memory per session). No network call made.
+  &rest_api_app inspect
+  &rest_api_app inspect path=response_key   (drill into a JSON key path, dot-separated)
+
+### history
+  Show a summary of all requests made in this session.
+  &rest_api_app history
+
+### clear
+  Clear session history and cached responses.
+  &rest_api_app clear
+
+## Argument Reference
+
+  url=        Full URL including scheme (https://...)
+  headers=    Comma-separated key:value pairs  e.g. headers=Authorization:Bearer TOKEN,Accept:application/json
+  params=     Query string params              e.g. params=page:1,sort:desc
+  body=       Raw JSON string for request body e.g. body={"name":"Alice"}
+  form=       Form-encoded data (multipart)    e.g. form=username:alice,password:secret
+  timeout=    Request timeout in seconds (default 30)
+  auth=       Basic auth as user:pass          e.g. auth=admin:secret
+  verify=     TLS verification true/false (default true)
+  follow=     Follow redirects true/false (default true)
+
+## Output Behavior
+* All responses return:
+    status_code, method, url, elapsed_ms, response_headers, content_type
+  Plus one of:
+    json_body   (if Content-Type is application/json)
+    text_body   (plain text / HTML / XML responses)
+    binary_info (size + content_type for binary responses)
+
+* Errors return: status="error", error_code, reason
+* Mutating commands (post, put, patch, delete) also return:
+    user_confirmed, permission_dialog_shown, timestamp
+"""
+
+
+[[app_command_signatures]]
+command = "get"
+consumes = ["url", "headers", "params", "timeout", "auth", "verify", "follow"]
+produces = ["status_code", "method", "url", "elapsed_ms", "response_headers", "content_type", "json_body", "text_body"]
+action = "read"
+
+[[app_command_signatures]]
+command = "post"
+consumes = ["url", "headers", "body", "form", "params", "timeout", "auth", "verify"]
+produces = ["status_code", "method", "url", "elapsed_ms", "response_headers", "content_type", "json_body", "text_body", "user_confirmed", "timestamp"]
+action = "write"
+
+[[app_command_signatures]]
+command = "put"
+consumes = ["url", "headers", "body", "params", "timeout", "auth", "verify"]
+produces = ["status_code", "method", "url", "elapsed_ms", "response_headers", "content_type", "json_body", "text_body", "user_confirmed", "timestamp"]
+action = "write"
+
+[[app_command_signatures]]
+command = "patch"
+consumes = ["url", "headers", "body", "params", "timeout", "auth", "verify"]
+produces = ["status_code", "method", "url", "elapsed_ms", "response_headers", "content_type", "json_body", "text_body", "user_confirmed", "timestamp"]
+action = "write"
+
+[[app_command_signatures]]
+command = "delete"
+consumes = ["url", "headers", "params", "timeout", "auth", "verify"]
+produces = ["status_code", "method", "url", "elapsed_ms", "response_headers", "user_confirmed", "timestamp"]
+action = "delete"
+
+[[app_command_signatures]]
+command = "head"
+consumes = ["url", "headers", "params", "timeout", "auth", "verify"]
+produces = ["status_code", "method", "url", "elapsed_ms", "response_headers"]
+action = "read"
+
+[[app_command_signatures]]
+command = "options"
+consumes = ["url", "headers", "timeout", "auth", "verify"]
+produces = ["status_code", "method", "url", "elapsed_ms", "response_headers", "allowed_methods"]
+action = "read"
+
+[[app_command_signatures]]
+command = "inspect"
+consumes = ["path"]
+produces = ["data"]
+action = "read"
+
+[[app_command_signatures]]
+command = "history"
+consumes = []
+produces = ["entries"]
+action = "read"
+
+[[app_command_signatures]]
+command = "clear"
+consumes = []
+produces = ["status"]
+action = "write"

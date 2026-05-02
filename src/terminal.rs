@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use app::App;
 use std::collections::HashMap;
+use crate::appstore::AppStore;
 use crate::memory::Memory;
 use std::sync::{Arc};
 use tokio::sync::RwLock;
@@ -12,27 +13,31 @@ use async_trait::async_trait;
 pub struct Terminal{
     env_vars: Vec<(String, String)>,
     app_hooks:Arc<RwLock<HashMap<String, Arc<App>>>>,
+    interface_memory_tx:Option<crossbeam::channel::Sender<AgentPulse>>,
+    app_store:Option<Arc<AppStore>>,
 }
 
 impl Terminal{
-    pub fn new() -> Self {
+    pub fn new(app_store:Option<Arc<AppStore>>,interface_memory_tx:Option<crossbeam::channel::Sender<AgentPulse>>) -> Self {
         Self {
             env_vars: Vec::new(),
-            app_hooks:Arc::new(RwLock::new(HashMap::new()))
+            app_hooks:Arc::new(RwLock::new(HashMap::new())),
+            interface_memory_tx,
+            app_store
         }
     }
 
-    pub async fn launch_app(&self, app: App, memory_rx:Option<crossbeam::channel::Sender<AgentPulse>>) {
+    pub async fn launch_app(&self, app: App) {
         let app_handle_name = app.app_handle_name.clone();
         let app_hook_loc=self.app_hooks.read().await;
-        let has_app=!app_hook_loc.contains_key(&format!("&{}", app_handle_name)).clone();
+        let has_app=!app_hook_loc.contains_key(&format!("&{}", app_handle_name));
         drop(app_hook_loc);
 
         if has_app{
             app.launch().await;
             self.app_hooks.write().await.insert(format!("&{}", app_handle_name), Arc::new(app));
             info!("App Launched: {}",app_handle_name);
-            if let Some(mem_rx)=memory_rx{
+            if let Some(mem_rx)=self.interface_memory_tx.clone(){
                 self.attach_memory(mem_rx).await;
             }
         }
@@ -77,8 +82,29 @@ impl Terminal{
 
             if app_handle_name.starts_with("&"){
                 if !self.app_hooks.read().await.contains_key(&app_handle_name) {
+                    if self.app_store.is_some(){
+                        if self.app_store.as_ref().unwrap().is_app_exist(app_handle_name.clone()){
+                            let app=self.app_store.as_ref().unwrap().clone_app(app_handle_name.clone());
+                            if app.is_none(){
+                                error_ls.push(format!("App:{} not found in app store",app_handle_name));
+                                error!("App:{} not found in app store",app_handle_name);
+                                continue;
+                            }
+                            self.launch_app(app.unwrap()).await;
+                        }
+                        else{
+                            error_ls.push(format!("App with handle name '{}' not found for command execution.", app_handle_name));
+                        }
+                    }
+                    else{
+                        error_ls.push(format!("App with handle name '{}' not found for command execution.", app_handle_name));
+                    }
                     error_ls.push(format!("App with handle name '{}' not found for command execution.", app_handle_name));
                 }
+
+            }
+            else if app_handle_name.starts_with("/") {
+                continue;
             }
             else{
                 error_ls.push(format!("Command '{}' not recognized as an app command.", cmd));
@@ -94,6 +120,10 @@ impl Terminal{
         }
     }
     pub async fn execute_command(&self, command: String,episode_id:String,invocation_id:String) {
+        if self.validate_app_commands(&vec![command.clone()]).await.len()>0{
+            error!("Command validation failed for command:{}",command);
+            return;
+        }
 
         let command_args=command.split_whitespace().collect::<Vec<&str>>();
 

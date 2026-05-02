@@ -1,0 +1,127 @@
+app_name="File Handler App"
+app_path="./apps/core_apps/file_handler_app/file_handler_app.py"
+app_start_command="python"
+app_start_args="./apps/core_apps/file_handler_app/file_handler_app.py"
+app_handle_name="file_handler_app"
+app_launch_mode="REPL"
+app_usage_guideline="""
+Use this app for
+- Reading file contents as text (with optional line range)
+- Creating new files and directories with user-confirmed permission
+- Editing or overwriting existing file contents (requires user approval)
+- Copying, moving, or renaming files and directories (requires user approval)
+- Deleting files or directories permanently (requires user approval)
+
+## Path Formats
+  ./relative/path          -> relative to the workspace root
+  /absolute/path           -> absolute filesystem path
+  ~/path                   -> home directory expansion
+  glob: **/*.py            -> glob pattern (valid for list and search)
+
+## Examples
+List directory      -> &file_handler_app list path=./apps
+Stat file           -> &file_handler_app stat path=./config.toml
+Read file           -> &file_handler_app read path=./notes/readme.md
+Read with range     -> &file_handler_app read path=./src/main.py start=10 end=50
+Search in files     -> &file_handler_app search path=./src pattern="fn main"
+New file            -> &file_handler_app new path=./docs/readme.md content="# Readme"
+New directory       -> &file_handler_app mkdir path=./apps/my_new_app
+Edit file           -> &file_handler_app edit path=./notes/todo.md content="updated text"
+Append to file      -> &file_handler_app append path=./logs/run.log content="session ended"
+Copy file           -> &file_handler_app copy src=./a.py dest=./backup/a.py
+Move file           -> &file_handler_app move src=./draft.md dest=./final/draft.md
+Rename              -> &file_handler_app rename path=./old_name.py new_name=new_name.py
+Delete file         -> &file_handler_app delete path=./temp/scratch.py
+Delete directory    -> &file_handler_app rmdir path=./temp recursive=true
+
+## Output Behavior
+* list returns `entries` with name, type (file/dir), and size.
+* stat returns `path`, `size`, `modified_at`, `created_at`, `permissions`.
+* read returns `path`, `content`, `encoding`, `size`, `lines`, and optional `start`/`end` line numbers.
+* search returns `matches` with `path`, `line_number`, and `snippet`.
+* new / edit / append / copy / move / rename / delete return `status` (success/denied),
+  `path`, and `true` confirming the dialog was presented.
+* All mutating ops also return `user_confirmed` (true/false) and `timestamp`.
+* Errors return `error_code` and `reason` (e.g. path_not_found, permission_denied, not_a_directory).
+"""
+
+
+[[app_command_signatures]]
+command = "list"
+consumes = ["path","file"]
+produces = ["entries"]
+action = "read"
+
+[[app_command_signatures]]
+command = "stat"
+consumes = ["path","file"]
+produces = ["path", "size", "modified_at", "created_at", "permissions"]
+action = "read"
+
+[[app_command_signatures]]
+command = "read"
+consumes = ["path", "start", "end", "file"]
+produces = ["path", "content", "encoding", "size", "lines", "start", "end"]
+action = "read"
+
+[[app_command_signatures]]
+command = "search"
+consumes = ["path", "pattern","file"]
+produces = ["matches"]
+action = "read"
+
+# ── WRITE-CLASS (permission dialog required) ──────────────────────────────────
+
+[[app_command_signatures]]
+command = "new"
+consumes = ["path", "content","file"]
+produces = ["path", "status", "user_confirmed", "timestamp"]
+action = "write"
+
+[[app_command_signatures]]
+command = "mkdir"
+consumes = ["path","file"]
+produces = ["path", "status", "user_confirmed", "timestamp"]
+action = "write"
+
+[[app_command_signatures]]
+command = "edit"
+consumes = ["path", "content","file"]
+produces = ["path", "status", "user_confirmed", "timestamp"]
+action = "update"
+
+[[app_command_signatures]]
+command = "append"
+consumes = ["path", "content","file"]
+produces = ["path", "status", "user_confirmed", "timestamp"]
+action = "update"
+
+[[app_command_signatures]]
+command = "copy"
+consumes = ["src_path", "dest_path","file"]
+produces = ["src_path", "dest_path", "status", "user_confirmed", "timestamp"]
+action = "copy"
+
+[[app_command_signatures]]
+command = "move"
+consumes = ["src_path", "dest_path","file"]
+produces = ["src_path", "dest_path", "status", "user_confirmed", "timestamp"]
+action = "move"
+
+[[app_command_signatures]]
+command = "rename"
+consumes = ["path", "new_name","file"]
+produces = ["old_path", "new_path", "status", "user_confirmed", "timestamp"]
+action = "move"
+
+[[app_command_signatures]]
+command = "delete"
+consumes = ["path","file"]
+produces = ["path", "status", "user_confirmed", "timestamp"]
+action = "delete"
+
+[[app_command_signatures]]
+command = "rmdir"
+consumes = ["path", "recursive","file"]
+produces = ["path", "files_removed", "status", "user_confirmed", "timestamp"]
+action = "delete"

@@ -9,19 +9,23 @@ mod appstore;
 mod model;
 mod config;
 mod server;
+mod protocol;
+
 use anyhow::Error;
 use chrono::Local;
 use itertools::Itertools;
-use memory::Memory;
+use memory::{Memory,MemoryType};
 use serde_json::Value;
 
 use env_logger;
+use uuid::Uuid;
 use std::sync::{Arc};
 use inference::{OLLAMA,Gemini,HuggingFace};
 use inference::{OllamaConfig,GeminiConfig,HuggingFaceConfig};
 use inference::inference_api_trait;
 use terminal::Terminal;
 use app::{App,AppType};
+use protocol::{Protocol,ProtocolStore};
 use agent::{Agent,AgentPulse,AgentStore};
 use embeddings::{embedder};
 use std::collections::{HashMap, HashSet};
@@ -76,15 +80,20 @@ pub struct Runtime{
     embedder:Arc<embedder>,
     app_store:Arc<AppStore>,
     inference_store:Arc<InferenceStore>,
-    agent_store:Arc<AgentStore>
+    agent_store:Arc<AgentStore>,
+    protocols_store:Arc<ProtocolStore>,
+    runtime_card:Source
 }
 
 impl Runtime{
     pub async fn new(bind:Option<String>)->Arc<RwLock<Self>>{
+        
+        println!("Initializing protocol...");
         let embedder=embedder::new("./model_assets/bge-small-en-v1.5".to_string()).await;
         let app_store=AppStore::new("./apps/".to_string(),embedder.clone()).await;
         let inference_store=InferenceStore::load_configs("./configs/inference_config.toml");
-        let agent_store=AgentStore::load_agents("./configs/agents_config.toml", inference_store.clone(), app_store.clone());
+        let protocol_store=ProtocolStore::new("./protocols/".to_string(),app_store.clone(),inference_store.clone());
+        let agent_store=AgentStore::load_agents("./configs/agents_config.toml", inference_store.clone(), app_store.clone(),protocol_store.clone());
 
         let sharedruntime= Arc::new(RwLock::new(Self{
             topics:HashMap::new(),
@@ -93,12 +102,17 @@ impl Runtime{
             embedder,
             app_store,
             inference_store,
-            agent_store:Arc::new(agent_store)
+            agent_store:Arc::new(agent_store),
+            protocols_store:protocol_store,
+            runtime_card:Source::new(source::Role::Runtime, "Runtime".to_string(), None)
         }));
 
         if let Some(addr)=bind{
             RuntimeServer::serve(sharedruntime.clone(), addr).await;
         }
+
+        tokio::spawn(Self::cogitare_run(sharedruntime.clone()));
+        
 
 
         sharedruntime
@@ -107,12 +121,93 @@ impl Runtime{
 
     }
 
+    pub async fn cogitare_run(sharedruntime: Arc<RwLock<Self>>){
+        info!("Starting Cogitare Agent...");
+        let shared_rt=sharedruntime.read().await;
+        info!("Cogitare Agent Started");
+        let cogitare_agent=shared_rt.agent_store.get_agent("Cogitare".to_string());
+        info!("Cogitare Agent instance obtained from Agent Store.");
+        let mut agent_episode_lastseen_length:HashMap<String,usize>=HashMap::new();
+        drop(shared_rt);
+        tokio::time::sleep(Duration::from_mins(2)).await;
+
+        let mut agent_episode_last_checked:HashMap<String,chrono::DateTime<chrono::Utc>>=HashMap::new();
+        let mut agent_last_focus_branch_id:HashMap<String,String>=HashMap::new();
+        
+
+        loop{
+            let shared_rt=sharedruntime.read().await;
+            // agents_len=shared_rt.agents.len();
+            
+            let mut all_agents=shared_rt.agents.values().cloned().collect_vec();
+            drop(shared_rt);
+
+            for agents in all_agents.pop(){
+                let all_episodes=agents.read().await.get_episodes().await;
+                drop(agents);
+                // info!("Agent Found with {} episodes",all_episodes.len());
+                for agent_episode in all_episodes{
+                    if agent_episode.is_episode_active().await{
+                        // info!("Cogitare Agent: episode {} is currently locked, skipping...",agent_episode.get_episode_id());
+                        continue;
+                    }
+                    let agent_episode_id=agent_episode.get_episode_id();
+                
+                    if !agent_episode_lastseen_length.contains_key(&agent_episode_id){
+                        agent_episode_lastseen_length.insert(agent_episode_id.clone(), 0);
+                    }
+
+                    let mut bypass_time_check=false;
+                    if !agent_episode_last_checked.contains_key(&agent_episode_id){
+                        agent_episode_last_checked.insert(agent_episode_id.clone(), chrono::Utc::now());
+                        bypass_time_check=true;
+                    }
+
+                    if !bypass_time_check && (agent_episode_last_checked.get(&agent_episode_id).unwrap().clone() + chrono::Duration::hours(1) > chrono::Utc::now()){
+                        continue;
+                    }
+                        
+                    let last_seen_length=agent_episode_lastseen_length.get(&agent_episode_id).unwrap().clone();
+                    // info!("Cogitare checking agent episode {} with last seen length {}|{}",agent_episode_id.clone(),last_seen_length,agent_episode.episode_memory_len().await);
+
+                    if last_seen_length<agent_episode.episode_memory_len().await{
+                        if agent_last_focus_branch_id.contains_key(&agent_episode_id){
+                            let old_focus_branch_id=agent_last_focus_branch_id.get(&agent_episode_id).unwrap().clone();
+                            cogitare_agent.read().await.detach_episode(old_focus_branch_id.clone()).await;
+                            info!("Cogitare Agent detached from previous focus branch {}",old_focus_branch_id.clone());
+                        }
+                        info!("Cogitate Checking agent episode {} for cogitare...",agent_episode_id.clone());
+                        let readonly_agent_episode_mem=agent_episode.get_read_only_episode_memory();
+                        // for node in readonly_agent_episode_mem.iter_memory(Some(last_seen_length), None, None).await{
+                        //     info!("Cogitare read new memory node from agent episode {:?}: {:?}",agent_episode_id.clone(),node);
+                        // }
+                        let focus_branch_id=readonly_agent_episode_mem.get_branch_id();
+
+
+                        Agent::ping(&cogitare_agent,AgentPulse::NewEpisode(format!("Cogitare Episode:{}",focus_branch_id.clone()),Some(readonly_agent_episode_mem),true)).await;
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+
+                        let cogitare_user=Source::new(source::Role::User, "CogitareUser".to_string(), None);
+                        let invk_msg=MemoryNode::new(&cogitare_user, "COGITARE:REFLECT".to_string(), None, MemoryNodeType::Message,None, None);
+
+                        info!("Cogitare Agent pinged on agent episode {} with new episode",focus_branch_id);
+                        Agent::ping(&cogitare_agent,AgentPulse::AddMemoryAndInvoke(invk_msg, Some(focus_branch_id.clone()))).await;
+                        // Agent::ping(&cogitare_agent,AgentPulse::Invoke(Some(focus_branch_id.clone()))).await;
+                        agent_episode_lastseen_length.insert(agent_episode_id.clone(), agent_episode.episode_memory_len().await);
+                        agent_last_focus_branch_id.insert(agent_episode_id.clone(), focus_branch_id.clone());
+                        tokio::time::sleep(Duration::from_mins(10)).await;
+                    }
+                }
+            }
+        }
+    }
+
     pub async fn get_agents_list(&self)->Vec<String>{
         self.agent_store.list_agents()
     }
 
     pub async fn create_topic_thread(&mut self)->String{
-        let memory = Memory::new();
+        let memory = Memory::new(Some(self.protocols_store.clone()),MemoryType::Topic);
         let memory_id_clone=memory._memory_id.clone();
         self.topics.insert(memory_id_clone.clone(), memory);
         memory_id_clone
@@ -170,6 +265,7 @@ impl Runtime{
                     None,
                     memory::MemoryNodeType::Message,
                     None,
+                    None,
                 )).await;
 
                 Ok("Message Inserted")
@@ -190,7 +286,7 @@ impl Runtime{
                 let agent=self.agents.get(agent_id).unwrap().clone();
                 let topic=self.topics.get(topic_id).unwrap().clone();
 
-                Agent::ping(&agent,AgentPulse::NewEpisode(format!("Interface Episode:{}",topic_id.clone()),Some(topic))).await;
+                Agent::ping(&agent,AgentPulse::NewEpisode(format!("Interface Episode:{}",topic_id.clone()),Some(topic),false)).await;
 
                 Ok("Agent added successfully")
             }
@@ -205,7 +301,7 @@ impl Runtime{
     pub async fn iter_topic(&self,topic_id:&String,start_index:usize)->Result<impl Iterator<Item = MemoryNode> ,&str>{
         if self.topics.contains_key(topic_id){
             let topic=self.topics.get(topic_id).unwrap();
-            Ok(topic.iter_memory(Some(start_index), None).await)
+            Ok(topic.iter_memory(Some(start_index), None, Some(&self.runtime_card)).await)
 
         }
         else{
@@ -281,7 +377,7 @@ impl PyRuntime {
 
             init_tracing();
             // env_logger::init();
-            let rt = block_on(Runtime::new(bind));
+            let rt = Runtime::new(bind).await;
 
             Python::with_gil(|py| {
                 Py::new(py, PyRuntime {

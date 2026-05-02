@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::fs;
 use tokio::time::{ Duration};
 use crate::agent::{AgentPulse, episode};
+use crate::app;
 use crate::{
     memory::{Memory, MemoryNode, MemoryNodeType},
     source::{Role, Source},
@@ -150,7 +151,7 @@ impl App {
             match &AppResponseParser::parse(&resp){
                 Ok(parsed)=>{
                     // sleep(Duration::from_secs(5));
-                    let new_mem_node=MemoryNode::new(app_card, format!("> APP Returns : APP NAME:{}|App Status:{}|{}",app_card.get_name(),parsed.command.clone(),parsed.message.clone()), None, MemoryNodeType::AppResponse,invocation_id);
+                    let new_mem_node=MemoryNode::new(app_card, format!("> APP Returns : APP NAME:{}|App Status:{}|{}",app_card.get_name(),parsed.command.clone(),parsed.message.clone()), None, MemoryNodeType::AppResponse,invocation_id,None);
 
                     info!("[App]{:?}",new_mem_node.get_content());
                     if parsed.command=="APP_EXECUTION_SUCCESS" || parsed.command=="APP_EXECUTION_ERROR" || parsed.command=="APP_INVOKE"{
@@ -160,6 +161,8 @@ impl App {
                         Some(AgentPulse::AddMemory(new_mem_node,Some(parsed.episode_id.clone())))
 
                     }
+
+                    
                 },
                 Err(e)=>{
                     error!("APPLOG:{:?}",e);
@@ -200,6 +203,7 @@ impl App {
                                     let parsed_resp=App::parse_resp(&app_card,line,None);
 
                                     if let Some(msg_node)=parsed_resp{
+                                        // println!("sending message from app to agent: {:?}", msg_node);
                                         let _ = mem_tx.send(msg_node);
 
                                     }
@@ -313,6 +317,13 @@ struct ParsedResp{
 }
 pub struct AppResponseParser;
 
+#[derive(Debug, Deserialize)]
+struct SpillEnvelope {
+    #[serde(rename = "__spilled__")]
+    spilled: bool,
+    file: String,
+}
+
 impl AppResponseParser  {
     pub fn parse(resp:&String) -> Result<ParsedResp, AppParseError>{
         if resp.trim().len()==0{
@@ -329,6 +340,27 @@ impl AppResponseParser  {
         }
     }
 
+    fn resolve_spill(resp:&String)->String{
+        
+        info!("Resolving spilled content from file: {:?}",resp);
+        let spillResp:SpillEnvelope= serde_json::from_str(resp).unwrap();
+        
+
+        if spillResp.spilled{
+            let spilled_content=fs::read_to_string(&spillResp.file).map_err(|e| format!("{:?}",e)).unwrap();
+
+            if let Err(e)=fs::remove_file(&spillResp.file){
+                error!("Failed to remove spill file: {:?}. Error: {:?}",spillResp.file,e);
+            }
+
+
+            return spilled_content;
+        }
+        else{
+            return resp.clone();
+        }
+    }
+
     fn parse_appresp(resp:&String) -> Result<ParsedResp, AppParseError>{
         let resp_pattern=r"^\[#(?P<command>[A-Z_]+)>episode_id:(?P<episode_id>[^|]+)\|invocation_id:(?P<invocation_id>[^\]]+)\](?P<message>.*)$";
 ;
@@ -340,7 +372,11 @@ impl AppResponseParser  {
             let command=cap.name("command").unwrap().as_str().to_string();
             let episode_id=cap.name("episode_id").unwrap().as_str().to_string();
             let invocation_id=cap.name("invocation_id").unwrap().as_str().to_string();
-            let msg=cap.name("message").unwrap().as_str().to_string();
+            let mut msg=cap.name("message").unwrap().as_str().to_string();
+
+            if msg.contains("__spilled__"){
+                msg=AppResponseParser::resolve_spill(&msg);
+            }
 
             Ok(ParsedResp{episode_id,invocation_id,message:msg,command})
 

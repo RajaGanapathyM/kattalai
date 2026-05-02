@@ -1,0 +1,70 @@
+app_name="Shell App"
+app_path="./apps/core_apps/shell_app/shell_app.py"
+app_start_command="python"
+app_start_args="./apps/core_apps/shell_app/shell_app.py"
+app_handle_name="shell_app"
+app_launch_mode="REPL"
+app_usage_guideline="""
+Use this app for
+- Running shell commands and scripts in the workspace environment
+- Executing system utilities (grep, find, awk, sed, curl, etc.)
+- Running build/test/lint commands (cargo, python, npm, make, etc.)
+- Inspecting environment variables and system info
+- Piping and chaining commands for data processing
+
+## Command Formats
+  run cmd="ls -la"                    -> run a single shell command
+  run cmd="cargo build --release"     -> run a build command
+  run cmd="echo $HOME" env=true       -> include environment context
+  script path=./scripts/setup.sh      -> execute a shell script file
+  which cmd="python3"                 -> resolve binary path
+  env                                 -> dump current environment variables
+  kill pid=1234                       -> send SIGTERM to a running process
+
+## Examples
+Run command     -> &shell_app run cmd="ls -la ./src"
+Run with cwd    -> &shell_app run cmd="cargo test" cwd="./engine"
+Run script      -> &shell_app script path=./scripts/bootstrap.sh
+Check binary    -> &shell_app which cmd="rustc"
+Dump env        -> &shell_app env
+Kill process    -> &shell_app kill pid=4321
+
+## Output Behavior
+* run / script return `stdout`, `stderr`, `exit_code`, and `duration_ms`.
+* which returns `cmd`, `resolved_path`, and `found` (true/false).
+* env returns `variables` as a key-value map of the current environment.
+* kill returns `pid`, `status` (sent/not_found), and `timestamp`.
+* Long-running commands also return `pid` so they can be tracked or killed.
+* Errors return `error_code` and `reason` (e.g. command_not_found, permission_denied, timeout).
+"""
+
+
+[[app_command_signatures]]
+command = "run"
+consumes = ["cmd", "cwd", "env"]
+produces = ["stdout", "stderr", "exit_code", "duration_ms", "pid"]
+action = "execute"
+
+[[app_command_signatures]]
+command = "script"
+consumes = ["path", "args", "cwd"]
+produces = ["stdout", "stderr", "exit_code", "duration_ms", "pid"]
+action = "execute"
+
+[[app_command_signatures]]
+command = "which"
+consumes = ["cmd"]
+produces = ["cmd", "resolved_path", "found"]
+action = "read"
+
+[[app_command_signatures]]
+command = "env"
+consumes = []
+produces = ["variables"]
+action = "read"
+
+[[app_command_signatures]]
+command = "kill"
+consumes = ["pid", "signal"]
+produces = ["pid", "status", "timestamp"]
+action = "execute"

@@ -1,0 +1,129 @@
+app_name="Tabular Reader App"
+app_path="./apps/other_apps/tabular_reader_app/tabular_reader_app.py"
+app_start_command="python"
+app_start_args="./apps/other_apps/tabular_reader_app/tabular_reader_app.py"
+app_handle_name="tabular_reader_app"
+app_launch_mode="REPL"
+app_usage_guideline="""
+Use this app for reading and inspecting tabular data files:
+- Excel workbooks (.xlsx, .xlsm, .xls)
+- CSV files (.csv) with auto-delimiter detection
+- TSV files (.tsv)
+- ODS (OpenDocument Spreadsheet) files (.ods)
+- Parquet files (.parquet) — columnar format
+- JSON files (.json) — array-of-objects or records orientation
+
+## Supported Commands
+
+### info
+  Show file metadata: format, sheet names (Excel/ODS), row/column counts per sheet.
+  &tabular_reader_app info path=./data/report.xlsx
+
+### sheets
+  List all sheet names in a multi-sheet workbook (Excel / ODS only).
+  &tabular_reader_app sheets path=./data/report.xlsx
+
+### read
+  Read rows from a sheet or file into a preview table.
+  Optional: sheet=SheetName, start=1, end=50, cols=A,B,C or cols=name,age,score
+  &tabular_reader_app read path=./data/report.xlsx sheet="Sales" start=1 end=20
+  &tabular_reader_app read path=./data/customers.csv start=1 end=100
+  &tabular_reader_app read path=./data/data.tsv cols=id,name,value
+
+### head
+  Preview the first N rows (default 10).
+  &tabular_reader_app head path=./data/report.xlsx n=5 sheet="Sales"
+
+### tail
+  Preview the last N rows (default 10).
+  &tabular_reader_app tail path=./data/report.xlsx n=5 sheet="Sales"
+
+### schema
+  Show column names, dtypes, and null counts for a sheet/file.
+  &tabular_reader_app schema path=./data/report.xlsx sheet="Sales"
+
+### stats
+  Descriptive statistics (count, mean, min, max, std) for numeric columns.
+  &tabular_reader_app stats path=./data/report.xlsx sheet="Sales"
+
+### search
+  Search for a value pattern across all cells in a sheet/file.
+  &tabular_reader_app search path=./data/report.xlsx pattern="Q3" sheet="Sales"
+
+### export
+  Convert a sheet/file to another tabular format. Requires user confirmation.
+  Supported dest formats: csv, tsv, xlsx, json, parquet
+  &tabular_reader_app export path=./data/report.xlsx sheet="Sales" dest=./out/sales.csv
+
+## Path Formats
+  ./relative/path    -> relative to workspace root
+  /absolute/path     -> absolute filesystem path
+  ~/path             -> home directory expansion
+
+## Output Behavior
+* info     -> format, sheet_names, sheets (with row/col counts)
+* sheets   -> sheet_names list
+* read     -> columns, rows (list of dicts), total_rows, returned_rows, start, end
+* head     -> columns, rows, total_rows
+* tail     -> columns, rows, total_rows
+* schema   -> columns list with {name, dtype, null_count, sample_values}
+* stats    -> columns list with {name, count, mean, std, min, max, nulls}
+* search   -> matches list with {sheet, row_index, column, value, snippet}
+* export   -> status, src_path, dest_path, rows_written, user_confirmed, timestamp
+* All errors return status="error", error_code, and reason.
+"""
+
+
+[[app_command_signatures]]
+command = "info"
+consumes = ["path"]
+produces = ["format", "sheet_names", "sheets"]
+action = "read"
+
+[[app_command_signatures]]
+command = "sheets"
+consumes = ["path"]
+produces = ["sheet_names"]
+action = "read"
+
+[[app_command_signatures]]
+command = "read"
+consumes = ["path", "sheet", "start", "end", "cols"]
+produces = ["columns", "rows", "total_rows", "returned_rows", "start", "end"]
+action = "read"
+
+[[app_command_signatures]]
+command = "head"
+consumes = ["path", "sheet", "n"]
+produces = ["columns", "rows", "total_rows"]
+action = "read"
+
+[[app_command_signatures]]
+command = "tail"
+consumes = ["path", "sheet", "n"]
+produces = ["columns", "rows", "total_rows"]
+action = "read"
+
+[[app_command_signatures]]
+command = "schema"
+consumes = ["path", "sheet"]
+produces = ["columns"]
+action = "read"
+
+[[app_command_signatures]]
+command = "stats"
+consumes = ["path", "sheet"]
+produces = ["columns"]
+action = "read"
+
+[[app_command_signatures]]
+command = "search"
+consumes = ["path", "pattern", "sheet"]
+produces = ["matches"]
+action = "read"
+
+[[app_command_signatures]]
+command = "export"
+consumes = ["path", "sheet", "dest"]
+produces = ["status", "src_path", "dest_path", "rows_written", "user_confirmed", "timestamp"]
+action = "write"

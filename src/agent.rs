@@ -7,6 +7,7 @@ use crate::terminal::Terminal;
 use crate::inference::{ inference_api_trait,invoke_type};
 use crate::embeddings::embedder;
 use crate::app::App;
+use crate::protocol::{ProtocolStore, ProtocolConfig};
 use core::error;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -32,18 +33,54 @@ use std::{
     collections::{HashMap, HashSet},
     thread,
 };
-
+use memory::MemoryType;
+use sysinfo::System;
 use tokio::time::{interval, Duration};
 
 use tokio::sync::Mutex;
 
 use log::{info, warn, error, debug, trace};
 
+use sysinfo::{ Disks};
+
+pub fn get_sys_info() -> String {
+    let mut sys = System::new_all();
+    // We must refresh the system data to get current values
+    sys.refresh_all();
+
+    let os_name = System::name().unwrap_or_else(|| "Unknown".to_string());
+    let os_version = System::os_version().unwrap_or_else(|| "Unknown".to_string());
+    let kernel = System::kernel_version().unwrap_or_else(|| "Unknown".to_string());
+    let host = System::host_name().unwrap_or_else(|| "Unknown".to_string());
+    
+    // RAM is usually returned in bytes; converting to GB
+    let total_ram_gb = sys.total_memory() / 1024 / 1024 / 1024;
+    let used_ram_gb = sys.used_memory() / 1024 / 1024 / 1024;
+
+    // CPU info
+    let cpu_count = sys.cpus().len();
+    let cpu_brand = sys.cpus().get(0)
+        .map(|c| c.brand())
+        .unwrap_or("Unknown CPU");
+
+    format!(
+        "
+        Hostname:     {}\n\
+        OS:           {} (v{})\n\
+        Kernel:       {}\n\
+        CPU:          {} ({} Cores)\n\
+        RAM:          {}GB / {}GB used\n\
+        ---------------------------",
+        host, os_name, os_version, kernel, cpu_brand, cpu_count, used_ram_gb, total_ram_gb
+    )
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PromptStyle{
     REASONING,
     RAC,
     TOF,
+    PROTOCOL,
     REPAIR
 }
 pub struct episode{
@@ -53,13 +90,38 @@ pub struct episode{
     interface_memory:Option<Arc<Memory>>,
     last_fetched_imemory_id:Mutex<Option<String>>,
     agent_lock:Mutex<bool>,
+    followup_planned:Mutex<bool>,
 }
 impl  episode {
+    pub fn get_episode_id(&self)->String{
+        self.episode_id.clone()
+    }
+    pub fn get_episode_memory_branch_id(&self)->String{
+        self.episode_memory.get_branch_id()
+    }
+    pub fn branch_episode_memory(&self)->Arc<Memory>{
+        self.episode_memory.branch()
+    }
+    pub fn get_read_only_episode_memory(&self)->Arc<Memory>{
+        self.episode_memory.get_ready_only_copy()
+    }
+    pub async fn episode_memory_len(&self)->usize{
+        self.episode_memory.get_memory_len().await
+    }
     pub async fn get_agent_lock_status(&self)->bool{
         let locked_agent_lock=self.agent_lock.lock().await;
         (*locked_agent_lock).clone()
     }
+    pub async fn get_followup_planned_status(&self)->bool{
+        let followup_status=self.followup_planned.lock().await;
+        (*followup_status).clone()  
+    }
+    pub async fn is_episode_active(&self)->bool{
+        let locked_agent_lock=self.agent_lock.lock().await;
+        let followup_status=self.followup_planned.lock().await;
 
+        (*locked_agent_lock).clone() || (*followup_status).clone()
+    }
     pub async fn lock_agent(&self){
         let mut locked_agent_lock=self.agent_lock.lock().await;
         *locked_agent_lock=true;
@@ -75,6 +137,10 @@ impl  episode {
         *locked_id=Some(lid);
 
     }
+    pub async fn set_followup_planned(&self, followup_planned: bool){
+        let mut followup_status=self.followup_planned.lock().await;
+        *followup_status=followup_planned;
+    }
     
 }
 
@@ -82,7 +148,7 @@ impl  episode {
 pub enum AgentPulse{
     Invoke(Option<String>),
     Generate,
-    NewEpisode(String,Option<Arc<Memory>>),
+    NewEpisode(String,Option<Arc<Memory>>,bool),
     AttachApp(App),
     AddMemory(MemoryNode,Option<String>),
     AddMultipleMemories(Vec<MemoryNode>,Option<String>),
@@ -91,6 +157,7 @@ pub enum AgentPulse{
     UpdateEpisode(String,String),
     unlockAgentForEpisode(String),
     lockAgentForEpisode(String),
+    SetAgentFollowupStatus(String,bool),
 }
 
 #[derive(Debug)]
@@ -101,16 +168,18 @@ fn check_for_invoke_trigger(new_memories:&Vec<MemoryNode>)->bool{
         let triggerable_roles=vec![Role::Agent,Role::User];
         new_memories.iter().any(|mem_node|{
 
-            mem_node.get_source_role()==Role::User
+            (mem_node.get_source_role()==Role::User ||
+            mem_node.get_node_type()==MemoryNodeType::ProtocolPrompt)&&
+            (!mem_node.get_content().trim().starts_with("/"))
 
         })
 }
 
 
-#[derive(Deserialize,Clone)]
+#[derive(Debug,Deserialize,Clone)]
 pub struct agent_model_config{
-    inference_provider:String,
-    model_id:String
+    pub inference_provider:String,
+    pub model_id:String
 }
 
 #[derive(Deserialize,Clone)]
@@ -118,9 +187,15 @@ pub struct agent_config{
     agent_name:String,
     agent_goal:String,
     backstory:String,
-    reasoning_model:agent_model_config,
-    nlp_model:agent_model_config,
+    reasoning_model:Option<agent_model_config>,
+    nlp_model:Option<agent_model_config>,
     default_apps:Vec<String>,
+    allow_self_selected_apps:bool,
+    is_public:Option<bool>
+}#[derive(Deserialize,Clone)]
+pub struct DefaultModelConfig{
+    default_reasoning_model:agent_model_config,
+    default_nlp_model:agent_model_config,
 }
 
 #[derive(Deserialize,Clone)]
@@ -130,27 +205,67 @@ pub struct AgentConfigs{
 pub struct AgentStore{
     agents_config:HashMap<String,agent_config>,
     inference_store:Arc<InferenceStore>,
-    app_store:Arc<AppStore>
+    app_store:Arc<AppStore>,
+    protocols_store:Arc<ProtocolStore>
 
 }
 impl AgentStore{
-    pub fn load_agents(agent_config_path:&str,inference_store:Arc<InferenceStore>,app_store:Arc<AppStore>)->Self{
+    pub fn load_agents(agent_config_path:&str,inference_store:Arc<InferenceStore>,app_store:Arc<AppStore>,protocols_store:Arc<ProtocolStore>)->Self{
         let content = fs::read_to_string(agent_config_path).unwrap();
-        let config: AgentConfigs = toml::from_str(&content).unwrap();
+        let cogitare_toml=include_str!("../prompts/cogitare_config.toml").to_string();
+        let default_model_toml=fs::read_to_string("./configs/model_config.toml").unwrap();
+        let mut config: AgentConfigs = toml::from_str(&content).unwrap();
+        let cogitare_config: AgentConfigs = toml::from_str(&cogitare_toml).unwrap();
+        let default_model_config: DefaultModelConfig = toml::from_str(&default_model_toml).unwrap();
+        config.agent_config.push(cogitare_config.agent_config[0].clone());
+
+        for agent_conf in config.agent_config.iter_mut(){
+            if agent_conf.reasoning_model.is_none(){
+                agent_conf.reasoning_model=Some(default_model_config.default_reasoning_model.clone());
+            }
+            if agent_conf.nlp_model.is_none(){
+                agent_conf.nlp_model=Some(default_model_config.default_nlp_model.clone());
+            }
+
+            if agent_conf.reasoning_model.is_none() || agent_conf.nlp_model.is_none(){
+                panic!("Agent:{} does not have valid model configuration",agent_conf.agent_name);
+            }
+        }
+        
         let mut agent_map=HashMap::new();
-        for agent in config.agent_config{
+
+        let std_apps=vec![
+            "protocoladmin".to_string(),
+            "appfinder".to_string(),
+            "codex_app".to_string(),
+        ];
+        for mut agent in config.agent_config{
+            for std_app in std_apps.clone(){
+                if !agent.default_apps.contains(&std_app){
+                    info!("Adding default app:{} to agent:{}",std_app,agent.agent_name);
+                    agent.default_apps.push(std_app.clone());
+
+                }
+            }
             agent_map.insert(agent.agent_name.clone(), agent.clone());
         }
 
         Self{
             agents_config:agent_map,
             inference_store,
-            app_store
+            app_store,
+            protocols_store
         }
 
     }
     pub fn list_agents(&self)->Vec<String>{
-        let mut agents = self.agents_config.keys().cloned().collect::<Vec<String>>();
+
+        let mut agents =Vec::new();
+        for (name, config) in &self.agents_config {
+            if config.is_public.unwrap_or(true) {
+                agents.push(name.clone());
+            }
+        }
         agents.sort();
         agents
     }
@@ -162,8 +277,8 @@ impl AgentStore{
 
             
 
-            let reasoning_model=self.inference_store.get_model(aconfig.reasoning_model.inference_provider.clone(),&aconfig.reasoning_model.model_id);
-            let nlp_model=self.inference_store.get_model(aconfig.nlp_model.inference_provider.clone(),&aconfig.nlp_model.model_id);
+            let reasoning_model=self.inference_store.get_model(aconfig.reasoning_model.as_ref().unwrap().inference_provider.clone(),&aconfig.reasoning_model.as_ref().unwrap().model_id);
+            let nlp_model=self.inference_store.get_model(aconfig.nlp_model.as_ref().unwrap().inference_provider.clone(),&aconfig.nlp_model.as_ref().unwrap().model_id);
 
             let first_agent=Agent::new(
                     aconfig.agent_name.clone(), 
@@ -173,12 +288,19 @@ impl AgentStore{
                     reasoning_model ,
                     nlp_model ,
                     None,
-                    self.app_store.clone()
+                    self.app_store.clone(),
+                    self.protocols_store.clone(),
+                    aconfig.allow_self_selected_apps
                 );
 
             for dapp in &aconfig.default_apps{
                 info!("Attaching default app:{} to agent:{}",dapp,agent_name);
-                block_on(Agent::ping(&first_agent,AgentPulse::AttachApp(self.app_store.clone_app(dapp.clone()))));
+                let identified_app=self.app_store.clone_app(dapp.clone());
+                if identified_app.is_none(){
+                    error!("Default app:{} for agent:{} not found in app store",dapp,agent_name);
+                    continue;
+                }
+                block_on(Agent::ping(&first_agent,AgentPulse::AttachApp(identified_app.unwrap())));
             }
             
             first_agent
@@ -203,7 +325,10 @@ pub struct Agent{
     validator_card:Source,
     _agent_tx: channel::Sender<AgentPulse>,
     _agent_rx: channel::Receiver<AgentPulse>,
-    app_store:Arc<AppStore>
+    app_store:Arc<AppStore>,
+    protocols_store:Arc<ProtocolStore>,
+    allow_self_selected_apps:bool,
+    // _post_invoke_fn:Option<fn(String)->MemoryNode>
 }
 impl Agent{
     pub fn new(
@@ -214,25 +339,30 @@ impl Agent{
         reasoning_model:Arc<dyn inference_api_trait + Send + Sync>,
         nlp_model:Arc<dyn inference_api_trait + Send + Sync>,
         invoke_post_fn:Option<fn(String,&mut Agent)->MemoryNode>,
-        app_store:Arc<AppStore>
+        app_store:Arc<AppStore>,
+        protocols_store:Arc<ProtocolStore>,
+        allow_self_selected_apps:bool,
     )->Arc<RwLock<Arc<Self>>>{
         let (tx, rx) = channel::unbounded();
+        let agent_card=Source::new(Role::Agent, agent_name.clone(), Some(agent_info));
         
         let episodes=Arc::new(RwLock::new(HashMap::new()));
         let new_agent=Arc::new(RwLock::new(Arc::new(Self{
-            agent_card:Source::new(Role::Agent, agent_name.clone(), Some(agent_info)),
+            agent_card:agent_card.clone(),
             episodes: episodes.clone(),
             agent_goal,
             backstory,
             reasoning_model:reasoning_model.clone(),
             nlp_model:nlp_model.clone(),
-            terminal:Arc::new(Terminal::new()),
+            terminal:Arc::new(Terminal::new(Some(app_store.clone()), Some(tx.clone()))),
             latest_episode_id:RwLock::new(None),
             invoke_post_fn,
             validator_card:Source::new(Role::App,format!("{}ResponseValidator",agent_name.clone()),None),
             _agent_tx:tx.clone(),
             _agent_rx:rx.clone(),
-            app_store
+            app_store,
+            protocols_store,
+            allow_self_selected_apps
         })));
 
         let new_agent_clone=new_agent.clone();
@@ -256,8 +386,8 @@ impl Agent{
                                tokio_rt.spawn(Agent::_invoke(aclone, epid));
                                 
                             },
-                            AgentPulse::NewEpisode(edesc,i_mem)=>{
-                                tokio_rt.spawn(Agent::initiate_new_episode(aclone,edesc.clone(),i_mem));
+                            AgentPulse::NewEpisode(edesc,i_mem,react_for_history)=>{
+                                tokio_rt.spawn(Agent::initiate_new_episode(aclone,edesc.clone(),i_mem,react_for_history));
                             },
                             AgentPulse::AttachApp(app)=>{  
                                tokio_rt.spawn(Agent::attach_app(aclone, app));
@@ -270,6 +400,19 @@ impl Agent{
                                     match req_episode{
                                         Some(repisode)=>{
                                             repisode.lock_agent().await;
+                                        },
+                                        None=>{}
+                                    }
+                                });
+                            },
+                            AgentPulse::SetAgentFollowupStatus(epid, followup_planned)=>{
+                                tokio_rt.spawn(async move{
+                                    let agent_lock = aclone.read().await;
+                                    let readble_episode=agent_lock.episodes.read().await;
+                                    let req_episode=readble_episode.get(&epid);
+                                    match req_episode{
+                                        Some(repisode)=>{
+                                            repisode.set_followup_planned(followup_planned).await;
                                         },
                                         None=>{}
                                     }
@@ -337,8 +480,10 @@ impl Agent{
         info!("Launching Episode monitoring thread");
         let episodes_clone=episodes.clone();
         let agent_tx_clone=tx.clone();
+        let agent_card_clone=agent_card.clone();
         thread::spawn(move ||{
             let tokio_rt  = tokio::runtime::Runtime::new().unwrap();
+            let agent_card=agent_card_clone;
 
             loop {
                 thread::sleep(Duration::from_secs(1));
@@ -362,12 +507,16 @@ impl Agent{
                             let last_fetched_imemory_node_id=(*tokio_rt.block_on(episode.last_fetched_imemory_id.lock())).clone();
                             
                             // info!("last_fetched_imemory_node_id:{:?}",last_fetched_imemory_node_id);
-                            let incremental_memories:Vec<MemoryNode>=tokio_rt.block_on(imemory.incremental_mem_nodes(last_fetched_imemory_node_id)).collect();
+                            let incremental_memories:Vec<MemoryNode>=tokio_rt.block_on(imemory.incremental_mem_nodes(last_fetched_imemory_node_id,Some(&agent_card))).collect();
                             
                             if incremental_memories.len()>0{
                                 let last_mem=incremental_memories.last();
 
-                                let need_invoke=check_for_invoke_trigger(&incremental_memories);
+                                let mut need_invoke=check_for_invoke_trigger(&incremental_memories);
+                                if imemory._read_only{
+                                    info!("Interface memory is read only, skipping invoke trigger check");
+                                    need_invoke=false;
+                                }
 
                                 info!("Need incoke:{} - {}",need_invoke,incremental_memories.len());
                                 info!("Last me : {:?}",last_mem);
@@ -410,14 +559,21 @@ impl Agent{
         new_agent.clone()
     }
 
-    
+    pub async fn get_episodes(&self)->Vec<Arc<episode>>{
+        let episodes=self.episodes.read().await;
+        let cloned_episodes =episodes.values().cloned().collect::<Vec<Arc<episode>>>();
+        cloned_episodes 
+    }
+    pub fn clone_reasoning_model(&self)->Arc<dyn inference_api_trait + Send + Sync>{
+        self.reasoning_model.clone()
+    }
     pub async fn get_tool_select_content(&self,episode_memory:Arc<Memory>,model: Arc<dyn inference_api_trait + Send + Sync>)->String{
 
         let history_lookup_len=50 as isize;
         let memory_len=episode_memory.get_memory_len().await as isize;
 
         let mut conv=Vec::new();
-        for rec in episode_memory.iter_memory(Some((memory_len-history_lookup_len).max(0) as usize), None).await{
+        for rec in episode_memory.iter_memory(Some((memory_len-history_lookup_len).max(0) as usize), None,Some(&self.agent_card)).await{
             let mem_node_type=rec.get_node_type();
             if mem_node_type==MemoryNodeType::Message || mem_node_type==MemoryNodeType::Thought || mem_node_type==MemoryNodeType::TerminalCommands{
                 conv.push(format!("{}:{}",rec.get_source_role().as_str(),rec.get_content()));
@@ -445,6 +601,7 @@ impl Agent{
         let episode_id=epid.clone();
         let validator_card=agent_lock.validator_card.clone();
         let agent_tx_clone=agent_lock._agent_tx.clone();
+        let allow_self_selected_apps=agent_lock.allow_self_selected_apps;
         match &epid{
             Some(eid)=>{
                 agent_tx_clone.send(AgentPulse::lockAgentForEpisode(eid.clone())).unwrap();
@@ -452,19 +609,26 @@ impl Agent{
                     Some(current_episode)=>{
                         let mlen=current_episode.episode_memory.get_memory_len().await;
                         info!("Episode Mem len:{}",mlen);
-                        
-                        let ner_content=agent_lock.get_tool_select_content(current_episode.episode_memory.clone(),nlp_model_clone.clone()).await;
-                        let (tools_select, app_chain_str)=agent_lock.app_store.resolve_tools(current_episode.episode_memory.clone(),ner_content).await;
+                        let mut app_chain_str="".to_string();
+                        if allow_self_selected_apps{
+                            let ner_content=agent_lock.get_tool_select_content(current_episode.episode_memory.clone(),nlp_model_clone.clone()).await;
+                            let (tools_select, app_chain_str)=agent_lock.app_store.resolve_tools(current_episode.episode_memory.clone(),ner_content,Some(&agent_card)).await;
 
-                        for app_handle_name in tools_select.iter(){
-                            info!("Launching New App:{} | Agent:{}",app_handle_name,agent_card.get_name());
-                            let new_app=agent_lock.app_store.clone_app(app_handle_name.clone());
-                            agent_lock.terminal.launch_app(new_app, Some(agent_tx_clone.clone())).await;
+                            for app_handle_name in tools_select.iter(){
+                                info!("Launching New App:{} | Agent:{}",app_handle_name,agent_card.get_name());
+                                let new_app=agent_lock.app_store.clone_app(app_handle_name.clone());
+                                if new_app.is_none(){
+                                    error!("App:{} not found in app store",app_handle_name);
+                                    continue;
+                                }
+                                agent_lock.terminal.launch_app(new_app.unwrap()).await;
+                            }
                         }
-                        let agent_prompt=agent_lock.get_sys_prompt(&app_chain_str);
+                        let current_sys_info=get_sys_info();
+                        let agent_prompt=agent_lock.get_sys_prompt(&current_sys_info,&app_chain_str);
                         // info!("Model Prompt :\n{}",agent_prompt);
-                        let agent_tof_prompt=agent_lock.get_tof_sys_prompt(&app_chain_str);
-                        let agent_rac_prompt=agent_lock.get_rac_sys_prompt(&app_chain_str);        
+                        let agent_tof_prompt=agent_lock.get_tof_sys_prompt(&current_sys_info,&app_chain_str);
+                        let agent_rac_prompt=agent_lock.get_rac_sys_prompt(&current_sys_info,&app_chain_str);        
                         
                         let terminal=agent_lock.terminal.clone();
 
@@ -498,13 +662,16 @@ impl Agent{
     }
     pub async fn attach_app(agent_self:Arc<RwLock<Arc<Agent>>>,app:App){
         let agent_locked=agent_self.read().await.clone();
-        agent_locked.terminal.launch_app(app,Some(agent_locked._agent_tx.clone())).await;
+        agent_locked.terminal.launch_app(app).await;
         drop(agent_locked);
 
     }
 
     pub fn get_agent_id(&self)->String{
         self.agent_card.get_id()
+    }
+    pub fn get_agent_card(&self)->Source{
+        self.agent_card.clone()
     }
     
     pub async fn ping(agent_self:&Arc<RwLock<Arc<Self>>>,ping_type:AgentPulse){
@@ -521,15 +688,23 @@ impl Agent{
             ep.set_lastfetch_memoryid(lnodeid).await;
         }
     }
-    pub async fn initiate_new_episode(agent_lock: Arc<RwLock<Arc<Agent>>>,episode_desc:String,episode_interface_memory:Option<Arc<Memory>>)->String{
+    pub async fn initiate_new_episode(agent_lock: Arc<RwLock<Arc<Agent>>>,episode_desc:String,episode_interface_memory:Option<Arc<Memory>>,react_for_history:bool)->String{
         let agent_self=agent_lock.write().await;
-        let mut episode_id=Uuid::now_v7().to_string();
-        let episode_memory=Memory::new();
-
+        let mut episode_id=if episode_interface_memory.is_some(){
+            episode_interface_memory.as_ref().unwrap().get_branch_id()
+        } else {
+            Uuid::now_v7().to_string()
+        };
+        let episode_memory=Memory::new(None,MemoryType::AgentEpisode);
+        
         let latest_fetched_id=match &episode_interface_memory{
             Some(mem)=>{
-                episode_id=mem._memory_id.clone();
-                mem.get_latest_memory_id()
+                episode_id=mem.get_branch_id();
+                if react_for_history{
+                    None
+                } else {
+                    mem.get_latest_memory_id()
+                }
             }
             None=>{None}
         };
@@ -537,7 +712,7 @@ impl Agent{
         *writable_episode=Some(episode_id.clone());
 
         let mut writable_episodes=agent_self.episodes.write().await;    
-        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc,interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false)}));
+        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc,interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false) }));
     
         
         info!("New Episode Launched:{}",episode_id);
@@ -574,17 +749,17 @@ impl Agent{
         filter_tags: Option<HashSet<String>>,
     ) -> Result<impl Iterator<Item = MemoryNode>, String> {
 
-        let episode = {
+        let (episode,agent_card) = {
             let readable_agent = agent_lock.read().await;
             let readable_episodes = readable_agent.episodes.read().await;
 
-            readable_episodes.get(&episode_id).cloned()
+            (readable_episodes.get(&episode_id).cloned(),readable_agent.agent_card.clone())
         };
 
         if let Some(ep) = episode {
             let data: Vec<MemoryNode> = ep
                 .episode_memory
-                .iter_memory(Some(start_index), filter_tags)
+                .iter_memory(Some(start_index), filter_tags,Some(&agent_card))
                 .await
                 .into_iter()
                 .collect();
@@ -627,7 +802,7 @@ impl Agent{
         let epid=self.latest_episode_id.read().await.clone();
         match epid{
             Some(latest_episode_id)=>{
-                for i in self.episodes.read().await.get(&latest_episode_id).unwrap().episode_memory.iter_memory(None,None).await{
+                for i in self.episodes.read().await.get(&latest_episode_id).unwrap().episode_memory.iter_memory(None,None,Some(&self.agent_card)).await{
                     info!("{:?}",i);
                 }
             }
@@ -673,16 +848,22 @@ impl Agent{
         }
     }
     
-    fn get_sys_prompt(&self,app_chain_str:&String)->String{
+    fn get_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String)->String{
         // info!("App Guidebook:\n{}",self.terminal.get_app_guidebook());
+        // if self.agent_card.get_name()=="Cogitare"{
+        //     info!("Using custom prompt for Cogitare : Reasoning Prompt");
+        //     return fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.md").unwrap();
+        // }
         
         format!( include_str!("../prompts/AGENT_REASONING_PROMPT.md"),
         agent_name=self.agent_card.get_name(),
         agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
         agent_goal=self.agent_goal,
-        agent_backstory=self.backstory.clone(),
-        app_chain_str=app_chain_str,
-        app_guidelines=block_on(self.terminal.get_app_guidebook()))
+        agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
+        app_guidelines=block_on(self.terminal.get_app_guidebook()),
+        protocols_book=self.protocols_store.get_protocols_book(),
+        current_os_info=current_sys_info,
+        knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()))
         
     }
 
@@ -693,28 +874,43 @@ impl Agent{
         
     }
 
-    fn get_tof_sys_prompt(&self,app_chain_str:&String)->String{
+    fn get_tof_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String)->String{
+        // if self.agent_card.get_name()=="Cogitare"{
+        //     info!("Using custom prompt for Cogitare : TOF Prompt");
+        //     return fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.md").unwrap();
+        // }
+        
         
         format!(include_str!("../prompts/AGENT_TOT_PROMPT.md"),
         agent_name=self.agent_card.get_name(),
         agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
         agent_goal=self.agent_goal,
-        agent_backstory=self.backstory.clone(),
-        app_chain_str=app_chain_str,
-        app_guidelines=block_on(self.terminal.get_app_guidebook()))
+        agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
+        app_guidelines=block_on(self.terminal.get_app_guidebook()),
+        protocols_book=self.protocols_store.get_protocols_book(),
+        current_os_info=current_sys_info,
+        knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()))
     }
 
     
 
-    fn get_rac_sys_prompt(&self,app_chain_str:&String)->String{
+    fn get_rac_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String)->String{
+        // if self.agent_card.get_name()=="Cogitare"{
+        //     info!("Using custom prompt for Cogitare : RAC Prompt");
+        //     return fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.md").unwrap();
+        // }
+        
         
         format!(include_str!("../prompts/AGENT_RAC_PROMPT.md"),
         agent_name=self.agent_card.get_name(),
         agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
         agent_goal=self.agent_goal,
-        agent_backstory=self.backstory.clone(),
-        app_chain_str=app_chain_str,
-        app_guidelines=block_on(self.terminal.get_app_guidebook()))
+        agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
+        app_guidelines=block_on(self.terminal.get_app_guidebook()),
+        protocols_book=self.protocols_store.get_protocols_book(),
+        current_os_info=current_sys_info,
+        knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()))
+        // knowledge_base_index=format!(include_str!("../knowledge_base/index.md")))
     }
 
     async fn handle_error(invoc_id:String,validator_card:&Source,error_ls:Vec<ParseError>,need_rerun:& mut bool ,current_episode_memory:Arc<Memory>,prompt_style:Option<PromptStyle> )->String{
@@ -740,23 +936,24 @@ impl Agent{
             combined_error=format!("Errors:\n{}",erro_v.join("\n"));
 
             info!("Error Identified:\n{}",combined_error);
-            current_episode_memory.insert(MemoryNode::new(validator_card,combined_error.clone() , prompt_style, MemoryNodeType::ModelError,Some(invoc_id))).await;
+            current_episode_memory.insert(MemoryNode::new(validator_card,combined_error.clone() , prompt_style, MemoryNodeType::ModelError,Some(invoc_id),None)).await;
         }
         combined_error
 
     }
 
-    async fn get_pos_tags(nlp_model:Arc<embedder>,mem:Arc<Memory>){
+    async fn get_pos_tags(nlp_model:Arc<embedder>,mem:Arc<Memory>,source:Option<&Source>)->Vec<String>{
         let memory_len=mem.get_memory_len().await;
 
         let mut shortlisted_msgs=Vec::new();
 
-        for rec in mem.iter_memory(Some(std::cmp::max(0,memory_len-50)), None).await{
+        for rec in mem.iter_memory(Some(std::cmp::max(0,memory_len-50)), None, source).await{
             let node_type=rec.get_node_type();
             if node_type==MemoryNodeType::Message || node_type==MemoryNodeType::Message{
                 shortlisted_msgs.push(rec.get_content());
             }
         }
+        shortlisted_msgs
 
         // let pos_tags=nlp_model.get_pos_tags(&shortlisted_msgs).await;
 
@@ -764,6 +961,7 @@ impl Agent{
 
 
     } 
+
     pub async fn invoke(
         latest_episode_id:Option<String>,
         current_episode_memory:Arc<Memory>,
@@ -784,7 +982,7 @@ impl Agent{
         const  MAX_RUN_ALLOWED:i32=7;
         // let repair_prompt_template=;
         let mut repair_prompt=String::new();
-        let mut parsed_reponse=ParsedResponse{validation_block:None,thoughts:None,commands:None,outputs:None,followup_context:None,success:false};
+        let mut parsed_response=ParsedResponse{validation_block:None,thoughts:None,commands:None,outputs:None,followup_context:None,success:false};
 
         let invoking_episode_id:Option<String>=match &episode_id{
             Some(eid)=>{Some(eid.clone())},
@@ -798,6 +996,7 @@ impl Agent{
         };
 
         let mut invoc_id=Uuid::now_v7().to_string();
+        let mut followup_planned=false;
 
         while need_rerun && run_count<MAX_RUN_ALLOWED {
             
@@ -833,15 +1032,16 @@ impl Agent{
                     choosen_prompt=Some(PromptStyle::TOF);
                     agent_tof_prompt.clone()
                 };
-                info!("FINAL PROMPT:{}",final_agent_prompt);
+                
+                // info!("FINAL PROMPT:{}",final_agent_prompt);
                 let resp=reasoning_model_clone.chat(current_episode_memory.clone(),
                 final_agent_prompt,
-            Some(invoc_id.clone())).await;
+            Some(invoc_id.clone()),Some(&agent_card)).await;
                 info!("Model resp:{}",resp);
 
                 agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, resp.clone(),
                                     choosen_prompt.clone(), 
-                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone())),
+                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None),
                  Some(invoke_epid.clone()))).unwrap();
                 
                 let mut error_ls:Vec<ParseError>=Vec::new();
@@ -850,7 +1050,7 @@ impl Agent{
                     Ok(lval_block)=>{
                         val_block=Some(lval_block);
                         info!("Validation Sucessful:{:?}",val_block);
-                        parsed_reponse.validation_block=val_block.clone();
+                        parsed_response.validation_block=val_block.clone();
                     }
                     Err(e)=>{error_ls.push(e);}
                 }
@@ -863,7 +1063,7 @@ impl Agent{
                             }
                             else{
                                 info!("Found successful commands {:?}",commands);
-                                parsed_reponse.commands=Some(commands);
+                                parsed_response.commands=Some(commands);
                             }
                     },
                     Err(e)=>{error_ls.push(e);}
@@ -872,14 +1072,14 @@ impl Agent{
                 match AgentResponseParser::parse_thoughts(&mut val_block, &resp) {
                     Ok(ThoughtsBlock{thoughts})=>{
                         info!("found thoughts: {:?}",thoughts);
-                        parsed_reponse.thoughts=Some(thoughts);
+                        parsed_response.thoughts=Some(thoughts);
                     },
                     Err(e)=>{error_ls.push(e);}  
                 }
                 match AgentResponseParser::parse_outputs(&mut val_block, &resp) {
                     Ok(OutputsBlock{outputs})=>{
                         info!("found outputs: {:?}",outputs);
-                        parsed_reponse.outputs=Some(outputs);
+                        parsed_response.outputs=Some(outputs);
                     }
                     Err(e)=>{error_ls.push(e);}
                 
@@ -887,7 +1087,7 @@ impl Agent{
                 match AgentResponseParser::parse_followup_context(&mut val_block, &resp) {
                     Ok(FollowupContextBlock{followup_context    })=>{
                         info!("found followup_context    : {:?}",followup_context    );
-                        parsed_reponse.followup_context =Some(followup_context   );
+                        parsed_response.followup_context =Some(followup_context   );
                     }
                     Err(e)=>{error_ls.push(e);}
                 
@@ -912,17 +1112,28 @@ impl Agent{
                         validator_errors=error_str);
                 }
 
-                parsed_reponse.success=!need_rerun;
+                parsed_response.success=!need_rerun;
 
-                if parsed_reponse.success{
+                if parsed_response.success{
+                    if let(Some(validation_block))=&parsed_response.validation_block{
+                        if validation_block.needs_followup{
+                            followup_planned=true;
+                        }
+                    }
 
-                    if let Some(outputs)=&parsed_reponse.outputs{
+                    if let Some(outputs)=&parsed_response.outputs{
                         if outputs.len()>0{
-                            let output_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()));
+                            followup_planned=outputs.iter().any(|o| o.starts_with("/"));
+                            let output_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()),None);
                             match &interface_memory{
                                 Some(imemory)=>{
-                                    info!("Writing to interface memory");
-                                    imemory.insert(output_memory_node).await;
+                                    if imemory._read_only{
+                                        info!("Interface memory is read only, skipping write");
+                                    }
+                                    else{
+                                        info!("Writing to interface memory");
+                                        imemory.insert(output_memory_node).await;
+                                    }
                                 }
                                 None=>{}
                             }
@@ -930,34 +1141,62 @@ impl Agent{
                     }
                     
                     
-                    // if let Some(thoughts)=&parsed_reponse.thoughts{
+                    // if let Some(thoughts)=&parsed_response.thoughts{
                     //     if thoughts.len()>0{
                     //         let thoughts_memory_node=MemoryNode::new(&agent_card, thoughts.join("\n"), None, MemoryNodeType::Thought,Some(invoc_id.clone()));
                     //         current_episode_memory.insert(thoughts_memory_node).await;
                     //     }
                     // }
                     
-                    if let Some(commands)=&parsed_reponse.commands{
+                    if let Some(commands)=&parsed_response.commands{
                         if commands.len()>0{
+                            followup_planned=true;
+                            let mut filtered_cmds=Vec::new();
+                            for comnds in commands.iter(){
+                                if comnds.trim().starts_with("/"){
+                                    let output_memory_node=MemoryNode::new(&agent_card, comnds.trim().to_string().clone(), None, MemoryNodeType::Message,Some(invoc_id.clone()),None);
+                                    match &interface_memory{
+                                        Some(imemory)=>{
+                                            if imemory._read_only{
+                                                info!("Interface memory is read only, skipping write");
+                                            }
+                                            else{
+                                                info!("Writing to interface memory");
+                                                imemory.insert(output_memory_node).await;
+                                            }
+                                        }
+                                        None=>{}
+                                    }
+                                }
+                                else{
+                                    filtered_cmds.push(comnds.clone());
+                                }
+                                
+                            }
+                            
+                            
                             // let commands_memory_node=MemoryNode::new(&agent_card, commands.join("\n"), None, MemoryNodeType::TerminalCommands,Some(invoc_id.clone()));
                             // current_episode_memory.insert(commands_memory_node).await;
+                            println!("Filtered cmds:{:?}",filtered_cmds);
 
-                            terminal.execute_multi_commands(&commands,invoke_epid.clone(),invoc_id.clone()).await;
+                            if filtered_cmds.len()>0{
+                                terminal.execute_multi_commands(&filtered_cmds,invoke_epid.clone(),invoc_id.clone()).await;
+                            }
                         }
                     }
-                    // if let Some(outputs)=&parsed_reponse.outputs{
+                    // if let Some(outputs)=&parsed_response.outputs{
                     //     if outputs.len()>0{
                     //         let outputs_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()));
                     //         current_episode_memory.insert(outputs_memory_node).await;
                     //     }
                     // }
-                    // if let Some(followupcontext)=&parsed_reponse.followup_context{
+                    // if let Some(followupcontext)=&parsed_response.followup_context{
                     //     if followupcontext.len()>0{
                     //         let followupcontext_memory_node=MemoryNode::new(&agent_card, followupcontext.join("\n"), None, MemoryNodeType::FollowupContext,Some(invoc_id.clone()));
                     //         current_episode_memory.insert(followupcontext_memory_node).await;
                     //     }
                     // }
-                    // if let Some(validationblock)=&parsed_reponse.validation_block{
+                    // if let Some(validationblock)=&parsed_response.validation_block{
                     //     let validationblock_memory_node=MemoryNode::new(&agent_card, validationblock.to_string(), None, MemoryNodeType::ValidationBlock,Some(invoc_id.clone()));
                     //     current_episode_memory.insert(validationblock_memory_node).await;
                         
@@ -965,7 +1204,7 @@ impl Agent{
                     
                     agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, resp.clone(),
                                         choosen_prompt.clone(), 
-                                        MemoryNodeType::Message,Some(invoc_id.clone())),
+                                        MemoryNodeType::Message,Some(invoc_id.clone()),None),
                     Some(invoke_epid.clone()))).unwrap();
                     
                 }
@@ -974,6 +1213,8 @@ impl Agent{
                     info!("Unlocking agent for episode:{}",lookupid);
                     
                     agent_tx.send(AgentPulse::unlockAgentForEpisode(invoke_epid.clone())).unwrap();
+                    agent_tx.send(AgentPulse::SetAgentFollowupStatus(invoke_epid.clone(),followup_planned.clone())).unwrap();
+
                     break;
                 }
 
@@ -995,12 +1236,17 @@ impl Agent{
         
         info!("Last rerun:{}",need_rerun);
 
-        if !parsed_reponse.success{
-            let error_message=MemoryNode::new(&agent_card, "Error Processing Last Message.Please try again".to_string(), None, MemoryNodeType::Error,Some(invoc_id.clone()));
+        if !parsed_response.success{
+            let error_message=MemoryNode::new(&agent_card, "Error Processing Last Message.Please try again".to_string(), None, MemoryNodeType::Error,Some(invoc_id.clone()),None);
             match &interface_memory{
                 Some(imemory)=>{
-                    info!("Writing Error to interface memory");
-                    imemory.insert(error_message).await;
+                    if imemory._read_only{
+                        info!("Interface memory is read only, skipping write");
+                    }
+                    else{
+                        info!("Writing Error to interface memory");
+                        imemory.insert(error_message).await;
+                    }
                 }
                 None=>{}
             }
@@ -1217,13 +1463,14 @@ impl AgentResponseParser  {
                         command_strings_splitted.push(s[start..idx].to_string());
                     }
                     start = idx + 1;
-                } else if c == '&' && idx > 0 {
-                    // For '&', push current part, then start next part from '&'
-                    if start < idx {
-                        command_strings_splitted.push(s[start..idx].to_string());
-                    }
-                    start = idx;
-                }
+                } 
+                // else if c == '&' && idx > 0 {
+                //     // For '&', push current part, then start next part from '&'
+                //     if start < idx {
+                //         command_strings_splitted.push(s[start..idx].to_string());
+                //     }
+                //     start = idx;
+                // }
             }
             // Push the final remaining part of the string
             if start < s.len() {
@@ -1236,8 +1483,8 @@ impl AgentResponseParser  {
             if trimmed.is_empty(){
                 continue;
             }
-            if !line.starts_with("&"){
-                error_ls.push(format!("{} commands did not start with &. Valid command format is &<app_name>.Analyze and correct your mistakes",line));
+            if !(line.starts_with("&") || line.starts_with("/")){
+                error_ls.push(format!("{} commands did not start with & or /. Valid command format is &<app_name> or /<protocol_name>.Analyze and correct your mistakes",line));
             }
             else{
                 commands.push(line);

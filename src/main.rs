@@ -1,3 +1,4 @@
+
 use soulengine::{Runtime,init_tracing};
 use std::thread::sleep;
 use tokio::time::{ Duration};
@@ -6,7 +7,10 @@ use env_logger;
 async fn main() {
     init_tracing();
 
-    let se_runtime=Runtime::new(Some("127.0.0.1:3076".to_string())).await;
+
+
+    // let se_runtime=Runtime::new(Some("127.0.0.1:3166".to_string())).await;
+    let se_runtime=Runtime::new(None).await;
 
 
     
@@ -84,13 +88,17 @@ async fn main() {
     let demo_user_id=se_write_runtime.create_user("Alice".to_string()).await;
     let topic_id=se_write_runtime.create_topic_thread().await;
     let agent_id=se_write_runtime.deploy_agent("DIA".to_string()).await;
+    se_write_runtime.add_agent_to_topic(&topic_id, &agent_id).await;
     println!("Memory instance created...");
     drop(se_write_runtime);
     let se_read_runtime=se_runtime.read().await;
 
     
-
-    se_read_runtime.insert_message(&topic_id, &demo_user_id, "Hello, Whst is your name.".to_string()).await.unwrap();
+    // se_read_runtime.insert_message(&topic_id, &demo_user_id, "/morning_news_summary --run --context 'https://indianexpress.com/'".to_string()).await.unwrap();  
+    // drop(se_read_runtime);  
+    // sleep(Duration::from_secs(200000));
+    // let se_read_runtime=se_runtime.read().await;
+    // se_read_runtime.insert_message(&topic_id, &demo_user_id, "Hello, Whst is your name.".to_string()).await.unwrap();
     
     let agent_stat=se_read_runtime.is_agent_working_on_topic(&topic_id,&agent_id).await.unwrap();
     println!("Agent Status:{}",agent_stat);
@@ -101,7 +109,7 @@ async fn main() {
     sleep(Duration::from_secs(2));
     
     
-    se_read_runtime.insert_message(&topic_id, &demo_user_id, "Say Booo".to_string()).await;
+    // se_read_runtime.insert_message(&topic_id, &demo_user_id, "Say Booo".to_string()).await;
     let topic_len=se_read_runtime.get_topic_history_len(&topic_id.clone()).await.unwrap();
     println!("Memory sequence length: {}", topic_len);
     
@@ -166,12 +174,26 @@ async fn main() {
     
     // let se_write_runtime=se_runtime.write().await;
 
-    se_read_runtime.add_agent_to_topic(&topic_id, &agent_id).await;
+    
     sleep(Duration::from_secs(3));
     // se_read_runtime.remove_agent_from_topic(&topic_id, &agent_id).await;
     
 
     let my_msg="you two task. first remind me after 20s to take a break and second task read and summarize my credit card statement C:/Users/RG/Downloads/CC_sample.pdf and save the summary as notes".to_string();
+    // let my_msg="/morning_greeting --schedule 0 8 * * 1".to_string();
+    // let my_msg="can you schedule morning_greeting protocol to run on monday morning".to_string();
+    // let my_msg="can you run morning_greeting protocol after 5 secs".to_string();
+    // let my_msg="check if a file called jokes.txt exists in g: drive. If it does,move it to opensource folder in the g: drive?".to_string();
+    // let my_msg="can you check list of protocols scheduled and change existing protcol to run every 10 minutes".to_string();
+    // let my_msg="i want every days morning news to be retrived and analysed and sumamrized for me".to_string();
+    // let my_msg="My computer is slow. check what are the process running".to_string();
+    // let my_msg="What is the current OS information of my computer?".to_string();
+    // let my_msg="Can you open https://indianexpress.com/ and check what is the latest news?".to_string();
+    // let my_msg="i want to know about Python programming. can fetch information about it?".to_string();
+    // let my_msg="add the following, 23+45".to_string();
+    // let my_msg="Suprise me!".to_string();
+    // let my_msg="Suprise me!".to_string();
+    
 // let msg="".to_string();
     println!("Inserting message: {}", my_msg);
 

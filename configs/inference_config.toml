@@ -3,8 +3,9 @@ chat_api_url="http://localhost:11434/api/chat"
 generate_api_url= "http://localhost:11434/api/generate"
 temperature=0.1
 
+
 [[gemini_config]]
-api_key=""
+api_key="dddaddd"
 temperature=0.1
 
 
@@ -14,7 +15,7 @@ max_new_tokens=8000
 temperature=0.1
 
 [[sarvam_config]]
-api_key=""
+api_key="ddddd"
 max_new_tokens=8000
 temperature=0.1
 reasoning_effort="high"
