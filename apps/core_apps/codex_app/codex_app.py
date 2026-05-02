@@ -8,7 +8,8 @@ Manages a tree of Markdown documents under ./knowledge_base with an
 auto-maintained index.md table of contents.
 
 All mutating operations require explicit user approval via a Catppuccin-themed
-tkinter permission dialog before any file-system change is made.
+tkinter permission dialog (delegated to soul_engine_interface.request_permission)
+before any file-system change is made.
 """
 
 import json
@@ -17,8 +18,6 @@ import re
 import shutil
 from datetime import datetime
 from pathlib import Path
-import tkinter as tk
-
 import sys
 
 apps_path = Path(__file__).resolve().parent.parent.parent
@@ -26,16 +25,6 @@ sys.path.append(str(apps_path))
 import se_app_utils
 from se_app_utils.soulengine import soul_engine_app
 
-
-# ── Catppuccin Mocha palette ───────────────────────────────────────────────────
-_BG      = "#1e1e2e"
-_SURFACE = "#313244"
-_TEXT    = "#cdd6f4"
-_SUBTEXT = "#a6adc8"
-_BLUE    = "#89b4fa"
-_GREEN   = "#a6e3a1"
-_RED     = "#f38ba8"
-_YELLOW  = "#f9e2af"
 
 # ── Dialog copy per command ────────────────────────────────────────────────────
 _DIALOG_MESSAGES: dict[str, str] = {
@@ -89,12 +78,10 @@ def _resolve_kb(raw: str) -> Path:
     if p.is_absolute():
         return p
     resolved = (Path.cwd() / p).resolve()
-    # If the path already sits under the kb root, return as-is.
     try:
         resolved.relative_to(_kb_root())
         return resolved
     except ValueError:
-        # Treat as relative to kb root
         return (_kb_root() / p).resolve()
 
 
@@ -173,92 +160,12 @@ def _ensure_kb_ready() -> None:
         _rebuild_index()
 
 
-# ── Permission dialog ─────────────────────────────────────────────────────────
-
-def _request_permission(command: str, context: dict) -> bool:
-    """
-    Blocking Catppuccin Mocha tkinter dialog.
-    Returns True → Allow, False → Deny / window closed.
-    """
-    result = {"allowed": False}
-
-    root = tk.Tk()
-    root.title("Codex — Permission Required")
-    root.resizable(False, False)
-    root.configure(bg=_BG)
-
-    root.update_idletasks()
-    w, h = 500, 290
-    x = (root.winfo_screenwidth()  - w) // 2
-    y = (root.winfo_screenheight() - h) // 2
-    root.geometry(f"{w}x{h}+{x}+{y}")
-
-    # ── Icon + title row ──────────────────────────────────────────────────────
-    hdr = tk.Frame(root, bg=_BG)
-    hdr.pack(fill="x", padx=20, pady=(16, 0))
-
-    tk.Label(hdr, text="📚", font=("Segoe UI Emoji", 22),
-             fg=_YELLOW, bg=_BG).pack(side="left")
-    tk.Label(hdr,
-             text=f"Codex — Permission Required: {command.upper()}",
-             font=("Segoe UI", 11, "bold"),
-             fg=_TEXT, bg=_BG).pack(side="left", padx=(10, 0))
-
-    # ── Message ───────────────────────────────────────────────────────────────
-    msg = _DIALOG_MESSAGES.get(command, f"Allow executing '{command}'?")
-    tk.Label(root, text=msg, font=("Segoe UI", 9),
-             fg=_SUBTEXT, bg=_BG,
-             wraplength=460, justify="left").pack(fill="x", padx=20, pady=(8, 0))
-
-    # ── Context details box ───────────────────────────────────────────────────
-    box = tk.Frame(root, bg=_SURFACE)
-    box.pack(fill="x", padx=20, pady=10)
-
-    for key, val in context.items():
-        row = tk.Frame(box, bg=_SURFACE)
-        row.pack(fill="x", padx=10, pady=2)
-        tk.Label(row, text=f"{key}:", font=("Consolas", 9, "bold"),
-                 fg=_BLUE, bg=_SURFACE, width=14, anchor="w").pack(side="left")
-        tk.Label(row, text=str(val), font=("Consolas", 9),
-                 fg=_TEXT, bg=_SURFACE, anchor="w").pack(side="left", fill="x")
-
-    # ── Buttons ───────────────────────────────────────────────────────────────
-    btns = tk.Frame(root, bg=_BG)
-    btns.pack(pady=(0, 16))
-
-    def _allow():
-        result["allowed"] = True
-        root.destroy()
-
-    def _deny():
-        result["allowed"] = False
-        root.destroy()
-
-    tk.Button(btns, text="✕  Deny",  command=_deny,
-              font=("Segoe UI", 10, "bold"), cursor="hand2",
-              bg=_RED,   fg=_BG, activebackground="#eba0ac",
-              relief="flat", padx=18, pady=6).pack(side="left", padx=(0, 12))
-
-    tk.Button(btns, text="✓  Allow", command=_allow,
-              font=("Segoe UI", 10, "bold"), cursor="hand2",
-              bg=_GREEN, fg=_BG, activebackground="#94e2d5",
-              relief="flat", padx=18, pady=6).pack(side="left")
-
-    root.protocol("WM_DELETE_WINDOW", _deny)
-    root.lift()
-    root.attributes("-topmost", True)
-    root.focus_force()
-    root.mainloop()
-
-    return result["allowed"]
-
-
 # ── App class ─────────────────────────────────────────────────────────────────
 
 class CodexApp(soul_engine_app):
 
     def __init__(self):
-        super().__init__(app_name="Codex App")
+        super().__init__(app_name="Codex App", app_icon="📚")
         _ensure_kb_ready()
 
     # ── Standard response builders ────────────────────────────────────────────
@@ -343,7 +250,6 @@ class CodexApp(soul_engine_app):
         idx = _index_path()
         raw = idx.read_text(encoding="utf-8")
 
-        # Parse entries for structured access
         entries = []
         kb = _kb_root()
         for md in sorted(
@@ -456,7 +362,6 @@ class CodexApp(soul_engine_app):
             return self._err("new", "invalid_extension",
                              "Knowledge documents must have a .md extension.")
 
-        # Derive title from path if not supplied
         if not title:
             title = path.stem.replace("_", " ").replace("-", " ").title()
 
@@ -464,12 +369,15 @@ class CodexApp(soul_engine_app):
         if description:
             ctx["description"] = description
 
-        if not _request_permission("new", ctx):
+        if not si.request_permission(
+            action="new",
+            context=ctx,
+            message=_DIALOG_MESSAGES["new"],
+        ):
             return self._denied("new", path=_rel_display(path))
 
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Scaffold the document
         body_lines = [f"# {title}", ""]
         if description:
             body_lines += [f"> {description}", ""]
@@ -497,7 +405,11 @@ class CodexApp(soul_engine_app):
             return self._err("mkdir", "already_exists",
                              f"Path already exists: {_rel_display(path)}")
 
-        if not _request_permission("mkdir", {"path": _rel_display(path)}):
+        if not si.request_permission(
+            action="mkdir",
+            context={"path": _rel_display(path)},
+            message=_DIALOG_MESSAGES["mkdir"],
+        ):
             return self._denied("mkdir", path=_rel_display(path))
 
         path.mkdir(parents=True, exist_ok=True)
@@ -522,12 +434,16 @@ class CodexApp(soul_engine_app):
             return self._err("edit", "not_markdown",
                              "Only .md files are managed by Codex App.")
 
-        if not _request_permission("edit", {"path": _rel_display(path),
-                                            "size_now": f"{path.stat().st_size} bytes"}):
+        if not si.request_permission(
+            action="edit",
+            context={"path": _rel_display(path),
+                     "size_now": f"{path.stat().st_size} bytes"},
+            message=_DIALOG_MESSAGES["edit"],
+        ):
             return self._denied("edit", path=_rel_display(path))
 
         path.write_text(content, encoding="utf-8")
-        _rebuild_index()          # title/description may have changed
+        _rebuild_index()
         return self._ok("edit", path=_rel_display(path), index_updated=True)
 
     async def _cmd_append(self, si, kv: dict) -> dict:
@@ -544,7 +460,11 @@ class CodexApp(soul_engine_app):
             return self._err("append", "path_not_found",
                              f"Document does not exist: {_rel_display(path)}")
 
-        if not _request_permission("append", {"path": _rel_display(path)}):
+        if not si.request_permission(
+            action="append",
+            context={"path": _rel_display(path)},
+            message=_DIALOG_MESSAGES["append"],
+        ):
             return self._denied("append", path=_rel_display(path))
 
         with path.open("a", encoding="utf-8") as fh:
@@ -570,8 +490,11 @@ class CodexApp(soul_engine_app):
             return self._err("delete", "protected_file",
                              "index.md is managed automatically and cannot be deleted.")
 
-        if not _request_permission("delete", {"path": _rel_display(path),
-                                              "title": _extract_title(path)}):
+        if not si.request_permission(
+            action="delete",
+            context={"path": _rel_display(path), "title": _extract_title(path)},
+            message=_DIALOG_MESSAGES["delete"],
+        ):
             return self._denied("delete", path=_rel_display(path))
 
         path.unlink()
@@ -599,8 +522,11 @@ class CodexApp(soul_engine_app):
             return self._err("move", "invalid_extension",
                              "Destination must be a .md file.")
 
-        if not _request_permission("move", {"src":  _rel_display(src),
-                                            "dest": _rel_display(dest)}):
+        if not si.request_permission(
+            action="move",
+            context={"src": _rel_display(src), "dest": _rel_display(dest)},
+            message=_DIALOG_MESSAGES["move"],
+        ):
             return self._denied("move", src_path=_rel_display(src),
                                 dest_path=_rel_display(dest))
 
@@ -629,7 +555,6 @@ class CodexApp(soul_engine_app):
         src  = _resolve_kb(src_raw)
         dest = _resolve_kb(dest_raw)
 
-        # ── Existence checks (no permission needed yet) ───────────────────────
         errors = []
         if not src.exists():
             errors.append(f"Source does not exist: {_rel_display(src)}")
@@ -650,34 +575,33 @@ class CodexApp(soul_engine_app):
             return self._err("link", "self_link",
                              "src and dest point to the same file.")
 
-        # ── Build the relative href from src's directory to dest ──────────────
         try:
             rel_href = os.path.relpath(str(dest), str(src.parent))
             rel_href = rel_href.replace("\\", "/")
         except ValueError:
             rel_href = _rel_display(dest)
 
-        dest_title  = _extract_title(dest)
-        link_label  = label if label else dest_title
-        link_line   = f"- [{link_label}]({rel_href})"
+        dest_title = _extract_title(dest)
+        link_label = label if label else dest_title
+        link_line  = f"- [{link_label}]({rel_href})"
 
-        if not _request_permission("link", {
-            "src":   _rel_display(src),
-            "dest":  _rel_display(dest),
-            "label": link_label,
-        }):
+        if not si.request_permission(
+            action="link",
+            context={
+                "src":   _rel_display(src),
+                "dest":  _rel_display(dest),
+                "label": link_label,
+            },
+            message=_DIALOG_MESSAGES["link"],
+        ):
             return self._denied("link", src_path=_rel_display(src),
                                 dest_path=_rel_display(dest))
 
-        # ── Inject link into src ──────────────────────────────────────────────
         src_text = src.read_text(encoding="utf-8")
 
         if _RELATED_HDR in src_text:
-            # Append inside existing Related section
             src_text = src_text.rstrip()
-            # Find the section and append after its last line
-            idx_h = src_text.index(_RELATED_HDR)
-            # Look for the next ## heading after Related
+            idx_h  = src_text.index(_RELATED_HDR)
             after  = src_text[idx_h + len(_RELATED_HDR):]
             next_h = re.search(r"\n## ", after)
             if next_h:
@@ -689,7 +613,6 @@ class CodexApp(soul_engine_app):
             else:
                 src_text = src_text + "\n" + link_line + "\n"
         else:
-            # Append a brand-new Related section
             src_text = src_text.rstrip() + f"\n\n{_RELATED_HDR}\n\n{link_line}\n"
 
         src.write_text(src_text, encoding="utf-8")

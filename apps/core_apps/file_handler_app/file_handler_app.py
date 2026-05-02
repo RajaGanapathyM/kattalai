@@ -9,9 +9,6 @@ import glob as glob_module
 import re
 from datetime import datetime
 from pathlib import Path
-import tkinter as tk
-from tkinter import ttk
-
 import sys
 
 apps_path = Path(__file__).resolve().parent.parent.parent
@@ -21,14 +18,10 @@ from se_app_utils.soulengine import soul_engine_app
 
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-# Maximum file size allowed for a full read without a range (10 MB).
-# Files larger than this require the caller to supply start= / end= line args.
 READ_SIZE_LIMIT_BYTES = 10 * 1024 * 1024  # 10 MB
-
-# Encodings tried in order when UTF-8 decoding fails.
 FALLBACK_ENCODINGS = ["latin-1", "cp1252", "utf-16"]
 
-# ── Dialog messages mirrored from TOML ────────────────────────────────────────
+# ── Dialog messages ────────────────────────────────────────────────────────────
 DIALOG_MESSAGES = {
     "new":    "Allow creating a new file at the specified path?",
     "mkdir":  "Allow creating a new directory at the specified path?",
@@ -43,7 +36,6 @@ DIALOG_MESSAGES = {
 
 
 def _resolve(raw_path: str) -> Path:
-    """Expand ~, resolve relative paths to cwd."""
     p = Path(os.path.expanduser(raw_path))
     return p.resolve() if p.is_absolute() else Path.cwd() / p
 
@@ -54,7 +46,7 @@ def _stat_dict(path: Path) -> dict:
         "path": str(path),
         "size": st.st_size,
         "modified_at": datetime.fromtimestamp(st.st_mtime).isoformat(),
-        "created_at": datetime.fromtimestamp(st.st_ctime).isoformat(),
+        "created_at":  datetime.fromtimestamp(st.st_ctime).isoformat(),
         "permissions": oct(st.st_mode)[-3:],
     }
 
@@ -64,15 +56,9 @@ def _now() -> str:
 
 
 def _read_text(path: Path) -> tuple[str, str]:
-    """
-    Read *path* as text.  Returns (content, encoding_used).
-    Tries UTF-8 first, then falls back through FALLBACK_ENCODINGS.
-    Raises ValueError if no encoding succeeds.
-    """
     for enc in ["utf-8"] + FALLBACK_ENCODINGS:
         try:
-            content = path.read_text(encoding=enc)
-            return content, enc
+            return path.read_text(encoding=enc), enc
         except (UnicodeDecodeError, LookupError):
             continue
     raise ValueError(
@@ -83,102 +69,11 @@ def _read_text(path: Path) -> tuple[str, str]:
 
 
 class FileHandlerApp(soul_engine_app):
+
     def __init__(self):
-        super().__init__(app_name="File Handler App")
+        super().__init__(app_name="File Handler App", app_icon="📁")
 
-    # ── Permission dialog ──────────────────────────────────────────────────────
-    def _request_permission(self, _si, command: str, context: dict) -> bool:
-        """
-        Opens a blocking tkinter dialog.
-        Returns True if the user clicked Allow, False if Deny / closed the window.
-        """
-        result = {"allowed": False}
-
-        root = tk.Tk()
-        root.title("File Operation Permission")
-        root.resizable(False, False)
-        root.configure(bg="#1e1e2e")
-
-        # Centre on screen
-        root.update_idletasks()
-        w, h = 460, 260
-        x = (root.winfo_screenwidth() - w) // 2
-        y = (root.winfo_screenheight() - h) // 2
-        root.geometry(f"{w}x{h}+{x}+{y}")
-
-        # ── Icon row ──────────────────────────────────────────────────────────
-        icon_frame = tk.Frame(root, bg="#1e1e2e")
-        icon_frame.pack(fill="x", padx=20, pady=(18, 0))
-
-        icon_lbl = tk.Label(icon_frame, text="⚠", font=("Segoe UI", 26),
-                            fg="#f38ba8", bg="#1e1e2e")
-        icon_lbl.pack(side="left")
-
-        title_lbl = tk.Label(icon_frame,
-                             text=f"Permission Required — {command.upper()}",
-                             font=("Segoe UI", 11, "bold"),
-                             fg="#cdd6f4", bg="#1e1e2e")
-        title_lbl.pack(side="left", padx=(10, 0), pady=4)
-
-        # ── Message ───────────────────────────────────────────────────────────
-        msg_lbl = tk.Label(root, text=DIALOG_MESSAGES[command],
-                           font=("Segoe UI", 10), fg="#a6adc8", bg="#1e1e2e",
-                           wraplength=420, justify="left")
-        msg_lbl.pack(fill="x", padx=20, pady=(8, 0))
-
-        # ── Context details ───────────────────────────────────────────────────
-        detail_frame = tk.Frame(root, bg="#313244", highlightthickness=0)
-        detail_frame.pack(fill="x", padx=20, pady=10)
-
-        for key, val in context.items():
-            row = tk.Frame(detail_frame, bg="#313244")
-            row.pack(fill="x", padx=10, pady=2)
-            tk.Label(row, text=f"{key}:", font=("Consolas", 9, "bold"),
-                     fg="#89b4fa", bg="#313244", width=12, anchor="w").pack(side="left")
-            tk.Label(row, text=str(val), font=("Consolas", 9),
-                     fg="#cdd6f4", bg="#313244", anchor="w").pack(side="left", fill="x")
-
-        # ── Buttons ───────────────────────────────────────────────────────────
-        btn_frame = tk.Frame(root, bg="#1e1e2e")
-        btn_frame.pack(pady=(0, 16))
-
-        def on_allow():
-            result["allowed"] = True
-            root.destroy()
-
-        def on_deny():
-            result["allowed"] = False
-            root.destroy()
-
-        deny_btn = tk.Button(btn_frame, text="✕  Deny", command=on_deny,
-                             font=("Segoe UI", 10, "bold"), cursor="hand2",
-                             bg="#f38ba8", fg="#1e1e2e", activebackground="#eba0ac",
-                             relief="flat", padx=18, pady=6, bd=0)
-        deny_btn.pack(side="left", padx=(0, 12))
-
-        allow_btn = tk.Button(btn_frame, text="✓  Allow", command=on_allow,
-                              font=("Segoe UI", 10, "bold"), cursor="hand2",
-                              bg="#a6e3a1", fg="#1e1e2e", activebackground="#94e2d5",
-                              relief="flat", padx=18, pady=6, bd=0)
-        allow_btn.pack(side="left")
-
-        root.protocol("WM_DELETE_WINDOW", on_deny)  # closing = deny
-        root.lift()
-        root.attributes("-topmost", True)
-        root.focus_force()
-        root.mainloop()
-
-        return result["allowed"]
-
-    def _denied(self, command: str, **extra) -> dict:
-        return {
-            "status": "denied",
-            "command": command,
-            "permission_dialog_shown": True,
-            "user_confirmed": False,
-            "timestamp": _now(),
-            **extra,
-        }
+    # ── Response builders ──────────────────────────────────────────────────────
 
     def _ok(self, command: str, **extra) -> dict:
         return {
@@ -190,13 +85,20 @@ class FileHandlerApp(soul_engine_app):
             **extra,
         }
 
+    def _denied(self, command: str, **extra) -> dict:
+        return {
+            "status": "denied",
+            "command": command,
+            "permission_dialog_shown": True,
+            "user_confirmed": False,
+            "timestamp": _now(),
+            **extra,
+        }
+
     # ── Argument parser ────────────────────────────────────────────────────────
+
     @staticmethod
     def _parse_args(args: list[str]) -> dict:
-        """
-        Parses key=value tokens.  Values may be quoted or unquoted.
-        Remaining bare tokens are treated as the 'pattern' value.
-        """
         parsed = {}
         for token in args:
             if "=" in token:
@@ -207,6 +109,7 @@ class FileHandlerApp(soul_engine_app):
         return parsed
 
     # ── Main dispatcher ────────────────────────────────────────────────────────
+
     async def process_command(self, se_interface, args):
         if not args:
             se_interface.send_message(json.dumps({
@@ -231,22 +134,17 @@ class FileHandlerApp(soul_engine_app):
         try:
             result = await handler(se_interface, kv)
         except Exception as exc:
-            result = {
-                "status": "error",
-                "command": command,
-                "reason": str(exc),
-            }
+            result = {"status": "error", "command": command, "reason": str(exc)}
 
         se_interface.send_message(json.dumps(result))
 
     # ══════════════════════════════════════════════════════════════════════════
-    # READ commands (no dialog)
+    # READ commands
     # ══════════════════════════════════════════════════════════════════════════
 
     async def _cmd_list(self, _si, kv: dict) -> dict:
         raw = kv.get("path", ".")
 
-        # Glob pattern
         if raw.startswith("glob:"):
             pattern = raw[5:].strip()
             matches = glob_module.glob(pattern, recursive=True)
@@ -288,22 +186,11 @@ class FileHandlerApp(soul_engine_app):
         return {"status": "success", "command": "stat", **_stat_dict(path)}
 
     async def _cmd_read(self, _si, kv: dict) -> dict:
-        """
-        Read a file as text and return its content.
-
-        Optional args:
-          start=<int>  – 1-based first line to return (default: 1)
-          end=<int>    – 1-based last line to return, inclusive (default: last line)
-
-        Without start/end the whole file is returned, subject to READ_SIZE_LIMIT_BYTES.
-        With start/end only the requested slice is decoded (no size cap).
-        """
         raw = kv.get("path")
         if not raw:
             return {"status": "error", "command": "read", "reason": "Missing 'path' argument."}
 
         path = _resolve(raw)
-
         if not path.exists():
             return {"status": "error", "command": "read", "error_code": "path_not_found",
                     "reason": f"File does not exist: {path}"}
@@ -312,10 +199,8 @@ class FileHandlerApp(soul_engine_app):
                     "reason": "Path is a directory. Use 'list' to inspect directories."}
 
         size = path.stat().st_size
-
-        # Parse optional line-range args
         start_arg = kv.get("start")
-        end_arg = kv.get("end")
+        end_arg   = kv.get("end")
         has_range = start_arg is not None or end_arg is not None
 
         if not has_range and size > READ_SIZE_LIMIT_BYTES:
@@ -337,13 +222,13 @@ class FileHandlerApp(soul_engine_app):
             return {"status": "error", "command": "read", "error_code": "binary_file",
                     "reason": str(exc), "path": str(path)}
 
-        all_lines = content.splitlines(keepends=True)
+        all_lines   = content.splitlines(keepends=True)
         total_lines = len(all_lines)
 
         if has_range:
             try:
                 start = max(1, int(start_arg)) if start_arg is not None else 1
-                end = min(total_lines, int(end_arg)) if end_arg is not None else total_lines
+                end   = min(total_lines, int(end_arg)) if end_arg is not None else total_lines
             except ValueError:
                 return {"status": "error", "command": "read",
                         "reason": "start= and end= must be integers."}
@@ -356,12 +241,12 @@ class FileHandlerApp(soul_engine_app):
                     "total_lines": total_lines,
                 }
 
-            sliced = all_lines[start - 1: end]
+            sliced  = all_lines[start - 1: end]
             content = "".join(sliced)
             returned_lines = len(sliced)
         else:
-            start = 1
-            end = total_lines
+            start  = 1
+            end    = total_lines
             returned_lines = total_lines
 
         return {
@@ -379,7 +264,7 @@ class FileHandlerApp(soul_engine_app):
 
     async def _cmd_search(self, _si, kv: dict) -> dict:
         raw_path = kv.get("path", ".")
-        pattern = kv.get("pattern", "")
+        pattern  = kv.get("pattern", "")
         if not pattern:
             return {"status": "error", "command": "search", "reason": "Missing 'pattern' argument."}
 
@@ -388,11 +273,11 @@ class FileHandlerApp(soul_engine_app):
             return {"status": "error", "command": "search", "error_code": "path_not_found",
                     "reason": f"Path does not exist: {path}"}
 
-        matches = []
+        matches      = []
         search_regex = re.compile(re.escape(pattern), re.IGNORECASE)
-        files_to_search = [path] if path.is_file() else path.rglob("*")
+        files        = [path] if path.is_file() else path.rglob("*")
 
-        for fp in files_to_search:
+        for fp in files:
             if not isinstance(fp, Path):
                 fp = Path(fp)
             if not fp.is_file():
@@ -402,28 +287,32 @@ class FileHandlerApp(soul_engine_app):
                 for lineno, line in enumerate(lines, 1):
                     if search_regex.search(line):
                         matches.append({
-                            "path": str(fp),
+                            "path":        str(fp),
                             "line_number": lineno,
-                            "snippet": line.strip(),
+                            "snippet":     line.strip(),
                         })
             except Exception:
-                pass  # skip binary / unreadable files
+                pass
 
         return {"status": "success", "command": "search", "pattern": pattern, "matches": matches}
 
     # ══════════════════════════════════════════════════════════════════════════
-    # WRITE commands (permission dialog required)
+    # WRITE commands
     # ══════════════════════════════════════════════════════════════════════════
 
     async def _cmd_new(self, si, kv: dict) -> dict:
-        raw = kv.get("path")
+        raw     = kv.get("path")
         content = kv.get("content", "")
         if not raw:
             return {"status": "error", "command": "new", "reason": "Missing 'path' argument."}
 
         path = _resolve(raw)
-        allowed = self._request_permission(si, "new", {"path": str(path)})
-        if not allowed:
+
+        if not si.request_permission(
+            action="new",
+            context={"path": str(path)},
+            message=DIALOG_MESSAGES["new"],
+        ):
             return self._denied("new", path=str(path))
 
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -436,15 +325,19 @@ class FileHandlerApp(soul_engine_app):
             return {"status": "error", "command": "mkdir", "reason": "Missing 'path' argument."}
 
         path = _resolve(raw)
-        allowed = self._request_permission(si, "mkdir", {"path": str(path)})
-        if not allowed:
+
+        if not si.request_permission(
+            action="mkdir",
+            context={"path": str(path)},
+            message=DIALOG_MESSAGES["mkdir"],
+        ):
             return self._denied("mkdir", path=str(path))
 
         path.mkdir(parents=True, exist_ok=True)
         return self._ok("mkdir", path=str(path))
 
     async def _cmd_edit(self, si, kv: dict) -> dict:
-        raw = kv.get("path")
+        raw     = kv.get("path")
         content = kv.get("content", "")
         if not raw:
             return {"status": "error", "command": "edit", "reason": "Missing 'path' argument."}
@@ -454,15 +347,18 @@ class FileHandlerApp(soul_engine_app):
             return {"status": "error", "command": "edit", "error_code": "path_not_found",
                     "reason": f"File does not exist: {path}"}
 
-        allowed = self._request_permission(si, "edit", {"path": str(path)})
-        if not allowed:
+        if not si.request_permission(
+            action="edit",
+            context={"path": str(path), "size_now": f"{path.stat().st_size} bytes"},
+            message=DIALOG_MESSAGES["edit"],
+        ):
             return self._denied("edit", path=str(path))
 
         path.write_text(content, encoding="utf-8")
         return self._ok("edit", path=str(path))
 
     async def _cmd_append(self, si, kv: dict) -> dict:
-        raw = kv.get("path")
+        raw     = kv.get("path")
         content = kv.get("content", "")
         if not raw:
             return {"status": "error", "command": "append", "reason": "Missing 'path' argument."}
@@ -472,8 +368,11 @@ class FileHandlerApp(soul_engine_app):
             return {"status": "error", "command": "append", "error_code": "path_not_found",
                     "reason": f"File does not exist: {path}"}
 
-        allowed = self._request_permission(si, "append", {"path": str(path)})
-        if not allowed:
+        if not si.request_permission(
+            action="append",
+            context={"path": str(path)},
+            message=DIALOG_MESSAGES["append"],
+        ):
             return self._denied("append", path=str(path))
 
         with path.open("a", encoding="utf-8") as f:
@@ -481,21 +380,24 @@ class FileHandlerApp(soul_engine_app):
         return self._ok("append", path=str(path))
 
     async def _cmd_copy(self, si, kv: dict) -> dict:
-        src_raw = kv.get("src") or kv.get("src_path")
+        src_raw  = kv.get("src")  or kv.get("src_path")
         dest_raw = kv.get("dest") or kv.get("dest_path")
         if not src_raw or not dest_raw:
             return {"status": "error", "command": "copy",
                     "reason": "Missing 'src' or 'dest' argument."}
 
-        src = _resolve(src_raw)
+        src  = _resolve(src_raw)
         dest = _resolve(dest_raw)
 
         if not src.exists():
             return {"status": "error", "command": "copy", "error_code": "path_not_found",
                     "reason": f"Source does not exist: {src}"}
 
-        allowed = self._request_permission(si, "copy", {"src": str(src), "dest": str(dest)})
-        if not allowed:
+        if not si.request_permission(
+            action="copy",
+            context={"src": str(src), "dest": str(dest)},
+            message=DIALOG_MESSAGES["copy"],
+        ):
             return self._denied("copy", src_path=str(src), dest_path=str(dest))
 
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -506,21 +408,24 @@ class FileHandlerApp(soul_engine_app):
         return self._ok("copy", src_path=str(src), dest_path=str(dest))
 
     async def _cmd_move(self, si, kv: dict) -> dict:
-        src_raw = kv.get("src") or kv.get("src_path")
+        src_raw  = kv.get("src")  or kv.get("src_path")
         dest_raw = kv.get("dest") or kv.get("dest_path")
         if not src_raw or not dest_raw:
             return {"status": "error", "command": "move",
                     "reason": "Missing 'src' or 'dest' argument."}
 
-        src = _resolve(src_raw)
+        src  = _resolve(src_raw)
         dest = _resolve(dest_raw)
 
         if not src.exists():
             return {"status": "error", "command": "move", "error_code": "path_not_found",
                     "reason": f"Source does not exist: {src}"}
 
-        allowed = self._request_permission(si, "move", {"src": str(src), "dest": str(dest)})
-        if not allowed:
+        if not si.request_permission(
+            action="move",
+            context={"src": str(src), "dest": str(dest)},
+            message=DIALOG_MESSAGES["move"],
+        ):
             return self._denied("move", src_path=str(src), dest_path=str(dest))
 
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -528,7 +433,7 @@ class FileHandlerApp(soul_engine_app):
         return self._ok("move", src_path=str(src), dest_path=str(dest))
 
     async def _cmd_rename(self, si, kv: dict) -> dict:
-        raw = kv.get("path")
+        raw      = kv.get("path")
         new_name = kv.get("new_name")
         if not raw or not new_name:
             return {"status": "error", "command": "rename",
@@ -541,9 +446,11 @@ class FileHandlerApp(soul_engine_app):
             return {"status": "error", "command": "rename", "error_code": "path_not_found",
                     "reason": f"Path does not exist: {old_path}"}
 
-        allowed = self._request_permission(si, "rename",
-                                           {"old_path": str(old_path), "new_path": str(new_path)})
-        if not allowed:
+        if not si.request_permission(
+            action="rename",
+            context={"old_path": str(old_path), "new_path": str(new_path)},
+            message=DIALOG_MESSAGES["rename"],
+        ):
             return self._denied("rename", old_path=str(old_path), new_path=str(new_path))
 
         old_path.rename(new_path)
@@ -560,17 +467,20 @@ class FileHandlerApp(soul_engine_app):
                     "reason": f"File does not exist: {path}"}
         if path.is_dir():
             return {"status": "error", "command": "delete", "error_code": "is_directory",
-                    "reason": f"Path is a directory. Use 'rmdir' to remove directories."}
+                    "reason": "Path is a directory. Use 'rmdir' to remove directories."}
 
-        allowed = self._request_permission(si, "delete", {"path": str(path)})
-        if not allowed:
+        if not si.request_permission(
+            action="delete",
+            context={"path": str(path), "size": f"{path.stat().st_size} bytes"},
+            message=DIALOG_MESSAGES["delete"],
+        ):
             return self._denied("delete", path=str(path))
 
         path.unlink()
         return self._ok("delete", path=str(path))
 
     async def _cmd_rmdir(self, si, kv: dict) -> dict:
-        raw = kv.get("path")
+        raw       = kv.get("path")
         recursive = kv.get("recursive", "false").lower() in ("true", "1", "yes")
         if not raw:
             return {"status": "error", "command": "rmdir", "reason": "Missing 'path' argument."}
@@ -583,22 +493,27 @@ class FileHandlerApp(soul_engine_app):
             return {"status": "error", "command": "rmdir", "error_code": "not_a_directory",
                     "reason": f"Path is not a directory: {path}"}
 
-        # Count files before deletion for the response
         files_removed = sum(1 for _ in path.rglob("*") if _.is_file())
 
-        allowed = self._request_permission(si, "rmdir",
-                                           {"path": str(path), "recursive": recursive,
-                                            "files_that_will_be_removed": files_removed})
-        if not allowed:
+        if not si.request_permission(
+            action="rmdir",
+            context={
+                "path":                      str(path),
+                "recursive":                 recursive,
+                "files_that_will_be_removed": files_removed,
+            },
+            message=DIALOG_MESSAGES["rmdir"],
+        ):
             return self._denied("rmdir", path=str(path))
 
         if recursive:
             shutil.rmtree(str(path))
         else:
             try:
-                path.rmdir()  # fails if not empty
+                path.rmdir()
             except OSError:
-                return {"status": "error", "command": "rmdir", "error_code": "directory_not_empty",
+                return {"status": "error", "command": "rmdir",
+                        "error_code": "directory_not_empty",
                         "reason": "Directory is not empty. Pass recursive=true to force removal."}
 
         return self._ok("rmdir", path=str(path), files_removed=files_removed)

@@ -1,22 +1,15 @@
-"""
-Webpage Reader — soul_engine app
-Bugs fixed:
-  1. Double context.close() (except + finally) → only finally now
-  2. asyncio.ensure_future in sync route lambda → proper async def handler
-  3. _get_browser playwright leak on reconnect → teardown before re-launch
-  4. _handle_save --out silently dropped when --query precedes it → parse --out first
-  5. HTTP 4xx/5xx not detected (status != "error") → explicit numeric check
-  6. Redundant .encode/.decode on json.dumps → removed; using ensure_ascii=False
-  7. Unused `import se_app_utils` top-level → removed
-"""
 
 # ── Headless toggle ────────────────────────────────────────────────────────────
-# Set to False to see the browser window (useful for debugging JS-heavy pages)
 HEADLESS: bool = False
-PAGE_LOAD_WAIT_TIME : int=10_000
+PAGE_LOAD_WAIT_TIME: int = 10_000
+
 # ── Write-class commands that require user permission ──────────────────────────
-# Any command in this set will show a tkinter approval dialog before executing.
 WRITE_COMMANDS: set = {"save"}
+
+# ── Dialog messages ────────────────────────────────────────────────────────────
+DIALOG_MESSAGES = {
+    "save": "Allow Webpage Reader to fetch this URL and write the content to disk?",
+}
 
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -41,7 +34,8 @@ from se_app_utils.soulengine import soul_engine_app
 # ── GUI helpers ────────────────────────────────────────────────────────────────
 
 def _show_tkinter_error(title: str, message: str) -> None:
-    """Show a modal error dialog. Falls back to stderr if tkinter unavailable."""
+    """Show a modal error dialog (startup dependency checks only).
+    Falls back to stderr if tkinter unavailable."""
     try:
         import tkinter as tk
         from tkinter import messagebox
@@ -54,25 +48,6 @@ def _show_tkinter_error(title: str, message: str) -> None:
         print(f"[ERROR] {title}: {message}", file=sys.stderr)
 
 
-def _ask_permission_sync(title: str, message: str) -> bool:
-    """
-    Blocking permission dialog (runs in a thread executor from async context).
-    Returns True if user clicks Yes/Allow.
-    """
-    try:
-        import tkinter as tk
-        from tkinter import messagebox
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        approved = messagebox.askyesno(title, message, parent=root)
-        root.destroy()
-        return bool(approved)
-    except Exception as exc:
-        print(f"[PERMISSION] tkinter unavailable, auto-denying: {exc}", file=sys.stderr)
-        return False
-
-
 # ── Playwright / Chromium availability ────────────────────────────────────────
 
 try:
@@ -83,22 +58,14 @@ except ImportError:
 
 
 def _is_chromium_installed() -> bool:
-    """
-    Checks whether Playwright's Chromium binary is present on disk.
-    Searches the standard cache locations for Windows, Linux, and macOS,
-    plus the PLAYWRIGHT_BROWSERS_PATH env-var override.
-    """
     if not _HAS_PLAYWRIGHT:
         return False
     try:
         search_bases: list = []
-        # Windows: %LOCALAPPDATA%\ms-playwright
         local_app = os.environ.get("LOCALAPPDATA", "")
         if local_app:
             search_bases.append(Path(local_app) / "ms-playwright")
-        # Linux / macOS: ~/.cache/ms-playwright
         search_bases.append(Path.home() / ".cache" / "ms-playwright")
-        # Env override
         env_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
         if env_path:
             search_bases.append(Path(env_path))
@@ -115,7 +82,6 @@ def _is_chromium_installed() -> bool:
         return False
 
 
-# Run the check once at import time so the dialog appears as early as possible.
 _HAS_CHROMIUM: bool = False
 if _HAS_PLAYWRIGHT:
     _HAS_CHROMIUM = _is_chromium_installed()
@@ -162,39 +128,22 @@ except ImportError:
 # ──────────────────────────────────────────────────────────────────────────────
 
 class WebpageReaderApp(soul_engine_app):
+
     def __init__(self):
-        super().__init__(app_name="WEBPAGE READER")
+        super().__init__(app_name="Webpage Reader", app_icon="🌐")
 
         self._base_dir  = Path(__file__).parent
         self._saved_dir = self._base_dir / "webpage_reader_saves"
 
-        # Shared browser instance (kept alive across REPL calls)
         self._playwright = None
         self._browser    = None
-
-        # Tracks the last successfully resolved URL; injected into every response.
         self._current_url: str = ""
-
-        self._commands = {
-            "read":   self._handle_read,
-            "save":   self._handle_save,
-            "raw":    self._handle_raw,
-            "meta":   self._handle_meta,
-            "links":  self._handle_links,
-            "images": self._handle_images,
-        }
 
     # ──────────────────────────────────────────────────── browser lifecycle ───
 
     async def _get_browser(self):
-        """
-        Return the shared Browser, (re)launching if necessary.
-        BUG FIX #3: always tears down stale playwright before re-launching,
-        preventing subprocess leaks.
-        """
         if self._browser is not None and self._browser.is_connected():
             return self._browser
-        # Teardown whatever stale state exists before creating new instances.
         await self._close_browser()
         self._playwright = await async_playwright().start()
         self._browser = await self._playwright.chromium.launch(
@@ -220,17 +169,6 @@ class WebpageReaderApp(soul_engine_app):
     # ────────────────────────────────────────────────────────── page fetch ───
 
     async def _fetch_page(self, url: str) -> dict:
-        global PAGE_LOAD_WAIT_TIME
-        """
-        Launches a new browser context, navigates to *url*, and returns raw
-        page data.
-
-        BUG FIX #1: context.close() was called in both `except` AND `finally`,
-        causing a double-close exception.  Now only called in `finally`.
-
-        BUG FIX #2: the route handler was an asyncio.ensure_future() inside a
-        sync lambda — a race condition.  Replaced with a proper `async def`.
-        """
         browser = await self._get_browser()
         context = await browser.new_context(
             user_agent=(
@@ -243,7 +181,6 @@ class WebpageReaderApp(soul_engine_app):
         )
         page = await context.new_page()
 
-        # BUG FIX #2 — async route handler, no ensure_future hack
         async def _route_handler(route):
             if route.request.resource_type in ("image", "media", "font", "stylesheet"):
                 await route.abort()
@@ -254,27 +191,22 @@ class WebpageReaderApp(soul_engine_app):
 
         result: dict
         try:
-            response=None
+            response = None
             try:
-                response  = await page.goto(url, wait_until="networkidle", timeout=PAGE_LOAD_WAIT_TIME)
-            except:
+                response = await page.goto(url, wait_until="networkidle",
+                                           timeout=PAGE_LOAD_WAIT_TIME)
+            except Exception:
                 pass
-            print("wait until passed")
-            final_url = page.url
-            print("Getting title")
-            title     = await page.title()
-            print("getting content")
-            html      = await page.content()
-            status    = response.status if response else 0
-            # Track last known good URL for response injection
+            final_url         = page.url
+            title             = await page.title()
+            html              = await page.content()
+            status            = response.status if response else 0
             self._current_url = final_url
             result = {"status": status, "url": final_url, "title": title, "html": html}
         except Exception as exc:
             result = {"status": "error", "message": str(exc), "url": url}
         finally:
-            # BUG FIX #1 — single close point; runs even after return-in-except
             await context.close()
-        print("returning")
         return result
 
     # ────────────────────────────────────────────────── content processing ───
@@ -317,12 +249,8 @@ class WebpageReaderApp(soul_engine_app):
 
         page = await self._fetch_page(url)
 
-        # BUG FIX #5 — also catch HTTP-level errors (4xx, 5xx).
-        # Previously only the string "error" was checked; numeric HTTP status
-        # codes passed through silently and the pipeline continued on 404/500.
         if page.get("status") == "error":
             return page
-        print("Checking HTTP status")
         http_status = page.get("status", 0)
         if isinstance(http_status, int) and http_status >= 400:
             return {
@@ -331,12 +259,9 @@ class WebpageReaderApp(soul_engine_app):
                 "url":     page.get("url", url),
             }
 
-        print("Converting HTML to Markdown")
         md = self._html_to_markdown(page["html"], base_url=page["url"])
-        print("Pruning Markdown")
         md = self._prune_markdown(md)
         if query:
-            print("Filtering Markdown")
             md = self._bm25_filter(md, query)
         return {
             "status":     "ok",
@@ -368,14 +293,11 @@ class WebpageReaderApp(soul_engine_app):
                 return a, args[:i] + args[i + 1:]
         return "", list(args)
 
-    async def _ask_permission(self, title: str, message: str) -> bool:
-        """Non-blocking wrapper — runs the sync tkinter dialog in a thread."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, _ask_permission_sync, title, message)
-
     # ─────────────────────────────────────────────────────── handlers ───
+    # All handlers now receive (si, args) so write commands can call
+    # si.request_permission without any extra plumbing.
 
-    async def _handle_read(self, args: list) -> dict:
+    async def _handle_read(self, si, args: list) -> dict:
         if not _HAS_PLAYWRIGHT or not _HAS_CHROMIUM:
             return self._no_playwright()
         args = list(args)
@@ -389,26 +311,20 @@ class WebpageReaderApp(soul_engine_app):
             return {"status": "error", "message": "Usage: read <url> [--query <text>]"}
         return await self._read_pipeline(url, query=query)
 
-    async def _handle_save(self, args: list) -> dict:
-        """
-        BUG FIX #4: --out was parsed AFTER --query, so if the user placed
-        --query before --out the flag was silently dropped because args had
-        already been sliced at --query.  Fix: parse --out first (fixed-arity),
-        then --query (greedy).
-        """
+    async def _handle_save(self, si, args: list) -> dict:
         if not _HAS_PLAYWRIGHT or not _HAS_CHROMIUM:
             return self._no_playwright()
         args = list(args)
         query, out_path = "", None
 
-        # 1. Parse --out first (consumes exactly 2 tokens: flag + path)
+        # Parse --out first (fixed-arity: flag + path)
         if "--out" in args:
             idx = args.index("--out")
             if idx + 1 < len(args):
                 out_path = Path(args[idx + 1])
                 args = args[:idx] + args[idx + 2:]
 
-        # 2. Parse --query (greedy: flag + everything after it = query string)
+        # Parse --query (greedy: everything after the flag)
         if "--query" in args:
             idx   = args.index("--query")
             query = " ".join(args[idx + 1:])
@@ -419,26 +335,20 @@ class WebpageReaderApp(soul_engine_app):
             return {"status": "error",
                     "message": "Usage: save <url> [--out <path>] [--query <text>]"}
 
-        # Resolve display path for the permission dialog
         self._saved_dir.mkdir(parents=True, exist_ok=True)
         dest_display = (
             str(out_path) if out_path
             else str(self._saved_dir / "<sanitized_url>.md")
         )
 
-        # ── Permission dialog (required for all write operations) ─────────
-        approved = await self._ask_permission(
-            "Save Permission — Webpage Reader",
-            f"Webpage Reader wants to write content to disk.\n\n"
-            f"Source URL : {url}\n"
-            f"Destination: {dest_display}\n\n"
-            f"Allow this operation?",
-        )
-        if not approved:
+        if not si.request_permission(
+            action="save",
+            context={"url": url, "destination": dest_display},
+            message=DIALOG_MESSAGES["save"],
+        ):
             return {"status": "denied",
                     "message": "Save operation cancelled by user.",
                     "url": url}
-        # ─────────────────────────────────────────────────────────────────
 
         result = await self._read_pipeline(url, query=query)
         if result["status"] != "ok":
@@ -456,7 +366,7 @@ class WebpageReaderApp(soul_engine_app):
             "char_count": result["char_count"],
         }
 
-    async def _handle_raw(self, args: list) -> dict:
+    async def _handle_raw(self, si, args: list) -> dict:
         if not _HAS_PLAYWRIGHT or not _HAS_CHROMIUM:
             return self._no_playwright()
         url, _ = self._url_from_args(list(args))
@@ -468,7 +378,7 @@ class WebpageReaderApp(soul_engine_app):
         html = page.get("html", "")
         return {"status": "ok", "url": page["url"], "char_count": len(html), "html": html}
 
-    async def _handle_meta(self, args: list) -> dict:
+    async def _handle_meta(self, si, args: list) -> dict:
         if not _HAS_PLAYWRIGHT or not _HAS_CHROMIUM:
             return self._no_playwright()
         url, _ = self._url_from_args(list(args))
@@ -490,7 +400,7 @@ class WebpageReaderApp(soul_engine_app):
                 meta["canonical"] = canonical["href"]
         return {"status": "ok", "url": page["url"], "meta": meta}
 
-    async def _handle_links(self, args: list) -> dict:
+    async def _handle_links(self, si, args: list) -> dict:
         if not _HAS_PLAYWRIGHT or not _HAS_CHROMIUM:
             return self._no_playwright()
         args = list(args)
@@ -540,7 +450,7 @@ class WebpageReaderApp(soul_engine_app):
             "links":          links,
         }
 
-    async def _handle_images(self, args: list) -> dict:
+    async def _handle_images(self, si, args: list) -> dict:
         if not _HAS_PLAYWRIGHT or not _HAS_CHROMIUM:
             return self._no_playwright()
         url, _ = self._url_from_args(list(args))
@@ -570,6 +480,15 @@ class WebpageReaderApp(soul_engine_app):
     # ─────────────────────────────────────────────────────── main entry ───
 
     async def process_command(self, se_interface, args):
+        _commands = {
+            "read":   self._handle_read,
+            "save":   self._handle_save,
+            "raw":    self._handle_raw,
+            "meta":   self._handle_meta,
+            "links":  self._handle_links,
+            "images": self._handle_images,
+        }
+
         if not args:
             result = {
                 "status":  "error",
@@ -584,21 +503,16 @@ class WebpageReaderApp(soul_engine_app):
             }
         else:
             cmd = args[0].lower()
-            if cmd in self._commands:
-                result = await self._commands[cmd](args[1:])
+            handler = _commands.get(cmd)
+            if handler:
+                result = await handler(se_interface, args[1:])
             else:
                 # Bare URL → default LLM-friendly read
-                result = await self._handle_read(args)
+                result = await self._handle_read(se_interface, args)
 
-        # ── Inject current_url into every response ────────────────────────
-        # Always reflects the last successfully resolved URL; empty string on
-        # first call if no page has been fetched yet.
         if isinstance(result, dict):
             result["current_url"] = self._current_url
 
-        # BUG FIX #6: removed redundant .encode("utf-8").decode("utf-8") pair.
-        # ensure_ascii=False lets Unicode pass through correctly.
-        print("Sending Response...")
         se_interface.send_message(json.dumps(result, ensure_ascii=False))
 
 

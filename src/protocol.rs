@@ -280,9 +280,9 @@ impl ProtocolStore{
     }
     pub fn get_protocols_book(&self)->String{
         let mut book=String::new();
-        book.push_str(&format!("| Protocol | Description | How to initiate | When to trigger | Protocol ExpectedResult |"));
+        book.push_str(&format!("| Protocol | Description | How to initiate | Protocol ExpectedResult |"));
         for (protocol_handle, protocol_config) in self.protocols.iter(){
-            book.push_str(&format!("| {} | {} | {} | {} | {} |\n", protocol_config.protocol_name, protocol_config.protocol_description.clone().unwrap_or("No description".to_string()), protocol_config.protocol_handle_name, protocol_config.trigger_prompt.clone().unwrap_or("No trigger prompt".to_string()), protocol_config.protocol_result));
+            book.push_str(&format!("| {} | {} | {} | {} |\n", protocol_config.protocol_name, protocol_config.protocol_description.clone().unwrap_or("No description".to_string()), protocol_config.protocol_handle_name, protocol_config.protocol_result));
         }
         book
     }

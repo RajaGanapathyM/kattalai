@@ -14,6 +14,12 @@ Use this app for:
 
 Powered by Playwright + html2text — JavaScript pages are handled automatically.
 
+### Runtime notes
+- HEADLESS toggle is at the top of the script (HEADLESS = True). Set to False to see the browser.
+- If Playwright or Chromium is not installed a GUI error dialog appears on launch.
+- `save` always shows a tkinter permission dialog; the operation proceeds only if the user approves.
+- Every response includes a `current_url` field reflecting the last successfully resolved URL.
+
 ## Commands & Examples
 
 ### Read a Webpage (LLM-ready pruned markdown)
@@ -27,7 +33,9 @@ Powered by Playwright + html2text — JavaScript pages are handled automatically
 ### Read and Save to File
 &webpage_reader save https://example.com
 &webpage_reader save https://example.com --out ./output/example.md
-&webpage_reader save https://example.com --query "installation steps" --out ./output/install.md
+&webpage_reader save https://example.com --out ./output/install.md --query "installation steps"
+
+Note: always put --out before --query (--query is greedy and consumes everything after it).
 
 ### Fetch Raw HTML (no markdown conversion — for custom pipelines)
 &webpage_reader raw https://example.com
@@ -45,38 +53,39 @@ Powered by Playwright + html2text — JavaScript pages are handled automatically
 
 ## Output Behavior
 
+* Every response includes `current_url` — the last successfully resolved URL.
 * `read` returns pruned LLM-ready markdown via html2text + paragraph-length pruning (min 10 words).
 * `--query` on `read`/`save` switches to BM25 filtering (rank_bm25) — only the top 40% of paragraphs ranked by query relevance are returned, in original reading order.
-* `save` writes markdown to a local file; defaults to `<BASE_DIR>/webpage_reader_saves/<sanitized_url>.md`.
+* `save` shows a tkinter permission dialog before writing. If denied, returns status "denied". Pass --out before --query.
 * `raw` returns the full browser-rendered HTML (post-JS execution) with no further processing.
-* `meta` parses `<meta name/property>` tags and `<link rel="canonical">` via BeautifulSoup into a flat key-value block.
-* `links` returns `internal_count`, `external_count`, and a flat `links` list with `href` + `text`; filterable by flag.
-* `images` returns a list of images with `src` (absolute), `alt`, `width`, `height`; lazy-loaded `data-src` is also captured.
-* HTTP errors, JS timeouts, and navigation failures are returned as `{"status": "error", "message": "..."}`.
-* No separate `extract` command — `read` already runs full content isolation (Playwright render + pruning).
+* `meta` parses meta name/property tags and canonical link via BeautifulSoup into a flat key-value block.
+* `links` returns internal_count, external_count, and a flat links list with href + text; filterable by flag.
+* `images` returns a list of images with src (absolute), alt, width, height; lazy-loaded data-src is also captured.
+* HTTP errors (4xx/5xx), JS timeouts, and navigation failures are returned as {"status": "error", "message": "..."}.
+* No separate extract command — read already runs full content isolation (Playwright render + pruning).
 """
 
 [[app_command_signatures]]
 command = "read"
-consumes = ["url", "query?","webpage"]
+consumes = ["url", "query?", "webpage"]
 produces = ["markdown"]
 action = "read"
 
 [[app_command_signatures]]
 command = "save"
-consumes = ["url", "out?", "query?","webpage"]
+consumes = ["url", "out?", "query?", "webpage"]
 produces = ["markdown_file"]
 action = "write"
 
 [[app_command_signatures]]
 command = "raw"
-consumes = ["url","webpage"]
+consumes = ["url", "webpage"]
 produces = ["html"]
 action = "read"
 
 [[app_command_signatures]]
 command = "meta"
-consumes = ["url","webpage"]
+consumes = ["url", "webpage"]
 produces = ["metadata"]
 action = "read"
 
@@ -88,6 +97,6 @@ action = "read"
 
 [[app_command_signatures]]
 command = "images"
-consumes = ["url","webpage"]
+consumes = ["url", "webpage"]
 produces = ["image_list"]
 action = "read"

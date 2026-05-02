@@ -1,0 +1,32 @@
+# Core data processing
+numpy
+pandas
+
+# Excel and tabular data handling
+openpyxl
+xlrd
+odfpy  # OpenDocument format support
+
+# Parquet file support
+pyarrow
+
+# PDF handling
+pypdf
+pdfplumber
+
+# Machine learning and text processing
+scikit-learn
+
+# Web and API
+requests
+playwright
+
+# Audio processing
+sounddevice
+faster-whisper
+
+# Financial data
+yfinance
+
+# TOML parsing (for Python < 3.11; built-in tomllib in Python 3.11+)
+tomli

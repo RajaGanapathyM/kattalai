@@ -2,7 +2,7 @@ import json
 import time
 from time import sleep
 import sys
-
+import tkinter as tk
 import argparse
 import asyncio
 import sys
@@ -66,83 +66,56 @@ from pathlib import Path
 _PIPE_INLINE_LIMIT: int = 2048  # 2 KB
 
 
+# ── Catppuccin Mocha palette (module-level, shared by all dialogs) ──────────
+_CM_BG      = "#1e1e2e"
+_CM_SURFACE = "#313244"
+_CM_TEXT    = "#cdd6f4"
+_CM_SUBTEXT = "#a6adc8"
+_CM_BLUE    = "#89b4fa"
+_CM_GREEN   = "#a6e3a1"
+_CM_RED     = "#f38ba8"
+_CM_YELLOW  = "#f9e2af"
+
 
 class soul_engine_interface:
     """
     IPC bridge between a soul_engine app and the Rust runtime.
-
-    All writes go through _send() which:
-      1. Checks payload size against _PIPE_INLINE_LIMIT.
-      2. If the payload is large, spills it to a temp file and sends a tiny
-         envelope pointing to that file — the pipe write always completes
-         immediately and flush() fires before Rust's read_line() can block.
-      3. Writes the framed line to stdout and flushes explicitly.
-
-    Rust-side contract
-    ──────────────────
-    Parse the received JSON.  If it contains {"__spilled__": true, "file": "..."}
-    read the content from `file` (UTF-8), then delete the file.
-    Otherwise use the content directly.
+    ...
     """
 
-    # Temp files land next to the running script so they stay on the same
-    # filesystem / drive letter as the app (important on Windows).
     _spill_dir: Path = Path(sys.argv[0]).resolve().parent / "_se_spill"
 
-    def __init__(self, args, app_name: str):
+    def __init__(self, args, app_name: str, app_icon: str = "🤖"):
         self.episode_id    = args.episode_id
         self.invocation_id = args.invocation_id
         self.app_name      = app_name
+        self.app_icon      = app_icon          # e.g. "📚" for Codex, "🐚" for shell
 
     # ── internal ──────────────────────────────────────────────────────────────
 
     def _spill(self, msg: str) -> str:
-        """
-        If *msg* exceeds _PIPE_INLINE_LIMIT bytes write it to a uniquely-named
-        temp file and return a tiny JSON envelope instead:
-
-            {"__spilled__": true, "file": "/abs/path/to/file"}
-
-        Filename format:
-            se_spill_<episode_id>_<invocation_id>_<unix_ms>_<uuid4>.json
-
-        Four sources of uniqueness combined:
-          - episode_id    : unique per conversation
-          - invocation_id : unique per call within a conversation
-          - unix_ms       : millisecond timestamp
-          - uuid4         : cryptographically random 128-bit token
-
-        This guarantees no two spill files ever collide, even under
-        concurrent invocations or rapid repeated calls.
-        """
+        """..."""
         if len(msg.encode("utf-8")) <= _PIPE_INLINE_LIMIT:
             return msg
 
         self._spill_dir.mkdir(parents=True, exist_ok=True)
-
         unique_name = (
             f"se_spill"
             f"_ep{self.episode_id}"
             f"_inv{self.invocation_id}"
-            f"_{int(time.time() * 1000)}"   # unix milliseconds
-            f"_{uuid.uuid4().hex}"           # 32 hex chars of randomness
+            f"_{int(time.time() * 1000)}"
+            f"_{uuid.uuid4().hex}"
             f".json"
         )
         spill_path = self._spill_dir / unique_name
         spill_path.write_text(msg + "\n", encoding="utf-8")
-
         return json.dumps(
             {"__spilled__": True, "file": str(spill_path)},
             ensure_ascii=False,
         )
 
     def _send(self, frame_tag: str, msg: str) -> None:
-        """
-        Core write path shared by send_message and send_and_invoke.
-
-        frame_tag : "#APP_MESSAGE" | "#APP_INVOKE"
-        msg       : raw payload string (usually JSON)
-        """
+        """..."""
         safe_msg = self._spill(msg)
         line = (
             f"[{frame_tag}>"
@@ -162,10 +135,140 @@ class soul_engine_interface:
     def send_and_invoke(self, msg: str) -> None:
         """Send a message that also triggers a follow-up invocation in Rust."""
         self._send("#APP_INVOKE", msg)
+
+    def request_permission(
+        self,
+        action: str,
+        context: dict,
+        *,
+        message: str | None = None,
+        icon: str | None = None,
+    ) -> bool:
+        """
+        Blocking Catppuccin Mocha tkinter permission dialog.
+
+        Parameters
+        ----------
+        action  : short verb shown in the title bar, e.g. "EXECUTE", "READ"
+        context : key/value pairs rendered in the detail box
+        message : human-readable description of what is being requested.
+                  Defaults to a generic fallback using app_name + action.
+        icon    : emoji override; falls back to self.app_icon set at construction.
+
+        Returns True → Allow, False → Deny / window closed.
+
+        Usage (any app)
+        ---------------
+            allowed = se_interface.request_permission(
+                action="execute",
+                context={"command": cmd, "working dir": cwd},
+                message="Allow running a shell command on your machine?",
+            )
+        """
+        try:
+            import tkinter as tk
+        except ImportError:
+            # Headless environment — fail closed.
+            return False
+
+        resolved_icon    = icon or self.app_icon
+        resolved_message = (
+            message
+            or f"Allow {self.app_name} to perform '{action}' on this machine?"
+        )
+
+        result = {"allowed": False}
+
+        root = tk.Tk()
+        root.title(f"{self.app_name} — Permission Required")
+        root.resizable(False, False)
+        root.configure(bg=_CM_BG)
+
+        root.update_idletasks()
+        w, h = 500, 290
+        x = (root.winfo_screenwidth()  - w) // 2
+        y = (root.winfo_screenheight() - h) // 2
+        root.geometry(f"{w}x{h}+{x}+{y}")
+
+        # ── Icon + title row ──────────────────────────────────────────────────
+        hdr = tk.Frame(root, bg=_CM_BG)
+        hdr.pack(fill="x", padx=20, pady=(16, 0))
+
+        tk.Label(
+            hdr, text=resolved_icon,
+            font=("Segoe UI Emoji", 22),
+            fg=_CM_YELLOW, bg=_CM_BG,
+        ).pack(side="left")
+
+        tk.Label(
+            hdr,
+            text=f"{self.app_name} — Permission Required: {action.upper()}",
+            font=("Segoe UI", 11, "bold"),
+            fg=_CM_TEXT, bg=_CM_BG,
+        ).pack(side="left", padx=(10, 0))
+
+        # ── Message ───────────────────────────────────────────────────────────
+        tk.Label(
+            root, text=resolved_message,
+            font=("Segoe UI", 9),
+            fg=_CM_SUBTEXT, bg=_CM_BG,
+            wraplength=460, justify="left",
+        ).pack(fill="x", padx=20, pady=(8, 0))
+
+        # ── Context detail box ────────────────────────────────────────────────
+        box = tk.Frame(root, bg=_CM_SURFACE)
+        box.pack(fill="x", padx=20, pady=10)
+
+        for key, val in context.items():
+            row = tk.Frame(box, bg=_CM_SURFACE)
+            row.pack(fill="x", padx=10, pady=2)
+            tk.Label(
+                row, text=f"{key}:", font=("Consolas", 9, "bold"),
+                fg=_CM_BLUE, bg=_CM_SURFACE, width=14, anchor="w",
+            ).pack(side="left")
+            tk.Label(
+                row, text=str(val), font=("Consolas", 9),
+                fg=_CM_TEXT, bg=_CM_SURFACE, anchor="w",
+            ).pack(side="left", fill="x")
+
+        # ── Buttons ───────────────────────────────────────────────────────────
+        btns = tk.Frame(root, bg=_CM_BG)
+        btns.pack(pady=(0, 16))
+
+        def _allow():
+            result["allowed"] = True
+            root.destroy()
+
+        def _deny():
+            result["allowed"] = False
+            root.destroy()
+
+        tk.Button(
+            btns, text="✕  Deny", command=_deny,
+            font=("Segoe UI", 10, "bold"), cursor="hand2",
+            bg=_CM_RED,   fg=_CM_BG, activebackground="#eba0ac",
+            relief="flat", padx=18, pady=6,
+        ).pack(side="left", padx=(0, 12))
+
+        tk.Button(
+            btns, text="✓  Allow", command=_allow,
+            font=("Segoe UI", 10, "bold"), cursor="hand2",
+            bg=_CM_GREEN, fg=_CM_BG, activebackground="#94e2d5",
+            relief="flat", padx=18, pady=6,
+        ).pack(side="left")
+
+        root.protocol("WM_DELETE_WINDOW", _deny)
+        root.lift()
+        root.attributes("-topmost", True)
+        root.focus_force()
+        root.mainloop()
+
+        return result["allowed"]
 ###################
 class soul_engine_app():
-    def __init__(self,app_name):
+    def __init__(self,app_name:str, app_icon: str = "🤖"):
         self.app_name=app_name
+        self.app_icon=app_icon
     def parse_line(self,line):
         try:
             tokens = shlex.split(line)
@@ -229,7 +332,7 @@ class soul_engine_app():
             asyncio.create_task(self._process_line(line))
 
     def get_interface(self,args,app_name):
-        return soul_engine_interface(args,app_name)
+        return soul_engine_interface(args,app_name,self.app_icon)
 
     def run_one_shot(self):
         try:

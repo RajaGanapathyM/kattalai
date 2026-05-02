@@ -29,7 +29,7 @@ try:
     from soulengine import PyRuntime
     SE_AVAILABLE = True
 except Exception as e:
-    pass  # FIX: removed noisy print — SE unavailability is shown in badge
+    pass  # SE unavailability is shown in badge
 
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -162,8 +162,6 @@ Screen { background: $bg; color: $text; layout: horizontal; }
     scrollbar-size: 1 1;
 }
 
-/* FIX 1: "+ New Episode" button as first item in topic list */
-/* REPLACE #new-episode-btn block with: */
 #new-episode-btn {
     width: 100%;
     height: 3;
@@ -177,7 +175,6 @@ Screen { background: $bg; color: $text; layout: horizontal; }
 #new-episode-btn:hover { color: $green; background: $surf2; }
 #new-episode-btn:focus { color: $green; background: $surf2; border: none; border-bottom: tall $bord; }
 
-/* FIX 3: Properly sized topic avatar — uniform box, no overflow */
 .topic-row {
     width: 100%;
     height: 4;
@@ -198,7 +195,6 @@ Screen { background: $bg; color: $text; layout: horizontal; }
     content-align: center middle;
     color: $cyan;
     text-style: bold;
-    /* Explicit min/max to prevent resize */
     min-width: 4;
     max-width: 4;
     min-height: 3;
@@ -288,7 +284,7 @@ Screen { background: $bg; color: $text; layout: horizontal; }
     content-align: center middle;
 }
 #topic-header-name {
-    color: $green;         
+    color: $green;
     text-style: bold;
 }
 #topic-header-meta {
@@ -552,7 +548,7 @@ class TopicSession:
         self.se_added: set = set()
         self.msg_cursor = 0
 
-        # FIX 2: Per-topic message widget snapshots (store rendered widget data, not DOM nodes)
+        # Per-topic message widget snapshots
         # We store (role, data) tuples: role="user" -> text str, role="agent" -> (agent_name, blocks)
         self.message_log: list[tuple[str, object]] = []
 
@@ -562,8 +558,12 @@ class TopicSession:
         # Active tab within this topic
         self.active_tab = "chat-pane"
 
-        # FIX: track if monitor worker already started for this topic
+        # Guard: only one monitor worker per topic
         self._monitor_started = False
+
+        # FIX: guard to prevent monitor double-mounting during _restore_topic_messages
+        self._restoring = False
+        self._mind_restoring = False
 
     @property
     def avatar_letter(self) -> str:
@@ -580,7 +580,6 @@ class TopicSession:
 
 
 class NewTopicModal(ModalScreen):
-    # FIX: removed DEFAULT_CSS = "" so modal inherits app CSS properly
     def compose(self) -> ComposeResult:
         with Container(id="nt-dialog"):
             yield Label("  +  New Episode", id="nt-title")
@@ -609,7 +608,6 @@ class NewTopicModal(ModalScreen):
 
 
 class FilePickerModal(ModalScreen):
-    # FIX: removed DEFAULT_CSS = "" so modal inherits app CSS properly
     def __init__(self) -> None:
         super().__init__()
         self._selected_path: Optional[str] = None
@@ -659,8 +657,6 @@ class TopicRow(Static):
             self.add_class("active-topic")
 
     def compose(self) -> ComposeResult:
-        # FIX 3: avatar uses fixed character, no overflow
-        # yield Label(self._topic.avatar_letter, classes="topic-avatar")
         with Container(classes="topic-meta"):
             yield Label(f"#{self._topic.name}", classes="topic-name")
             preview_text = self._topic.last_preview
@@ -733,32 +729,6 @@ class AgentMsg(Static):
             yield MsgBlock(kind, body)
 
 
-# class SendableTextArea(TextArea):
-#     """TextArea that intercepts ctrl+enter to send instead of inserting a newline.
-
-#     TextArea owns ctrl+enter internally — app-level BINDINGS never see it because
-#     the widget's key handler runs first and consumes the event. We must intercept
-#     at the widget level before the default TextArea handler runs.
-#     """
-#     def on_key(self, event: Key) -> None:
-#         # logging.info(f"Key event in SendableTextArea: {event.key} {event.aliases}")
-
-#         # Ctrl + Enter → send
-#         if event.key == "ctrl+enter":
-#             event.prevent_default()
-#             event.stop()
-#             asyncio.create_task(self.app._do_send())
-#             return
-    # def on_key(self, event: Key) -> None:
-    #     print(f"Key event in SendableTextArea: {event.key} ")#SS(ctrl={event.ctrl}, shift={event.shift}, alt={event.alt})")
-    #     if event.key == "ctrl+enter":
-    #         event.prevent_default()
-    #         event.stop()
-    #         asyncio.create_task(self.app._do_send())
-    #         return
-    #     super().on_key(event)
-
-
 # ─────────────────────────────────────────────────────────────
 # Main App
 # ─────────────────────────────────────────────────────────────
@@ -767,10 +737,8 @@ from rich.style import Style as RichStyle
 class SearchInput(Input):
     """Input with guaranteed visible placeholder and typed text."""
     def get_component_rich_style(self, name: str, *, partial: bool = False) -> RichStyle:
-        # 1. Add the actual typed text color here
         if name == "input--value":
-            return RichStyle(color="#c8d0e0") 
-            
+            return RichStyle(color="#c8d0e0")
         if name == "input--placeholder":
             return RichStyle(color="#48526a")
         if name == "input--cursor":
@@ -791,6 +759,8 @@ class SearchInput(Input):
     }
     SearchInput:focus { border: tall #4ade80; }
     """
+
+
 class KattalaiApp(App):
     CSS = CSS
     BINDINGS = [
@@ -804,7 +774,7 @@ class KattalaiApp(App):
         Binding("escape",      "focus_input",   "Focus",    show=False),
         Binding("ctrl+up",     "prev_topic",    "Prev episode", show=False),
         Binding("ctrl+down",   "next_topic",    "Next episode", show=False),
-        Binding("ctrl+j", "send_message",  "Send message", show=False),     
+        Binding("ctrl+j",      "send_message",  "Send message", show=False),
     ]
 
     active_tab:      reactive[str]  = reactive("chat-pane")
@@ -821,12 +791,8 @@ class KattalaiApp(App):
     def compose(self) -> ComposeResult:
         # ── LEFT PANEL ────────────────────────────────────────
         with Container(id="left-panel"):
-            # with Container(id="left-header"):
-            #     yield Label("Kattalai", id="left-title")
-                # FIX 1: removed + button from header; it now lives inside topic-list (below)
             with Container(id="topic-search-row"):
                 yield Input(placeholder="Find topic…", id="topic-search")
-            # FIX 1: topic-list contains the "+ New Episode" button as its first child
             with ScrollableContainer(id="topic-list"):
                 yield Button("⊕  new episode  ·  ctrl+n", id="new-episode-btn")
             with Container(id="left-footer"):
@@ -842,7 +808,6 @@ class KattalaiApp(App):
                 with Container(id="topic-header-actions"):
                     pass
 
-            # Tab bar — initially hidden until a topic is selected
             with Container(id="tabbar"):
                 for i, (tab, tabid) in enumerate(TABS):
                     yield TabBtn(tab, tab_id=tabid, active=(i == 0))
@@ -857,7 +822,6 @@ class KattalaiApp(App):
 
             # ── CHAT ────────────────────────────────────────
             with Container(id="chat-pane-box", classes="tab-pane"):
-                # FIX 2: messages container is cleared and repopulated on topic switch
                 with ScrollableContainer(id="messages"):
                     yield Static("")
                 with Container(id="thinking"):
@@ -892,7 +856,6 @@ class KattalaiApp(App):
     # ── Lifecycle ─────────────────────────────────────────────
 
     def on_mount(self) -> None:
-        # self.begin_capture_print(self.query_one("#term-log", RichLog))
         self._show_topic_workspace(False)
         if SE_AVAILABLE:
             self.init_soulengine()
@@ -937,11 +900,9 @@ class KattalaiApp(App):
             except Exception as e:
                 self._log_term(f"[#f87171]SE topic init error: {e}[/#f87171]")
 
-        # FIX 1: mount TopicRow AFTER the new-episode-btn (appended naturally since btn is first child)
         topic_list = self.query_one("#topic-list", ScrollableContainer)
         await topic_list.mount(TopicRow(topic))
 
-        # Auto-switch to newly created topic
         self.switch_topic(topic.local_id)
         return topic
 
@@ -963,7 +924,6 @@ class KattalaiApp(App):
         self._refresh_topic_row(topic)
 
         try:
-            
             self.query_one("#topic-header-name", Label).update(topic.name)
             agent_name = topic.se_active_agent_name or "No agent"
             self.query_one("#topic-header-status", Label).update(
@@ -982,7 +942,7 @@ class KattalaiApp(App):
         self._show_topic_workspace(True)
         self.switch_tab(topic.active_tab)
 
-        # FIX 2: Restore this topic's per-topic message history into the shared DOM
+        # Restore this topic's per-topic message history into the shared DOM
         asyncio.create_task(self._restore_topic_messages(topic))
         asyncio.create_task(self._restore_mind_messages(topic))
 
@@ -993,7 +953,7 @@ class KattalaiApp(App):
             except NoMatches:
                 pass
 
-        # FIX: only start one monitor per topic
+        # Only start one monitor per topic
         if self.se_ready and topic.se_topic_id and not topic._monitor_started:
             topic._monitor_started = True
             self.chat_monitor_topic(topic)
@@ -1004,30 +964,46 @@ class KattalaiApp(App):
             pass
 
     async def _restore_topic_messages(self, topic: TopicSession) -> None:
-        """Clear the shared #messages container and repopulate with this topic's history."""
+        """Clear the shared #messages container and repopulate with this topic's history.
+        
+        FIX: Sets _restoring=True so the background monitor does not double-mount
+        messages that arrive while we are rebuilding the DOM. Also restores the
+        placeholder Static so the container is never completely empty.
+        """
+        topic._restoring = True
         try:
             msgs = self.query_one("#messages", ScrollableContainer)
             await msgs.query("*").remove()
+            # FIX: restore placeholder so container layout never collapses
+            await msgs.mount(Static(""))
             for role, data in topic.message_log:
                 if role == "user":
                     await msgs.mount(UserMsg(data))
                 elif role == "agent":
                     agent_name, blocks = data
                     await msgs.mount(AgentMsg(agent_name, blocks))
+            await asyncio.sleep(0)  # yield so layout completes before scrolling
             msgs.scroll_end(animate=False)
         except NoMatches:
             pass
+        finally:
+            # FIX: always clear the flag, even if an exception occurred
+            topic._restoring = False
 
     async def _restore_mind_messages(self, topic: TopicSession) -> None:
         """Clear and repopulate the mind history for this topic."""
         try:
             mind = self.query_one("#mind-history", ScrollableContainer)
             await mind.query("*").remove()
+            await mind.mount(Static(""))
             for agent_name, blocks in topic.mind_log:
                 await mind.mount(AgentMsg(agent_name, blocks))
+            await asyncio.sleep(0)
             mind.scroll_end(animate=False)
         except NoMatches:
             pass
+        finally:
+            topic._mind_restoring = False
 
     def _refresh_topic_row(self, topic: TopicSession) -> None:
         try:
@@ -1112,7 +1088,6 @@ class KattalaiApp(App):
             self._set_badge(f"Live: http://{se_bind}", "ok")
             log("[#4ade80]--- SoulEngine ready ---[/#4ade80]")
 
-            # FIX: rebuild agent Select options now that AGENTS is populated
             if AGENTS:
                 try:
                     sel = self.query_one("#agent-select", Select)
@@ -1129,12 +1104,18 @@ class KattalaiApp(App):
     @work()
     async def chat_monitor_topic(self, topic: TopicSession) -> None:
         """Background monitor scoped to a single TopicSession.
-           FIX: Only one instance per topic (_monitor_started guard).
-           FIX 2: Appends to topic.message_log so switching topics restores history.
+
+        FIX 1: cursor arithmetic uses cursor_before + len(new_entries) — the
+               old `+ 1` offset caused one message to be skipped every poll cycle.
+
+        FIX 2: checks topic._restoring before mounting to DOM so we never
+               double-mount messages that _restore_topic_messages is already
+               rebuilding from topic.message_log.
         """
         if not topic.se_topic_id:
             return
         try:
+            # FIX 1: initialise local cursor from topic state (correct baseline)
             cursor_before = topic.msg_cursor
             while True:
                 await asyncio.sleep(1)
@@ -1147,7 +1128,10 @@ class KattalaiApp(App):
                 mem_iter = await self._se_runtime.iter_topic(topic.se_topic_id, cursor_before)
                 mem_iter = json.loads(mem_iter)
                 new_entries = list(mem_iter)
-                topic.msg_cursor = cursor_before + 1 + len(new_entries)
+
+                # FIX 1: removed the erroneous `+ 1` — advance by exactly the
+                # number of entries we received, nothing more.
+                topic.msg_cursor = cursor_before + len(new_entries)
                 cursor_before = topic.msg_cursor
 
                 if new_entries:
@@ -1158,21 +1142,25 @@ class KattalaiApp(App):
                         content = mem['content']
                         blocks = parse_se_content(content)
 
-                        # FIX 2: always store in topic log regardless of active view
+                        # Always store in topic log regardless of active view
                         topic.message_log.append(("agent", (src, blocks)))
 
                         topic.last_preview = content[:40]
                         topic.last_msg_time = datetime.now()
 
-                        # Only update DOM if this topic is currently active
-                        if self.active_topic_id == topic.local_id:
+                        # FIX 2: only touch the DOM when this topic is active AND
+                        # _restore_topic_messages is not currently rebuilding it.
+                        # If _restoring is True the message is already in
+                        # topic.message_log and will be rendered by the restore.
+                        if self.active_topic_id == topic.local_id and not topic._restoring:
                             try:
                                 msgs = self.query_one("#messages", ScrollableContainer)
                                 await msgs.mount(AgentMsg(src, blocks))
+                                await asyncio.sleep(0)  # yield so layout settles
                                 msgs.scroll_end(animate=False)
                             except NoMatches:
                                 pass
-                        else:
+                        elif self.active_topic_id != topic.local_id:
                             topic.unread += 1
 
                         self._refresh_topic_row(topic)
@@ -1208,9 +1196,8 @@ class KattalaiApp(App):
             if new_entries:
                 for mem in new_entries:
                     blocks = parse_se_content(mem['content'])
-                    # FIX 2: store in topic mind log
                     topic.mind_log.append((mem['name'], blocks))
-                    if self.active_topic_id == topic.local_id:
+                    if self.active_topic_id == topic.local_id and not topic._mind_restoring:
                         try:
                             mind = self.query_one("#mind-history", ScrollableContainer)
                             await mind.mount(AgentMsg(mem['name'], blocks))
@@ -1297,7 +1284,6 @@ class KattalaiApp(App):
                     self._add_agent_to_topic_session(topic, str(event.value))
                 )
 
-    # FIX 1: new-episode-btn is now inside topic-list
     @on(Button.Pressed, "#new-episode-btn")
     def handle_new_episode_btn(self, event: Button.Pressed) -> None:
         self.action_new_topic()
@@ -1310,7 +1296,6 @@ class KattalaiApp(App):
     def handle_topic_search(self, event: Input.Changed) -> None:
         query = event.value.lower()
         for row in self.query(TopicRow):
-            # FIX: always show active topic even if it doesn't match search
             if row._topic.name.lower() == query:
                 row.display = True
             else:
@@ -1335,7 +1320,6 @@ class KattalaiApp(App):
             ("thought", f"Parsing: \"{text[:55]}{'...' if len(text) > 55 else ''}\""),
             ("output",  "Demo mode — SoulEngine not loaded."),
         ]
-        # FIX 2: store demo response in topic log too
         topic.message_log.append(("agent", ("demo", blocks)))
         await msgs.mount(AgentMsg("demo", blocks))
         msgs.scroll_end(animate=False)
@@ -1391,6 +1375,7 @@ class KattalaiApp(App):
                 log.write(f"  active_agent = {topic.se_active_agent_name}")
                 log.write(f"  added        = {list(topic.se_added)}")
                 log.write(f"  msg_log_len  = {len(topic.message_log)}")
+                log.write(f"  restoring    = {topic._restoring}")
             else:
                 log.write("[#f59e0b]SE not ready or no active episode[/#f59e0b]")
 
@@ -1433,7 +1418,6 @@ class KattalaiApp(App):
 
     async def action_clear(self) -> None:
         if self.active_tab == "chat-pane":
-            # FIX: also clear the in-memory log for the current topic
             topic = self._current_topic()
             if topic:
                 topic.message_log.clear()
@@ -1471,8 +1455,10 @@ class KattalaiApp(App):
         idx = next((i for i, t in enumerate(self._topics) if t.local_id == self.active_topic_id), -1)
         if idx < len(self._topics) - 1:
             self.switch_topic(self._topics[idx + 1].local_id)
+
     def action_send_message(self) -> None:
         asyncio.create_task(self._do_send())
+
     def action_attach_file(self) -> None:
         async def _open() -> None:
             def _on_dismiss(path: Optional[str]) -> None:
