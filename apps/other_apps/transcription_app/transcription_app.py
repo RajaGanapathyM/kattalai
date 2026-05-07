@@ -242,30 +242,6 @@ class TranscriptionGUI:
             font=SANS, bg=BG, fg=AMBER, anchor="w")
         self._status_lbl.pack(fill="x", padx=20, pady=2)
 
-        # ── live transcript panel ─────────────────────────────────────────────
-        panel = tk.Frame(root, bg=PANEL, bd=0, highlightbackground=BORDER,
-                         highlightthickness=1)
-        panel.pack(fill="both", expand=True, padx=20, pady=6)
-
-        header = _frame(panel, bg=PANEL)
-        header.pack(fill="x", padx=10, pady=(8, 0))
-        tk.Label(header, text="LIVE TRANSCRIPT", font=MONO, bg=PANEL, fg=FG_DIM).pack(side="left")
-        self._word_count_lbl = tk.Label(header, text="0 words",
-                                         font=MONO, bg=PANEL, fg=FG_DIM)
-        self._word_count_lbl.pack(side="right")
-
-        self._tx_box = scrolledtext.ScrolledText(
-            panel, wrap=tk.WORD,
-            font=("Helvetica", 12),
-            bg=PANEL, fg=FG,
-            insertbackground=GREEN,
-            selectbackground=GREEN_DIM,
-            relief="flat",
-            state="disabled",
-            padx=10, pady=8,
-        )
-        self._tx_box.pack(fill="both", expand=True, padx=4, pady=(4, 8))
-
         # ── pulse indicator ───────────────────────────────────────────────────
         self._pulse_canvas = tk.Canvas(root, width=640, height=30,
                                         bg=BG, highlightthickness=0)
@@ -292,6 +268,30 @@ class TranscriptionGUI:
                                "#1a1e26", FG_DIM, width=10)
         self._save_btn.pack(side="left", padx=10)
         self._save_btn.config(state="disabled")
+
+        # ── live transcript panel ─────────────────────────────────────────────
+        panel = tk.Frame(root, bg=PANEL, bd=0, highlightbackground=BORDER,
+                         highlightthickness=1)
+        panel.pack(fill="both", expand=True, padx=20, pady=6)
+
+        header = _frame(panel, bg=PANEL)
+        header.pack(fill="x", padx=10, pady=(8, 0))
+        tk.Label(header, text="LIVE TRANSCRIPT", font=MONO, bg=PANEL, fg=FG_DIM).pack(side="left")
+        self._word_count_lbl = tk.Label(header, text="0 words",
+                                         font=MONO, bg=PANEL, fg=FG_DIM)
+        self._word_count_lbl.pack(side="right")
+
+        self._tx_box = scrolledtext.ScrolledText(
+            panel, wrap=tk.WORD,
+            font=("Helvetica", 12),
+            bg=PANEL, fg=FG,
+            insertbackground=GREEN,
+            selectbackground=GREEN_DIM,
+            relief="flat",
+            state="disabled",
+            padx=10, pady=8,
+        )
+        self._tx_box.pack(fill="both", expand=True, padx=4, pady=(4, 8))
 
     # ── model loading ─────────────────────────────────────────────────────────
 
@@ -341,6 +341,7 @@ class TranscriptionGUI:
         """Stream mic → chunk queue → transcribe → text queue."""
         chunk_frames = SAMPLE_RATE * CHUNK_SECONDS
         buf: list = []
+        chunk_count = 0
 
         def _callback(indata, frames, time_info, status):
             if self.recording:
@@ -355,6 +356,8 @@ class TranscriptionGUI:
                         chunk = np.concatenate(buf, axis=0).flatten()
                         buf.clear()
                         self._audio_buffer.append(chunk)
+                        chunk_count += 1
+                        print(f"[Recording] Chunk {chunk_count}: {len(chunk)} samples")
                         threading.Thread(target=self._transcribe_chunk,
                                          args=(chunk,), daemon=True).start()
 
@@ -365,13 +368,18 @@ class TranscriptionGUI:
                 text = self._do_transcribe(chunk)
                 if text:
                     self._tx_queue.put(text)
+            
+            print(f"[Recording] Finished. Total chunks: {chunk_count}")
 
         except Exception as exc:
+            print(f"[Recording] Error: {exc}")
             self._tx_queue.put(f"\n[Recording error: {exc}]\n")
 
     def _transcribe_chunk(self, audio: "np.ndarray"):
+        if audio is None or len(audio) == 0:
+            return
         text = self._do_transcribe(audio)
-        if text:
+        if text and text.strip():
             self._tx_queue.put(text)
 
     def _do_transcribe(self, audio: "np.ndarray") -> str:
@@ -379,10 +387,15 @@ class TranscriptionGUI:
             return ""
         try:
             # beam_size=1 → greedy decode, fastest
+            # vad_filter=False to ensure we process all audio (user can control via silence)
             segments, _ = self.model.transcribe(
-                audio, beam_size=1, language=None, vad_filter=True)
-            return " ".join(seg.text for seg in segments).strip()
-        except Exception:
+                audio, beam_size=1, language=None, vad_filter=False)
+            result = " ".join(seg.text for seg in segments).strip()
+            if result:
+                print(f"[Transcribed] {result}")
+            return result
+        except Exception as exc:
+            print(f"[Transcription error] {exc}")
             return ""
 
     # ── live UI updates ───────────────────────────────────────────────────────

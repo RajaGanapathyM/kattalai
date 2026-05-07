@@ -15,3 +15,12 @@ apps/core_apps/calculator_app/calc_vars.json
 pysrc/soulengine/configs/mkey_config
 /kat
 /apps/se_app_utils/__pycache__
+/apps/se_app_utils/__pycache__
+/apps/se_app_utils/__pycache__
+*.pyc
+/pysrc/soulengine/apps
+/pysrc/soulengine/configs
+/pysrc/soulengine/knowledge_base
+/pysrc/soulengine/model_assets
+/pysrc/soulengine/protocols
+*.pyc
