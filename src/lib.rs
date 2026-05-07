@@ -132,6 +132,7 @@ impl Runtime{
         tokio::time::sleep(Duration::from_mins(2)).await;
 
         let mut agent_episode_last_checked:HashMap<String,chrono::DateTime<chrono::Utc>>=HashMap::new();
+        let mut agent_episode_last_active:HashMap<String,chrono::DateTime<chrono::Utc>>=HashMap::new();
         let mut agent_last_focus_branch_id:HashMap<String,String>=HashMap::new();
         
 
@@ -148,23 +149,32 @@ impl Runtime{
                 // info!("Agent Found with {} episodes",all_episodes.len());
                 for agent_episode in all_episodes{
                     if agent_episode.is_episode_active().await{
+                        
+                        agent_episode_last_active.insert(agent_episode.get_episode_id(), chrono::Utc::now());
                         // info!("Cogitare Agent: episode {} is currently locked, skipping...",agent_episode.get_episode_id());
                         continue;
                     }
+
                     let agent_episode_id=agent_episode.get_episode_id();
                 
                     if !agent_episode_lastseen_length.contains_key(&agent_episode_id){
                         agent_episode_lastseen_length.insert(agent_episode_id.clone(), 0);
                     }
 
-                    let mut bypass_time_check=false;
-                    if !agent_episode_last_checked.contains_key(&agent_episode_id){
-                        agent_episode_last_checked.insert(agent_episode_id.clone(), chrono::Utc::now());
-                        bypass_time_check=true;
+                    if let Some(last_active)=agent_episode_last_active.get(&agent_episode_id){
+                        if last_active.clone() + chrono::Duration::minutes(10) > chrono::Utc::now(){
+                            continue;
+                        }
+                    }
+                    else{
+                        info!("Cogitare Agent: episode {} has no last active record, bypassing time check...",agent_episode_id.clone());
+                        continue;
                     }
 
-                    if !bypass_time_check && (agent_episode_last_checked.get(&agent_episode_id).unwrap().clone() + chrono::Duration::hours(1) > chrono::Utc::now()){
-                        continue;
+                    if let Some(last_checked)=agent_episode_last_checked.get(&agent_episode_id){
+                        if last_checked.clone() + chrono::Duration::minutes(30) > chrono::Utc::now(){
+                            continue;
+                        }
                     }
                         
                     let last_seen_length=agent_episode_lastseen_length.get(&agent_episode_id).unwrap().clone();
@@ -196,6 +206,7 @@ impl Runtime{
                         agent_episode_lastseen_length.insert(agent_episode_id.clone(), agent_episode.episode_memory_len().await);
                         agent_last_focus_branch_id.insert(agent_episode_id.clone(), focus_branch_id.clone());
                         tokio::time::sleep(Duration::from_mins(10)).await;
+                        agent_episode_last_checked.insert(agent_episode_id.clone(), chrono::Utc::now());
                     }
                 }
             }
