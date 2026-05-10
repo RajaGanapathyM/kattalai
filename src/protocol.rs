@@ -93,10 +93,10 @@ impl Protocol{
 
         let agent_card=Source::new(Role::App, format!("{}ProtocolRunner",self.protocol_handle_name), None);
         let invocation_id=Uuid::now_v7().to_string();
-        println!("Running protocol: {}", self.protocol_name);
+        info!("Running protocol: {}", self.protocol_name);
         let mut current_step_id=-1;
         loop{
-            println!("Invoking reasoning model for protocol: {}", self.protocol_name);
+            info!("Invoking reasoning model for protocol: {}", self.protocol_name);
             let model_resp=self.reasoning_model.chat(
                 self.interface_memory.clone(), 
                 self.get_sys_prompt(current_step_id,context_str.clone()), 
@@ -104,12 +104,12 @@ impl Protocol{
                 Some(&agent_card)
 
             ).await; 
-            println!("Model response: {}", model_resp);
+            info!("Model response: {}", model_resp);
 
             let parsed_resp=ProtocolRespParser::parse_model_response(model_resp);  
             if parsed_resp.is_ok(){
                 let protocol_response=parsed_resp.unwrap();
-                println!("Protocol response: {:?}", protocol_response);
+                info!("Protocol response: {:?}", protocol_response);
                 let new_content=format!("Protocol Runner Update:\n Protocol Name: {}\nDecision: {:?}\nReason: {:?}\nMessage: {:?}", self.protocol_name, protocol_response.decision, protocol_response.reason, protocol_response.message);
                 let protocol_reason_msg=MemoryNode::new(&self.protocol_card ,new_content, Some(PromptStyle::PROTOCOL), MemoryNodeType::ProtocolLog,Some(invocation_id.clone()),Some(&agent_card));
                 self.interface_memory.insert(protocol_reason_msg).await;
@@ -119,20 +119,20 @@ impl Protocol{
                         let step_opt=protocol_response.next_step;
                         let mut wait_sec=5;
                         if let Some(step)=step_opt{
-                            println!("Executing step: {}", step.id);
+                            info!("Executing step: {}", step.id);
                             current_step_id=step.id;
 
                             if let Some(app_command) = &step.app_command{
-                                println!("Running app command: {}", app_command);
+                                info!("Running app command: {}", app_command);
                                 self.terminal.execute_command(app_command.clone(),self.interface_memory._memory_id.clone(),invocation_id.clone()).await;
                                 wait_sec=15;
                             }
                             if let Some(prompt) = &step.prompt{
                                 if prompt.trim().is_empty(){
-                                    println!("Prompt for step {} is empty, skipping prompt insertion.", step.id);
+                                    info!("Prompt for step {} is empty, skipping prompt insertion.", step.id);
                                 }
                                 else {
-                                    println!("Running prompt: {}", prompt);
+                                    info!("Running prompt: {}", prompt);
                                     let output_memory_node=MemoryNode::new(&self.protocol_card ,prompt.clone(), None, MemoryNodeType::ProtocolPrompt,Some(invocation_id.clone()),None);
                                     self.interface_memory.insert(output_memory_node).await;
                                     wait_sec=30;
@@ -140,11 +140,11 @@ impl Protocol{
                             }
 
                         }
-                        println!("Model decided to move to next step. Moving to step id: {} | Wait Duration: {}s", current_step_id, wait_sec);
+                        info!("Model decided to move to next step. Moving to step id: {} | Wait Duration: {}s", current_step_id, wait_sec);
                         tokio::time::sleep(std::time::Duration::from_secs(wait_sec)).await;
                     },
                     ProtocolDecision::Wait=>{
-                        println!("Model decided to wait. Reason: {}", protocol_response.reason);
+                        info!("Model decided to wait. Reason: {}", protocol_response.reason);
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     },
                     ProtocolDecision::ProtocolComplete=>{
@@ -160,7 +160,7 @@ impl Protocol{
                 }
             }
             else {
-                println!("Failed to parse model response for protocol {}: {:?}", self.protocol_name, parsed_resp.err().unwrap());
+                error!("Failed to parse model response for protocol {}: {:?}", self.protocol_name, parsed_resp.err().unwrap());
                
             }
 
@@ -330,7 +330,7 @@ impl ProtocolStore{
                 f
             }
             Err(e) => {
-                info!("Failed to open file: {}", e);
+                error!("Failed to open file: {}", e);
                 return Err(format!("Failed to open file: {}", e));
             }
         };
@@ -355,13 +355,13 @@ impl ProtocolStore{
         match std::fs::read_to_string(&file_path) {
             Ok(content) => {
                 if !content.contains(&schedule_entry.trim()) {
-                    info!("Entry not found after write (possible overwrite elsewhere)");
+                    error!("Entry not found after write (possible overwrite elsewhere)");
                 } else {
                     info!("Entry verified in file");
                 }
             }
             Err(e) => {
-                info!("Could not verify file content: {}", e);
+                error!("Could not verify file content: {}", e);
             }
         }
         imemory.insert(MemoryNode::new(&self.protocol_stor_card, format!("Successfully Scheduled protocol '{}' with schedule '{}'", handle_name, schedule_string), None, MemoryNodeType::ProtocolPrompt, Some(Uuid::now_v7().to_string()), Some(&self.protocol_stor_card))).await;
@@ -419,17 +419,17 @@ impl ProtocolStore{
     pub fn load_protocols(&mut self){
         let mut matches: Vec<String> = Vec::new();
         find_protocol_tomls(&self.protocol_dir_path, &mut matches);
-        println!("Found protocol configs: {:?}", matches);
+        // printlninfo!("Found protocol configs: {:?}", matches);
         for protocol_path in matches{
             let protocol_md_read=std::fs::read_to_string(protocol_path.clone());
             if let Ok(protocol_md)=protocol_md_read{
                 let protocolconfig=toml::from_str::<ProtocolConfig>(&protocol_md).unwrap();
-                println!("Found protocol config: {:?}", protocolconfig);
+                // info!("Found protocol config: {:?}", protocolconfig);
                 self.protocols_path.insert(protocolconfig.protocol_handle_name.clone(), protocol_path);
                 self.protocols.insert(protocolconfig.protocol_handle_name.clone(), protocolconfig);
             }
             else{
-                println!("Failed to read protocol file: {}", protocol_path);
+                error!("Failed to read protocol file: {}", protocol_path);
             }
         }
             // Here you would read the TOML file, parse it, and create Protocol instances to store in the protocols HashMap
@@ -442,10 +442,10 @@ impl ProtocolStore{
 pub fn find_protocol_tomls(root: &str, matches: &mut Vec<String>) {
     if let Ok(entries) = fs::read_dir(root) {
 
-        println!("entries in {}: {:?}", root, entries );
+        // info!("entries in {}: {:?}", root, entries );
         for entry in entries.flatten() {
             let path = entry.path();
-            println!("Checking path: {:?}", path);
+            info!("Checking path: {:?}", path);
 
             // Skip hidden directories
             if path.is_dir() {
@@ -470,6 +470,6 @@ pub fn find_protocol_tomls(root: &str, matches: &mut Vec<String>) {
         }
     }
     else{
-        println!("Failed to read directory: {}", root);
+        error!("Failed to read directory: {}", root);
     }
 }

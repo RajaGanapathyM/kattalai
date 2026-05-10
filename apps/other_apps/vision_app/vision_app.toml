@@ -1,0 +1,189 @@
+app_name            = "Vision App"
+app_path            = "./apps/other_apps/vision_app/vision_app.py"
+app_start_command   = "python"
+app_start_args      = "./apps/other_apps/vision_app/vision_app.py"
+app_handle_name     = "vision"
+app_launch_mode     = "ONE_SHOT"
+
+app_usage_guideline = """
+
+Use this app for all image-based tasks: screen capture, OCR, visual Q&A,
+and table extraction — all powered locally by Ollama (no internet, no auth).
+
+## Argument rules (IMPORTANT)
+  The soul engine splits commands on spaces, so questions must be written
+  as bare words — NOT wrapped in quotes or passed via --question=.
+
+  Valid flags (single-token, no spaces in value):
+    --output=/path/to/file.txt
+    --camera=1
+
+  Everything else after the image path = the question, joined automatically.
+
+## Actions & examples
+
+### Capture screen and auto-describe
+  &vision screenshot
+
+### Capture screen and ask a question (bare words, no quotes)
+  &vision screenshot What error message is shown?
+  &vision screenshot What is the title of the active window?
+
+### Open webcam, auto-capture after 3 s, describe it
+  &vision camera
+
+### Webcam with a question
+  &vision camera How many people are visible?
+  &vision camera What object is in front of the camera?
+
+### Use a different camera index
+  &vision camera --camera=1
+
+### Webcam, specific camera, with question
+  &vision camera --camera=1 What is written on the whiteboard?
+
+### Extract all text from an image file (OCR)
+  &vision ocr /path/to/image.png
+  &vision ocr /path/to/scan.jpg --output=/home/user/results/scan.txt
+
+### Ask a question about an image file (bare words after the path)
+  &vision ask /path/to/chart.png What is the highest value on the chart?
+  &vision ask /path/to/diagram.jpg Describe the flow shown in this diagram
+
+### Extract table data as pipe-separated rows
+  &vision extract_table /path/to/scan.jpg
+  &vision extract_table /path/to/table.png --output=/home/user/results/table.csv
+
+## Aliases
+  capture                   -> screenshot
+  webcam / photo / cam      -> camera
+  read / read_image         -> ocr
+  describe / query / vision -> ask
+  table                     -> extract_table
+
+## Sensitive action flow
+  screenshot  ->  permission dialog  ->  screen captured  ->  Ollama  ->  saved
+  camera      ->  permission dialog  ->  countdown (3 s)  ->  Ollama  ->  saved
+
+  ocr / ask / extract_table run fully automatically — no dialog, file already on disk.
+
+## Output (success)
+  {
+    "status":     "ok",
+    "action":     "camera",
+    "session_id": "<uuid>",
+    "model":      "moondream",
+    "file":       "/home/user/vision_results/vision_camera_20250501_143022.txt",
+    "char_count": 312,
+    "image":      "/home/user/.soul_vision_camera_20250501_143022.png",
+    "preview":    "First 300 chars of result...",
+    "markdown":   "## Vision result: `camera`\\n\\n..."
+  }
+
+## Output (cancelled / denied)
+  { "status": "cancelled", "message": "User denied camera permission." }
+
+## Output (error)
+  { "status": "error", "message": "Cannot reach Ollama at http://localhost:11434..." }
+
+## Change the vision model
+  Edit OLLAMA_VISION_MODEL in vision_app.py.
+  Current default : moondream  (fastest on CPU)
+  Better quality  : llava-phi3 (~2x slower on CPU)
+  Check installed : ollama list
+
+"""
+
+# ── command signatures ─────────────────────────────────────────────────────────
+# Note: "question_words" in consumes means bare words after the image path,
+#       NOT a --question= flag. The app joins all remaining tokens as the question.
+
+[[app_command_signatures]]
+command  = "screenshot"
+consumes = ["screen", "display", "question_words?", "output_path?"]
+produces = ["text", "filepath", "description"]
+action   = "screenshot"
+
+[[app_command_signatures]]
+command  = "capture"
+consumes = ["screen", "display", "question_words?", "output_path?"]
+produces = ["text", "filepath", "description"]
+action   = "screenshot"
+
+[[app_command_signatures]]
+command  = "camera"
+consumes = ["webcam", "live_feed", "camera_id?", "question_words?", "output_path?"]
+produces = ["text", "filepath", "description"]
+action   = "camera"
+
+[[app_command_signatures]]
+command  = "webcam"
+consumes = ["webcam", "live_feed", "camera_id?", "question_words?", "output_path?"]
+produces = ["text", "filepath", "description"]
+action   = "camera"
+
+[[app_command_signatures]]
+command  = "photo"
+consumes = ["webcam", "live_feed", "camera_id?", "question_words?", "output_path?"]
+produces = ["text", "filepath", "description"]
+action   = "camera"
+
+[[app_command_signatures]]
+command  = "cam"
+consumes = ["webcam", "live_feed", "camera_id?", "question_words?", "output_path?"]
+produces = ["text", "filepath", "description"]
+action   = "camera"
+
+[[app_command_signatures]]
+command  = "ocr"
+consumes = ["image_path", "image_file", "output_path?"]
+produces = ["text", "filepath", "extracted_text"]
+action   = "ocr"
+
+[[app_command_signatures]]
+command  = "read"
+consumes = ["image_path", "image_file", "output_path?"]
+produces = ["text", "filepath", "extracted_text"]
+action   = "ocr"
+
+[[app_command_signatures]]
+command  = "read_image"
+consumes = ["image_path", "image_file", "output_path?"]
+produces = ["text", "filepath", "extracted_text"]
+action   = "ocr"
+
+[[app_command_signatures]]
+command  = "ask"
+consumes = ["image_path", "image_file", "question_words", "output_path?"]
+produces = ["text", "filepath", "answer"]
+action   = "ask"
+
+[[app_command_signatures]]
+command  = "vision"
+consumes = ["image_path", "image_file", "question_words?", "output_path?"]
+produces = ["text", "filepath", "answer"]
+action   = "ask"
+
+[[app_command_signatures]]
+command  = "describe"
+consumes = ["image_path", "image_file", "output_path?"]
+produces = ["text", "filepath", "description"]
+action   = "ask"
+
+[[app_command_signatures]]
+command  = "query"
+consumes = ["image_path", "image_file", "question_words", "output_path?"]
+produces = ["text", "filepath", "answer"]
+action   = "ask"
+
+[[app_command_signatures]]
+command  = "extract_table"
+consumes = ["image_path", "image_file", "output_path?"]
+produces = ["text", "filepath", "csv", "table_data"]
+action   = "extract_table"
+
+[[app_command_signatures]]
+command  = "table"
+consumes = ["image_path", "image_file", "output_path?"]
+produces = ["text", "filepath", "csv", "table_data"]
+action   = "extract_table"
