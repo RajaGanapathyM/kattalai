@@ -19,6 +19,7 @@ use serde_json::Value;
 
 use env_logger;
 use uuid::Uuid;
+use std::hash::Hash;
 use std::sync::{Arc};
 use inference::{OLLAMA,Gemini,HuggingFace};
 use inference::{OllamaConfig,GeminiConfig,HuggingFaceConfig};
@@ -134,6 +135,7 @@ impl Runtime{
         let mut agent_episode_last_checked:HashMap<String,chrono::DateTime<chrono::Utc>>=HashMap::new();
         let mut agent_episode_last_active:HashMap<String,chrono::DateTime<chrono::Utc>>=HashMap::new();
         let mut agent_last_focus_branch_id:HashMap<String,String>=HashMap::new();
+        let mut agent_episode_last_active_run_timestamp:HashMap<String,chrono::DateTime<chrono::Utc>>=HashMap::new();
         
 
         loop{
@@ -155,6 +157,8 @@ impl Runtime{
                         continue;
                     }
 
+
+
                     let agent_episode_id=agent_episode.get_episode_id();
                 
                     if !agent_episode_lastseen_length.contains_key(&agent_episode_id){
@@ -164,6 +168,12 @@ impl Runtime{
                     if let Some(last_active)=agent_episode_last_active.get(&agent_episode_id){
                         if last_active.clone() + chrono::Duration::minutes(10) > chrono::Utc::now(){
                             continue;
+                        }
+
+                        if let Some(last_active_run)=agent_episode_last_active_run_timestamp.get(&agent_episode_id){
+                            if last_active_run.clone()+ chrono::Duration::minutes(5) < last_active.clone() {
+                                continue;
+                            }
                         }
                     }
                     else{
@@ -207,6 +217,9 @@ impl Runtime{
                         agent_last_focus_branch_id.insert(agent_episode_id.clone(), focus_branch_id.clone());
                         tokio::time::sleep(Duration::from_mins(10)).await;
                         agent_episode_last_checked.insert(agent_episode_id.clone(), chrono::Utc::now());
+                        if let Some(current_active_run_timestammp)=agent_episode_last_active.get(&agent_episode_id){
+                            agent_episode_last_active_run_timestamp.insert(agent_episode_id.clone(), current_active_run_timestammp.clone());
+                        }
                     }
                 }
             }
