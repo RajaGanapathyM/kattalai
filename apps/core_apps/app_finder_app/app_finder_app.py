@@ -223,4 +223,4 @@ class AppFinderApp(soul_engine_app):
 # ── Entry point ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app = AppFinderApp()
-    app.run_repl()
+    app.run_one_shot()

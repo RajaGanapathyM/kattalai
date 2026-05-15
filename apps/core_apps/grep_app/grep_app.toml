@@ -3,7 +3,7 @@ app_path="./apps/core_apps/grep_app/grep_app.py"
 app_start_command="python"
 app_start_args="./apps/core_apps/grep_app/grep_app.py"
 app_handle_name="grep_app"
-app_launch_mode="REPL"
+app_launch_mode="ONE_SHOT"
 app_usage_guideline="""
 Use this app for:
 - Searching file contents for a pattern in a single file

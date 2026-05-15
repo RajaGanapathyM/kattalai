@@ -346,6 +346,7 @@ Screen { background: $bg; color: $text; layout: horizontal; }
 .msg-row { width: 100%; margin-bottom: 2; layout: vertical; }
 .usr-lbl { color: $muted; text-style: italic; }
 .usr-txt {
+    width: 1fr;
     background: #151b2e;
     border-left: thick $blue;
     padding: 0 2;
@@ -361,7 +362,7 @@ Screen { background: $bg; color: $text; layout: horizontal; }
 .thought .blk-hdr { color: $muted; }
 .exec    .blk-hdr { color: $amber; }
 .output_ .blk-hdr { color: $green; }
-.blk-body         { padding-left: 1; color: $text; }
+.blk-body         { width: 1fr; padding-left: 1; color: $text; }
 .exec .blk-body   { color: $amber; }
 
 #thinking {

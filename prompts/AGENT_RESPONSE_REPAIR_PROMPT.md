@@ -1,12 +1,12 @@
 # FORMAT REPAIR REQUIRED
 
-Your previous response did not follow the required format. The validator found these errors:
+Your latest response did not follow the required format. The validator found these errors:
 
 {validator_errors}
 
 ---
 
-Rewrite your previous response correctly. Same content, fixed structure.
+Rewrite your latest response correctly. Same content, fixed structure.
 
 ## Rules to follow:
 - `thoughts` block — always first, always present
@@ -46,9 +46,9 @@ needs_followup=True|False
 
 ---
 
-Previous malformed response:
+Latest malformed response:
 {malformed_response}
 
 ---
 
-Now output the corrected response below. Do not explain or apologize. Do not write block names as plain text — every block must use the exact ```blockname``` fence syntax shown above.
+Now output the corrected response below. Do not explain or apologize. Do not write block names as plain text — every block must use the exact ```blockname``` fence syntax shown above.Don't reason anything new, you job is just to fix the format

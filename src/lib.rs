@@ -139,6 +139,7 @@ impl Runtime{
         
 
         loop{
+            tokio::time::sleep(Duration::from_mins(1)).await;
             let shared_rt=sharedruntime.read().await;
             // agents_len=shared_rt.agents.len();
             

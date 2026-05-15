@@ -9,7 +9,7 @@ use crate::embeddings::embedder;
 use crate::app::App;
 use crate::protocol::{ProtocolStore, ProtocolConfig};
 use core::error;
-
+use chrono::Local;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::hash::Hash;
 use std::mem;
@@ -91,6 +91,7 @@ pub struct episode{
     last_fetched_imemory_id:Mutex<Option<String>>,
     agent_lock:Mutex<bool>,
     followup_planned:Mutex<bool>,
+    metacog_skip:Mutex<bool>
 }
 impl  episode {
     pub fn get_episode_id(&self)->String{
@@ -111,6 +112,10 @@ impl  episode {
     pub async fn get_agent_lock_status(&self)->bool{
         let locked_agent_lock=self.agent_lock.lock().await;
         (*locked_agent_lock).clone()
+    }
+    pub async fn get_episode_metacog_flag(&self)->bool{
+        let metacog_skip=self.metacog_skip.lock().await;
+        (*metacog_skip).clone()  
     }
     pub async fn get_followup_planned_status(&self)->bool{
         let followup_status=self.followup_planned.lock().await;
@@ -137,6 +142,11 @@ impl  episode {
         *locked_id=Some(lid);
 
     }
+    pub async fn set_metacog_skip(&self,flag:bool){
+        let mut locked_id=self.metacog_skip.lock().await;
+        *locked_id=flag;
+
+    }
     pub async fn set_followup_planned(&self, followup_planned: bool){
         let mut followup_status=self.followup_planned.lock().await;
         *followup_status=followup_planned;
@@ -158,6 +168,8 @@ pub enum AgentPulse{
     unlockAgentForEpisode(String),
     lockAgentForEpisode(String),
     SetAgentFollowupStatus(String,bool),
+    InvokeMetaCog(Option<String>),
+    SetMetaCogSkip(String,bool),
 }
 
 #[derive(Debug)]
@@ -383,7 +395,11 @@ impl Agent{
                         // info!("Agent message receive:");
                         match new_pulse{
                             AgentPulse::Invoke(epid)=>{
-                               tokio_rt.spawn(Agent::_invoke(aclone, epid));
+                               tokio_rt.spawn(Agent::_invoke(aclone, epid,false));
+                                
+                            },
+                            AgentPulse::InvokeMetaCog(epid)=>{
+                               tokio_rt.spawn(Agent::_invoke(aclone, epid,true));
                                 
                             },
                             AgentPulse::NewEpisode(edesc,i_mem,react_for_history)=>{
@@ -400,6 +416,19 @@ impl Agent{
                                     match req_episode{
                                         Some(repisode)=>{
                                             repisode.lock_agent().await;
+                                        },
+                                        None=>{}
+                                    }
+                                });
+                            },
+                            AgentPulse::SetMetaCogSkip(epid,flag)=>{                            
+                                tokio_rt.spawn(async move{
+                                    let agent_lock = aclone.read().await;
+                                    let readble_episode=agent_lock.episodes.read().await;
+                                    let req_episode=readble_episode.get(&epid);
+                                    match req_episode{
+                                        Some(repisode)=>{
+                                            repisode.set_metacog_skip(flag).await;
                                         },
                                         None=>{}
                                     }
@@ -451,7 +480,7 @@ impl Agent{
                                     agent_lock.insert_multiple(mnode,epid.clone()).await;
                                     drop(agent_lock);
                                     thread::sleep(Duration::from_secs(1));
-                                    Agent::_invoke(aclone.clone(), epid).await;
+                                    Agent::_invoke(aclone.clone(), epid,false).await;
                                 });
                             }
                             AgentPulse::UpdateEpisode(last_inode_id,epid)=>{
@@ -468,7 +497,7 @@ impl Agent{
                                     agent_lock.insert(mnode,epid.clone()).await;
                                     drop(agent_lock);
                                     thread::sleep(Duration::from_secs(1));
-                                    Agent::_invoke(aclone.clone(), epid).await;
+                                    Agent::_invoke(aclone.clone(), epid,false).await;
                                 });
 
                             }
@@ -542,6 +571,104 @@ impl Agent{
         });
         // episode_interface_monitor_thread
 
+
+        info!("Lauching Meta-cognition thread for agent:{}",agent_card.get_name());
+        let meta_episodes_clone=episodes.clone();
+        let meta_agent_tx_clone=tx.clone();
+        let meta_agent_card_clone=agent_card.clone();
+        thread::spawn(move ||{
+            let tokio_rt  = tokio::runtime::Runtime::new().unwrap();
+            let agent_card=meta_agent_card_clone;
+
+            let lag_after_active_secs=30;
+            let lag_after_last_metacog_secs=120;
+            let mut agent_last_active_timestamp:HashMap<String,chrono::DateTime<chrono::Utc>>=HashMap::new();
+            let mut agent_last_metacog_time:HashMap<String,chrono::DateTime<chrono::Utc>>=HashMap::new();
+            let mut last_active_for_which_metacoged:HashMap<String,chrono::DateTime<chrono::Utc>>=HashMap::new();
+            
+
+
+            loop{
+                thread::sleep(Duration::from_secs(5));
+                
+                let readable_epsiode_memories=tokio_rt.block_on(meta_episodes_clone.read());
+
+                for (episode_id,episode) in readable_epsiode_memories.iter(){
+                    
+                    if episode.episode_memory._kill_switch.load(Ordering::Relaxed){
+                        println!("Thread Killed");
+                        continue;
+                    }
+                    println!("Reading episode activ");
+
+                    let agent_active_flag=tokio_rt.block_on(episode.is_episode_active());
+
+                    let agent_metacog_skip=tokio_rt.block_on(episode.get_episode_metacog_flag());
+
+                    if agent_active_flag{
+                        // info!("Agent locked for episode:{}",episode_id);
+                        println!("Agent active for episode:{}",episode_id);
+                        if !agent_metacog_skip{
+                            agent_last_active_timestamp.insert(episode_id.clone(), chrono::Utc::now());
+                        }
+                        println!("Agent Active");
+                        continue;
+                    }
+
+                    if agent_metacog_skip{
+                        // info!("Agent locked for episode:{}",episode_id);
+                        println!("Agent agent_metacog_skip for episode:{}",episode_id);
+                        continue;
+                    }
+                    println!("Entering check:{}|{:?}",episode_id,agent_last_active_timestamp.get(episode_id));
+                    if let Some(last_active_time)=agent_last_active_timestamp.get(episode_id){
+                        println!("Entered Checks");
+                        if let Some(last_metacog_time)=agent_last_metacog_time.get(episode_id){
+                            if last_metacog_time.clone()+chrono::Duration::from_std(Duration::from_secs(lag_after_last_metacog_secs)).unwrap() > chrono::Utc::now(){
+                                // info!("Meta-cognition cooldown active for episode:{}",episode_id);
+                                println!("last metacog not expired");
+                                continue;
+                            }
+                            if last_metacog_time>=last_active_time{
+                                println!("last metacog not beaten by active");
+                                // info!("Meta-cognition cooldown active for episode:{}",episode_id);
+                                continue;
+                            }
+                        }
+                        if last_active_time.clone()+chrono::Duration::from_std(Duration::from_secs(lag_after_active_secs)).unwrap() > chrono::Utc::now(){
+                            // info!("Meta-cognition cooldown active for episode:{}",episode_id);
+                            println!("Recent last active");
+                            continue;
+                        }
+
+                        if let Some(last_active_metcoged)=last_active_for_which_metacoged.get(episode_id){
+                            if last_active_metcoged.clone()+chrono::Duration::from_std(Duration::from_secs(10)).unwrap() >last_active_time.clone(){
+                                println!("Activity already meta coged");
+                                continue
+                            }
+
+
+                        }
+                        println!("Invoking MetaCog");
+
+                        last_active_for_which_metacoged.insert(episode_id.clone(),last_active_time.clone());
+
+                        
+
+                        meta_agent_tx_clone.send(AgentPulse::InvokeMetaCog(Some(episode_id.clone()))).unwrap();
+
+                    }
+
+                    
+
+                }
+            }
+        
+        
+        });
+
+
+
         // let (episode_tx, episode_rx) = channel::unbounded();
 
         // thread::spawn({
@@ -590,8 +717,8 @@ impl Agent{
 
 
     }
-    async fn _invoke(new_agent_clone: Arc<RwLock<Arc<Agent>>>,epid: Option<String>){
-        
+    async fn _invoke(new_agent_clone: Arc<RwLock<Arc<Agent>>>,epid: Option<String>,is_meta_cog_org:bool){
+        let mut is_meta_cog=is_meta_cog_org.clone();
         let agent_lock = new_agent_clone.read().await;
 
         let latest_episode_id=agent_lock.latest_episode_id.read().await.clone();
@@ -602,15 +729,22 @@ impl Agent{
         let validator_card=agent_lock.validator_card.clone();
         let agent_tx_clone=agent_lock._agent_tx.clone();
         let allow_self_selected_apps=agent_lock.allow_self_selected_apps;
+        info!("Invoking {} Meta Cog Flag:{}",agent_card.get_name(),is_meta_cog.clone());
+        
         match &epid{
             Some(eid)=>{
                 agent_tx_clone.send(AgentPulse::lockAgentForEpisode(eid.clone())).unwrap();
                 match agent_lock.episodes.read().await.get(eid).cloned(){
                     Some(current_episode)=>{
                         let mlen=current_episode.episode_memory.get_memory_len().await;
+
+                        if !is_meta_cog{
+                            is_meta_cog=current_episode.get_episode_metacog_flag().await;
+                            
+                        }
                         info!("Episode Mem len:{}",mlen);
                         let mut app_chain_str="".to_string();
-                        if allow_self_selected_apps{
+                        if allow_self_selected_apps && !is_meta_cog{
                             let ner_content=agent_lock.get_tool_select_content(current_episode.episode_memory.clone(),nlp_model_clone.clone()).await;
                             let (tools_select, app_chain_str)=agent_lock.app_store.resolve_tools(current_episode.episode_memory.clone(),ner_content,Some(&agent_card)).await;
 
@@ -625,17 +759,35 @@ impl Agent{
                             }
                         }
                         let current_sys_info=get_sys_info();
-                        let agent_prompt=agent_lock.get_sys_prompt(&current_sys_info,&app_chain_str);
+
+                        let metacog_prompt=agent_lock.get_meta_cog_prompt();
+                        let agent_prompt=if is_meta_cog{
+                            metacog_prompt.clone()
+                        }
+                        else{
+                            agent_lock.get_sys_prompt(&current_sys_info,&app_chain_str)                            
+                        };
                         // info!("Model Prompt :\n{}",agent_prompt);
-                        let agent_tof_prompt=agent_lock.get_tof_sys_prompt(&current_sys_info,&app_chain_str);
-                        let agent_rac_prompt=agent_lock.get_rac_sys_prompt(&current_sys_info,&app_chain_str);        
+                        let agent_tof_prompt=if is_meta_cog{
+                            metacog_prompt.clone()
+                        }
+                        else{
+                            agent_lock.get_tof_sys_prompt(&current_sys_info,&app_chain_str)                            
+                        };
+                        
+                        let agent_rac_prompt=if is_meta_cog{
+                            metacog_prompt.clone()
+                        }
+                        else{
+                            agent_lock.get_rac_sys_prompt(&current_sys_info,&app_chain_str)                            
+                        };      
                         
                         let terminal=agent_lock.terminal.clone();
 
                         let interface_memory=current_episode.interface_memory.clone();
-                        
+                        info!("Getting mlen again...");
                         let mlen=current_episode.episode_memory.get_memory_len().await;
-                        info!("Episode Mem len:{}",mlen);
+                        info!("Episode Mem len2:{}",mlen);
                         let current_episode_memory=current_episode.episode_memory.clone();
                         Agent::invoke(
                             latest_episode_id,
@@ -650,7 +802,8 @@ impl Agent{
                             terminal,
                             interface_memory,
                             validator_card.clone(),
-                            agent_tx_clone,   
+                            agent_tx_clone,  
+                            is_meta_cog 
                         ).await;
 
                     },
@@ -712,7 +865,7 @@ impl Agent{
         *writable_episode=Some(episode_id.clone());
 
         let mut writable_episodes=agent_self.episodes.write().await;    
-        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc,interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false) }));
+        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc,interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false),metacog_skip:Mutex::new(false) }));
     
         
         info!("New Episode Launched:{}",episode_id);
@@ -847,6 +1000,12 @@ impl Agent{
             info!("Episode not found in agent:{}",episode_id);
         }
     }
+
+    fn get_meta_cog_prompt(&self)->String{
+        format!(include_str!("../prompts/AGENT_META_COGNITION_PROMPT.md"),
+        agent_name=self.agent_card.get_name(),)
+        // app_guidelines=block_on(self.terminal.get_app_guidebook()),)
+    }
     
     fn get_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String)->String{
         // info!("App Guidebook:\n{}",self.terminal.get_app_guidebook());
@@ -924,6 +1083,7 @@ impl Agent{
                 ParseError::ValidationError(e) | 
                 ParseError::ThoughtsError(e)| 
                 ParseError::OutputError(e) |
+                ParseError::EmptyResponseError(e) |
                 ParseError::FollowupContextError(e) =>{
                     *need_rerun=true;
                     erro_v.push(e);
@@ -975,7 +1135,8 @@ impl Agent{
         terminal:Arc<Terminal>,
         interface_memory:Option<Arc<Memory>>,
         validator_card:Source,
-        agent_tx:channel::Sender<AgentPulse>
+        agent_tx:channel::Sender<AgentPulse>,
+        is_metacog_run:bool
     ){
         let mut need_rerun:bool=true;
         let mut run_count=0;
@@ -998,37 +1159,57 @@ impl Agent{
         let mut invoc_id=Uuid::now_v7().to_string();
         let mut followup_planned=false;
 
+        let mut last_response_empty=false;
+        let mut meta_cog_msg_sent=false;
+        
         while need_rerun && run_count<MAX_RUN_ALLOWED {
             
+
+            if last_response_empty{
+                run_count+=1;
+                info!("Empty Response;Incrementing to next style");
+            }
             need_rerun=false;
 
 
             if let Some(invoke_epid)= &invoking_episode_id{
-                info!("Invoking Model for episode:{}",invoke_epid);
+                info!("Invoking Model for episode:{} | MetaCog:{}",invoke_epid,is_metacog_run);
+                if is_metacog_run && !meta_cog_msg_sent{
+                    let reflectorcard=Source::new(Role::User,format!("{}reflector",agent_card.get_name()),None);
+
+                    meta_cog_msg_sent=true;
+                    agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&reflectorcard, "Reflect on the conversation happened so far".to_string(),
+                                                None, 
+                                                MemoryNodeType::Message,Some(invoc_id.clone()),None),
+                            Some(invoke_epid.clone()))).unwrap();
+                    info!("Waiting for Reflector Init Message");
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
                 agent_tx.send(AgentPulse::lockAgentForEpisode(invoke_epid.clone())).unwrap();
+                agent_tx.send(AgentPulse::SetMetaCogSkip(invoke_epid.clone(),is_metacog_run.clone())).unwrap();
                 let lookupid:&String=invoke_epid;
                 
                 let mut choosen_prompt: Option<PromptStyle>;
                 let final_agent_prompt=if run_count==0{
                     invoc_id=Uuid::now_v7().to_string();
-                    info!("Invoking Reasoning prompt  | Episode Id:{} | Agent :{}|",invoke_epid.clone(),agent_card.get_name());
+                    info!(" Agent :{} | MetaCog:{} | Invoking Reasoning prompt  | Episode Id:{} |",agent_card.get_name(),is_metacog_run,invoke_epid.clone());
                     choosen_prompt=Some(PromptStyle::REASONING);
                     agent_prompt.clone()
                 }
                 else if run_count==1 || run_count==3 || run_count==5{
-                    info!("Invoking Repair prompt | Episode Id:{} | Agent :{}|",invoke_epid.clone(),agent_card.get_name());
+                    info!(" Agent :{} | MetaCog:{} | Invoking Repair prompt | Episode Id:{} |",agent_card.get_name(),is_metacog_run,invoke_epid.clone());
                     choosen_prompt=Some(PromptStyle::REPAIR);
                     repair_prompt.clone()
                 }
                 else if run_count==2{
                     invoc_id=Uuid::now_v7().to_string();
-                    info!("Invoking RAC prompt | Episode Id:{} | Agent :{}|",invoke_epid.clone(),agent_card.get_name());
+                    info!(" Agent :{} | MetaCog:{} | Invoking RAC prompt | Episode Id:{} |",agent_card.get_name(),is_metacog_run,invoke_epid.clone());
                     choosen_prompt=Some(PromptStyle::RAC);
                     agent_rac_prompt.clone()
                 }
                 else{
                     invoc_id=Uuid::now_v7().to_string();
-                    info!("Invoking TOF prompt | Episode Id:{} | Agent :{}|",invoke_epid.clone(),agent_card.get_name());
+                    info!(" Agent :{} | MetaCog:{} | Invoking TOF prompt | Episode Id:{} |",agent_card.get_name(),is_metacog_run,invoke_epid.clone());
                     choosen_prompt=Some(PromptStyle::TOF);
                     agent_tof_prompt.clone()
                 };
@@ -1038,6 +1219,8 @@ impl Agent{
                 final_agent_prompt,
             Some(invoc_id.clone()),Some(&agent_card)).await;
                 info!("Model resp:{}",resp);
+
+
 
                 agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, resp.clone(),
                                     choosen_prompt.clone(), 
@@ -1051,8 +1234,14 @@ impl Agent{
                         val_block=Some(lval_block);
                         info!("Validation Sucessful:{:?}",val_block);
                         parsed_response.validation_block=val_block.clone();
+                        last_response_empty=false;
                     }
-                    Err(e)=>{error_ls.push(e);}
+                    Err(e)=>{
+                        last_response_empty = matches!(e, ParseError::EmptyResponseError(_));
+                        error_ls.push(e);
+
+                        
+                    }
                 }
                 
                 match AgentResponseParser::parse_commands(&mut val_block, &resp){
@@ -1123,7 +1312,7 @@ impl Agent{
 
                     if let Some(outputs)=&parsed_response.outputs{
                         if outputs.len()>0{
-                            followup_planned=outputs.iter().any(|o| o.starts_with("/"));
+                            // followup_planned=outputs.iter().any(|o| o.starts_with("/"));
                             let output_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()),None);
                             match &interface_memory{
                                 Some(imemory)=>{
@@ -1150,7 +1339,7 @@ impl Agent{
                     
                     if let Some(commands)=&parsed_response.commands{
                         if commands.len()>0{
-                            followup_planned=true;
+                            
                             let mut filtered_cmds=Vec::new();
                             for comnds in commands.iter(){
                                 if comnds.trim().starts_with("/"){
@@ -1170,6 +1359,7 @@ impl Agent{
                                 }
                                 else{
                                     filtered_cmds.push(comnds.clone());
+                                    followup_planned=true;
                                 }
                                 
                             }
@@ -1209,11 +1399,17 @@ impl Agent{
                     
                 }
                     
-                if !(need_rerun && run_count<MAX_RUN_ALLOWED){
-                    info!("Unlocking agent for episode:{}",lookupid);
+                if !(need_rerun && (run_count+1)<MAX_RUN_ALLOWED){
+                    info!("Unlocking agent for episode:{} - Followup Planned :{}",lookupid,followup_planned);
                     
                     agent_tx.send(AgentPulse::unlockAgentForEpisode(invoke_epid.clone())).unwrap();
                     agent_tx.send(AgentPulse::SetAgentFollowupStatus(invoke_epid.clone(),followup_planned.clone())).unwrap();
+
+                    if is_metacog_run{
+                        if !followup_planned{
+                            agent_tx.send(AgentPulse::SetMetaCogSkip(invoke_epid.clone(), false)).unwrap();
+                        }
+                    }
 
                     break;
                 }
@@ -1272,6 +1468,7 @@ pub struct ParsedResponse{
 pub enum ParseError {
     RegexError(String),
     ValidationError(String),
+    EmptyResponseError(String),
     CommandsError(String),
     ThoughtsError(String),
     OutputError(String),
@@ -1318,7 +1515,7 @@ pub struct AgentResponseParser;
 impl AgentResponseParser  {
     pub fn parse(resp:&String) -> Result<Validation, ParseError>{
         if resp.trim().len()==0{
-            Err(ParseError::ValidationError("Response is empty.".to_string()))
+            Err(ParseError::EmptyResponseError("Response is empty.".to_string()))
         }
         else{Self::extract_validation_block(resp)}
     }
@@ -1406,7 +1603,7 @@ impl AgentResponseParser  {
     
     pub fn parse_commands(validation:&mut Option<Validation>,resp:&String)->Result<CommandBlock, ParseError>{
         if resp.trim().len()==0{
-            Err(ParseError::ValidationError("Response is empty.".to_string()))
+            Err(ParseError::EmptyResponseError("Response is empty.".to_string()))
         }
         else{Self::extract_commands_block(validation,resp)}
 
@@ -1507,7 +1704,7 @@ impl AgentResponseParser  {
             
     pub fn parse_thoughts(validation:&mut Option<Validation>,resp:&String)->Result<ThoughtsBlock, ParseError>{
         if resp.trim().len()==0{
-            Err(ParseError::ValidationError("Response is empty.".to_string()))
+            Err(ParseError::EmptyResponseError("Response is empty.".to_string()))
         }
         else{Self::extract_thoughts_block(validation,resp)}
 
@@ -1590,7 +1787,7 @@ impl AgentResponseParser  {
 
     pub fn parse_followup_context(validation:&mut Option<Validation>,resp:&String)->Result<FollowupContextBlock, ParseError>{
         if resp.trim().len()==0{
-            Err(ParseError::ValidationError("Response is empty.".to_string()))
+            Err(ParseError::EmptyResponseError("Response is empty.".to_string()))
         }
         else{Self::extract_followup_context_block(validation,resp)}
 

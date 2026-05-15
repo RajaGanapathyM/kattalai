@@ -24,3 +24,4 @@ pysrc/soulengine/configs/mkey_config
 /pysrc/soulengine/model_assets
 /pysrc/soulengine/protocols
 *.pyc
+/apps/other_apps/voice_app/models
