@@ -190,7 +190,8 @@ async fn main() {
     // let my_msg="What is the current OS information of my computer?".to_string();
     // let my_msg="Can you open https://indianexpress.com/ and check what is the latest news?".to_string();
     // let my_msg="i want to know about Python programming. can fetch information about it?".to_string();
-    let my_msg="add the following, 23+45".to_string();
+    // let my_msg="add the following, 23+45".to_string();
+    let my_msg="which one is best Engineer or doctor".to_string();
     // let my_msg="Suprise me!".to_string();
     // let my_msg="What is a prime number".to_string();
     

@@ -63,7 +63,8 @@ pub trait inference_api_trait {
         memory.iter_memory(None,None,source).await
             .filter(|node| { 
                 // println!("node:{:?}", node);
-                let error_current_invocation_flag=if node.get_node_type()==MemoryNodeType::ModelError || node.get_node_type()==MemoryNodeType::ModelResponse{
+                let node_typ=node.get_node_type();
+                let error_current_invocation_flag=if node_typ==MemoryNodeType::ReflectionPrompt|| node_typ==MemoryNodeType::ModelError || node_typ==MemoryNodeType::ModelResponse{
                     match &invocation_id{
                         Some(in_id)=>{
                             // info!("Filtering for invocation_id: {}, node invocation_id: {:?}", in_id, node.get_invocation_id());

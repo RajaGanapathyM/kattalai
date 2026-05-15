@@ -1180,7 +1180,7 @@ impl Agent{
                     meta_cog_msg_sent=true;
                     agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&reflectorcard, "Reflect on the conversation happened so far".to_string(),
                                                 None, 
-                                                MemoryNodeType::Message,Some(invoc_id.clone()),None),
+                                                MemoryNodeType::ReflectionPrompt,Some(invoc_id.clone()),None),
                             Some(invoke_epid.clone()))).unwrap();
                     info!("Waiting for Reflector Init Message");
                     tokio::time::sleep(Duration::from_secs(2)).await;

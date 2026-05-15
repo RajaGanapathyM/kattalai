@@ -47,6 +47,7 @@ pub enum MemoryNodeType {
     Protocol,
     ProtocolLog,
     ProtocolPrompt,
+    ReflectionPrompt,
     TerminalCommands,
     ModelResponse,
     AppResponse,
@@ -78,6 +79,8 @@ impl MemoryNodeType {
             MemoryNodeType::Applog=>"Applog",
             MemoryNodeType::FollowupContext=>"FollowupContext",
             MemoryNodeType::ValidationBlock=>"ValidationBlock",
+            MemoryNodeType::ReflectionPrompt=>"ReflectionPrompt",
+            
         }
     }
 }
