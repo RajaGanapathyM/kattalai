@@ -99,7 +99,7 @@ impl Terminal{
                     else{
                         error_ls.push(format!("App with handle name '{}' not found for command execution.", app_handle_name));
                     }
-                    error_ls.push(format!("App with handle name '{}' not found for command execution.", app_handle_name));
+                    // error_ls.push(format!("App with handle name '{}' not found for command execution.", app_handle_name));
                 }
 
             }
