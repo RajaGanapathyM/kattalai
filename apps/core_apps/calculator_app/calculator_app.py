@@ -165,4 +165,4 @@ class CalculatorApp(soul_engine_app):
 
 if __name__ == "__main__":
     app = CalculatorApp()
-    app.run_one_shot()
+    app.run_repl()

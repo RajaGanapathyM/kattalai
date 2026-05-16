@@ -117,24 +117,30 @@ impl AppStore{
     }
     pub fn is_app_exist(&self,app_handle_name:String)->bool{
         let readable_apps=self.apps.read().unwrap();
-        let has_app=if app_handle_name.starts_with("&"){
-            readable_apps.contains_key(&app_handle_name[1..])
+        let app_handle_name_corrected=if app_handle_name.starts_with("&"){
+            app_handle_name[1..].to_string()
         }
         else{
-            readable_apps.contains_key(&app_handle_name)
+            app_handle_name
         };
         // let has_app=readable_apps.contains_key(&format!("&{}", app_handle_name)) || ;
-        has_app
+        readable_apps.contains_key(&app_handle_name_corrected)
     }
 
     pub fn clone_app(&self,app_handle_name:String)->Option<App>{
         info!("Cloning app:{}",app_handle_name);
         let readable_apps=self.apps.read().unwrap();
-        if readable_apps.contains_key(&format!("&{}", app_handle_name)) || readable_apps.contains_key(&app_handle_name){
-            let app_inits=readable_apps.get(&app_handle_name).unwrap();
+        let app_handle_name_corrected=if app_handle_name.starts_with("&"){
+            app_handle_name[1..].to_string()
+        }
+        else{
+            app_handle_name
+        };
+        if readable_apps.contains_key(&app_handle_name_corrected){
+            let app_inits=readable_apps.get(&app_handle_name_corrected).unwrap();
             Some(App::new(app_inits.app_toml_path.clone(), app_inits.app_info.clone()))
         } else {
-            error!("App not found: {}", app_handle_name);
+            error!("App not found: {}", app_handle_name_corrected);
             None
         }
     }

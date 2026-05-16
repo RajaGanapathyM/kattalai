@@ -511,4 +511,4 @@ class TabularReaderApp(soul_engine_app):
 # ── Entry point ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app = TabularReaderApp()
-    app.run_one_shot()
+    app.run_repl()

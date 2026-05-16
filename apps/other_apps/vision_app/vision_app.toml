@@ -3,7 +3,7 @@ app_path            = "./apps/other_apps/vision_app/vision_app.py"
 app_start_command   = "python"
 app_start_args      = "./apps/other_apps/vision_app/vision_app.py"
 app_handle_name     = "vision"
-app_launch_mode     = "ONE_SHOT"
+app_launch_mode     = "REPL"
 
 app_usage_guideline = """
 

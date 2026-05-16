@@ -579,4 +579,4 @@ class TranscriptionApp(soul_engine_app):
 
 if __name__ == "__main__":
     app = TranscriptionApp()
-    app.run_one_shot()
+    app.run_repl()

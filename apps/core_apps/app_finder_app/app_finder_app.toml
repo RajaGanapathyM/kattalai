@@ -3,7 +3,7 @@
   app_start_command="python"
   app_start_args="./apps/core_apps/app_finder_app/app_finder_app.py"
   app_handle_name="appfinder"
-  app_launch_mode="ONE_SHOT"
+  app_launch_mode="REPL"
   app_usage_guideline="""
   Use this app when you need to discover which installed app to use for a task
   but are unsure of the exact handle name, or when the user asks for a capability
