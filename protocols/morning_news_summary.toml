@@ -9,7 +9,7 @@ apps_used = ["webpage_reader"]
 id = 1
 label = "Get News"
 app_command = "&webpage_reader read <website mentioned in context> --query \"top news\""
-prompt = "Get the top news from Hacker News"
+prompt = "Get the top news"
 
 [[step]]
 id = 2

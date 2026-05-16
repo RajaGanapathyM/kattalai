@@ -209,7 +209,7 @@ impl Runtime{
                         tokio::time::sleep(Duration::from_secs(5)).await;
 
                         let cogitare_user=Source::new(source::Role::User, "CogitareUser".to_string(), None);
-                        let invk_msg=MemoryNode::new(&cogitare_user, "COGITARE:REFLECT".to_string(), None, MemoryNodeType::Message,None, None);
+                        let invk_msg=MemoryNode::new(&cogitare_user, "COGITARE:REFLECT".to_string(), None, MemoryNodeType::Message,None, None,None);
 
                         info!("Cogitare Agent pinged on agent episode {} with new episode",focus_branch_id);
                         Agent::ping(&cogitare_agent,AgentPulse::AddMemoryAndInvoke(invk_msg, Some(focus_branch_id.clone()))).await;
@@ -291,6 +291,7 @@ impl Runtime{
                     memory::MemoryNodeType::Message,
                     None,
                     None,
+                    None
                 )).await;
 
                 Ok("Message Inserted")

@@ -111,7 +111,7 @@ impl Protocol{
                 let protocol_response=parsed_resp.unwrap();
                 info!("Protocol response: {:?}", protocol_response);
                 let new_content=format!("Protocol Runner Update:\n Protocol Name: {}\nDecision: {:?}\nReason: {:?}\nMessage: {:?}", self.protocol_name, protocol_response.decision, protocol_response.reason, protocol_response.message);
-                let protocol_reason_msg=MemoryNode::new(&self.protocol_card ,new_content, Some(PromptStyle::PROTOCOL), MemoryNodeType::ProtocolLog,Some(invocation_id.clone()),Some(&agent_card));
+                let protocol_reason_msg=MemoryNode::new(&self.protocol_card ,new_content, Some(PromptStyle::PROTOCOL), MemoryNodeType::ProtocolLog,Some(invocation_id.clone()),Some(&agent_card),None);
                 self.interface_memory.insert(protocol_reason_msg).await;
                 
                 match protocol_response.decision{
@@ -133,7 +133,7 @@ impl Protocol{
                                 }
                                 else {
                                     info!("Running prompt: {}", prompt);
-                                    let output_memory_node=MemoryNode::new(&self.protocol_card ,prompt.clone(), None, MemoryNodeType::ProtocolPrompt,Some(invocation_id.clone()),None);
+                                    let output_memory_node=MemoryNode::new(&self.protocol_card ,prompt.clone(), None, MemoryNodeType::ProtocolPrompt,Some(invocation_id.clone()),None,None);
                                     self.interface_memory.insert(output_memory_node).await;
                                     wait_sec=30;
                                 }
@@ -148,12 +148,12 @@ impl Protocol{
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     },
                     ProtocolDecision::ProtocolComplete=>{
-                        let output_memory_node=MemoryNode::new(&self.protocol_card ,format!("Protocol {} execution complete!", self.protocol_name), None, MemoryNodeType::ProtocolPrompt,Some(invocation_id.clone()),Some(&agent_card));
+                        let output_memory_node=MemoryNode::new(&self.protocol_card ,format!("Protocol {} execution complete!", self.protocol_name), None, MemoryNodeType::ProtocolPrompt,Some(invocation_id.clone()),Some(&agent_card),None);
                         self.interface_memory.insert(output_memory_node).await;
                         break
                     },
                     ProtocolDecision::ProtocolError=>{
-                        let output_memory_node=MemoryNode::new(&self.protocol_card ,format!("Protocol Error: Protocol_Name: {}  Error Message: {:?}", self.protocol_name, protocol_response.message), None, MemoryNodeType::ProtocolLog,Some(invocation_id.clone()),Some(&agent_card));
+                        let output_memory_node=MemoryNode::new(&self.protocol_card ,format!("Protocol Error: Protocol_Name: {}  Error Message: {:?}", self.protocol_name, protocol_response.message), None, MemoryNodeType::ProtocolLog,Some(invocation_id.clone()),Some(&agent_card),None);
                         self.interface_memory.insert(output_memory_node).await;
                         break
                     }
@@ -275,7 +275,7 @@ impl ProtocolStore{
             None,
             MemoryNodeType::ProtocolPrompt,
             Some(Uuid::now_v7().to_string()),
-            None
+            None,None
         )).await;
     }
     pub fn get_protocols_book(&self)->String{
@@ -344,7 +344,7 @@ impl ProtocolStore{
         }
 
         if let Err(e) = writer.flush() {
-            imemory.insert(MemoryNode::new(&self.protocol_stor_card, format!("Protocol scheduling failed: {} {} | error: {}", handle_name,schedule_string,e), None, MemoryNodeType::ProtocolPrompt, Some(Uuid::now_v7().to_string()), Some(&self.protocol_stor_card))).await;
+            imemory.insert(MemoryNode::new(&self.protocol_stor_card, format!("Protocol scheduling failed: {} {} | error: {}", handle_name,schedule_string,e), None, MemoryNodeType::ProtocolPrompt, Some(Uuid::now_v7().to_string()), Some(&self.protocol_stor_card),None)).await;
             return Err(format!("Flush failed: {}", e));
         } else {
             info!("Flush successful");
@@ -364,7 +364,7 @@ impl ProtocolStore{
                 error!("Could not verify file content: {}", e);
             }
         }
-        imemory.insert(MemoryNode::new(&self.protocol_stor_card, format!("Successfully Scheduled protocol '{}' with schedule '{}'", handle_name, schedule_string), None, MemoryNodeType::ProtocolPrompt, Some(Uuid::now_v7().to_string()), Some(&self.protocol_stor_card))).await;
+        imemory.insert(MemoryNode::new(&self.protocol_stor_card, format!("Successfully Scheduled protocol '{}' with schedule '{}'", handle_name, schedule_string), None, MemoryNodeType::ProtocolPrompt, Some(Uuid::now_v7().to_string()), Some(&self.protocol_stor_card),None)).await;
         Ok(format!("Protocol {} scheduled with cron: {}", handle_name, schedule_string))
     }
 
@@ -405,11 +405,11 @@ impl ProtocolStore{
                 protocol_inst.run(context_str).await;
             });
 
-            interface_memory.insert(MemoryNode::new(&self.protocol_stor_card,format!("Launched protocol: {}", protocol_config.protocol_name), None,MemoryNodeType::Applog,Some(Uuid::now_v7().to_string()),Some(&self.protocol_stor_card))).await;
+            interface_memory.insert(MemoryNode::new(&self.protocol_stor_card,format!("Launched protocol: {}", protocol_config.protocol_name), None,MemoryNodeType::Applog,Some(Uuid::now_v7().to_string()),Some(&self.protocol_stor_card),None)).await;
 
         }
         else{
-            interface_memory.insert(MemoryNode::new(&self.protocol_stor_card,format!("Protocol with handle {} not found", protocol_handle), None,MemoryNodeType::Applog,Some(Uuid::now_v7().to_string()),Some(&self.protocol_stor_card))).await;
+            interface_memory.insert(MemoryNode::new(&self.protocol_stor_card,format!("Protocol with handle {} not found", protocol_handle), None,MemoryNodeType::Applog,Some(Uuid::now_v7().to_string()),Some(&self.protocol_stor_card),None)).await;
         }
 
     

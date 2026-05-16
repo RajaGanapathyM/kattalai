@@ -10,6 +10,7 @@ use crate::appstore::AppStore;
 use crate::config::InferenceStore;
 
 use regex::Regex;
+use std::fmt::format;
 use std::ptr::read;
 use std::sync::{Arc,RwLock};
 use std::{
@@ -97,16 +98,18 @@ pub struct MemoryNode {
     tags: HashSet<String>,
     intents: HashSet<String>,
     invocation_id:Option<String>,
-    target:Option<Source>
+    target:Option<Source>,
+    spill_path:Option<String>
 }
 impl MemoryNode {
     pub fn new(
         source: &Source,
-        content: String,
+        mut content: String,
         prompt_info: Option<PromptStyle>,
         node_type: MemoryNodeType,
         invocation_id:Option<String>,
-        target:Option<&Source>
+        target:Option<&Source>,
+        spill_path:Option<String>
     ) -> Self {
 
         let mut tags: HashSet<String>    =HashSet::new();
@@ -136,10 +139,14 @@ impl MemoryNode {
             intents:actions,
             invocation_id,
             target: target.cloned(),
+            spill_path
         }
     }
     pub fn is_allowed(&self, allowed_roles: &HashSet<Role>) -> bool {
         allowed_roles.contains(&self.source.get_role())
+    }
+    pub fn append_content(&mut self,new_cont:String){
+        self.content=format!("{}\n{}",self.content,new_cont);
     }
     pub fn get_source_name(&self)->String{
         self.source.get_name().clone()
@@ -260,6 +267,12 @@ impl Memory {
                         new_node.branch_id=Some(arc_memory_clone._branch_id.clone());
                     }
                 }
+                info!("SPILL_PATH:{:?}",new_node.spill_path);
+                if let Some(spill_path)=new_node.spill_path.clone(){
+                    let spill_content=Memory::read_spill(&spill_path);
+                    info!("SPILL CONTENT{:?}",spill_content);
+                    new_node.append_content(spill_content);
+                }
                 let new_node_content=new_node.get_content();
                 // println!("Inserting Memory Node: {:?}", new_node);
                 let kill_switch = arc_memory_clone._kill_switch.load(Ordering::Relaxed);
@@ -378,6 +391,17 @@ impl Memory {
         let kill_ac=self._kill_switch.store(true,Ordering::Relaxed);
 
     }  
+    fn read_spill(spill_path:&String)->String{
+        
+        let spilled_content=fs::read_to_string(spill_path).map_err(|e| format!("{:?}",e)).unwrap();
+
+        if let Err(e)=fs::remove_file(spill_path){
+            error!("Failed to remove spill file: {:?}. Error: {:?}",spill_path,e);
+        }
+
+
+        return spilled_content;    
+    }
     
     pub async fn incremental_mem_nodes(&self,ref_node_id:Option<String>,source:Option<&Source>)-> impl Iterator<Item = MemoryNode>{
         if let Some(ref_nid)=&ref_node_id{

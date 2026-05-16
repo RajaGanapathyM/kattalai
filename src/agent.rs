@@ -1096,7 +1096,7 @@ impl Agent{
             combined_error=format!("Errors:\n{}",erro_v.join("\n"));
 
             info!("Error Identified:\n{}",combined_error);
-            current_episode_memory.insert(MemoryNode::new(validator_card,combined_error.clone() , prompt_style, MemoryNodeType::ModelError,Some(invoc_id),None)).await;
+            current_episode_memory.insert(MemoryNode::new(validator_card,combined_error.clone() , prompt_style, MemoryNodeType::ModelError,Some(invoc_id),None,None)).await;
         }
         combined_error
 
@@ -1180,7 +1180,7 @@ impl Agent{
                     meta_cog_msg_sent=true;
                     agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&reflectorcard, "Reflect on the conversation happened so far".to_string(),
                                                 None, 
-                                                MemoryNodeType::ReflectionPrompt,Some(invoc_id.clone()),None),
+                                                MemoryNodeType::ReflectionPrompt,Some(invoc_id.clone()),None,None),
                             Some(invoke_epid.clone()))).unwrap();
                     info!("Waiting for Reflector Init Message");
                     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -1224,7 +1224,7 @@ impl Agent{
 
                 agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, resp.clone(),
                                     choosen_prompt.clone(), 
-                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None),
+                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None),
                  Some(invoke_epid.clone()))).unwrap();
                 
                 let mut error_ls:Vec<ParseError>=Vec::new();
@@ -1313,7 +1313,7 @@ impl Agent{
                     if let Some(outputs)=&parsed_response.outputs{
                         if outputs.len()>0{
                             // followup_planned=outputs.iter().any(|o| o.starts_with("/"));
-                            let output_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()),None);
+                            let output_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()),None,None);
                             match &interface_memory{
                                 Some(imemory)=>{
                                     if imemory._read_only{
@@ -1343,7 +1343,7 @@ impl Agent{
                             let mut filtered_cmds=Vec::new();
                             for comnds in commands.iter(){
                                 if comnds.trim().starts_with("/"){
-                                    let output_memory_node=MemoryNode::new(&agent_card, comnds.trim().to_string().clone(), None, MemoryNodeType::Message,Some(invoc_id.clone()),None);
+                                    let output_memory_node=MemoryNode::new(&agent_card, comnds.trim().to_string().clone(), None, MemoryNodeType::Message,Some(invoc_id.clone()),None,None);
                                     match &interface_memory{
                                         Some(imemory)=>{
                                             if imemory._read_only{
@@ -1394,7 +1394,7 @@ impl Agent{
                     
                     agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, resp.clone(),
                                         choosen_prompt.clone(), 
-                                        MemoryNodeType::Message,Some(invoc_id.clone()),None),
+                                        MemoryNodeType::Message,Some(invoc_id.clone()),None,None),
                     Some(invoke_epid.clone()))).unwrap();
                     
                 }
@@ -1433,7 +1433,7 @@ impl Agent{
         info!("Last rerun:{}",need_rerun);
 
         if !parsed_response.success{
-            let error_message=MemoryNode::new(&agent_card, "Error Processing Last Message.Please try again".to_string(), None, MemoryNodeType::Error,Some(invoc_id.clone()),None);
+            let error_message=MemoryNode::new(&agent_card, "Error Processing Last Message.Please try again".to_string(), None, MemoryNodeType::Error,Some(invoc_id.clone()),None,None);
             match &interface_memory{
                 Some(imemory)=>{
                     if imemory._read_only{
