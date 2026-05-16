@@ -117,7 +117,13 @@ impl AppStore{
     }
     pub fn is_app_exist(&self,app_handle_name:String)->bool{
         let readable_apps=self.apps.read().unwrap();
-        let has_app=readable_apps.contains_key(&format!("&{}", app_handle_name)) || readable_apps.contains_key(&app_handle_name);
+        let has_app=if app_handle_name.starts_with("&"){
+            readable_apps.contains_key(&app_handle_name[1..])
+        }
+        else{
+            readable_apps.contains_key(&app_handle_name)
+        };
+        // let has_app=readable_apps.contains_key(&format!("&{}", app_handle_name)) || ;
         has_app
     }
 
