@@ -311,4 +311,4 @@ class PdfReaderApp(soul_engine_app):
 
 if __name__ == "__main__":
     app = PdfReaderApp()
-    app.run_repl()
+    app.run_one_shot()

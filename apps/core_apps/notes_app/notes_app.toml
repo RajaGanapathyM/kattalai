@@ -3,7 +3,7 @@ app_path="./apps/core_apps/notes_app/notes_app.py"
 app_start_command="python"
 app_start_args="./apps/core_apps/notes_app/notes_app.py"
 app_handle_name="notes_app"
-app_launch_mode="REPL"
+app_launch_mode="ONE_SHOT"
 app_usage_guideline="""
 Use this app for:
 - Quickly capturing ideas while working in the terminal

@@ -680,4 +680,4 @@ class VisionApp(soul_engine_app):
 # ── standalone ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    VisionApp().run_repl()
+    VisionApp().run_one_shot()
