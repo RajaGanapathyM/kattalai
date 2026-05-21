@@ -131,7 +131,7 @@ impl App {
         pub fn get_guidelines(&self)->String{
             self.app_usage_guideline.clone()
         }
-        pub async fn launch(&self) {
+        pub async fn launch(&self, mem_tx_channel: Option<crossbeam::channel::Sender<AgentPulse>>) {
             info!("Starting app: {}", self.app_card.get_name());
 
             match &self.app_type {
@@ -142,6 +142,10 @@ impl App {
                     *guard = Some(app_child);
                 },
                 AppType::ONE_SHOT => info!("Launching app in ONE_SHOT mode..."),
+            }
+
+            if let Some(mem_tx) = mem_tx_channel {
+                self.attach(mem_tx).await;
             }
             
         }

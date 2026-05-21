@@ -179,7 +179,7 @@ async fn main() {
     // se_read_runtime.remove_agent_from_topic(&topic_id, &agent_id).await;
     
 
-    let my_msg="you two task. first remind me after 20s to take a break and second task read and summarize my credit card statement C:/Users/RG/Downloads/CC_sample.pdf and save the summary as notes".to_string();
+    // let my_msg="you two task. first remind me after 20s to take a break and second task read and summarize my credit card statement C:/Users/RG/Downloads/CC_sample.pdf and save the summary as notes".to_string();
     // let my_msg="/morning_greeting --schedule 0 8 * * 1".to_string();
     // let my_msg="can you schedule morning_greeting protocol to run on monday morning".to_string();
     // let my_msg="can you run morning_greeting protocol after 5 secs".to_string();
@@ -193,7 +193,7 @@ async fn main() {
     // let my_msg="add the following, 23+45".to_string();
     // let my_msg="which one is best Engineer or doctor".to_string();
     // let my_msg="Suprise me!".to_string();
-    // let my_msg="What is a prime number".to_string();
+    let my_msg="What is a prime number".to_string();
     
 // let msg="".to_string();
     println!("Inserting message: {}", my_msg);

@@ -596,10 +596,10 @@ impl Agent{
                 for (episode_id,episode) in readable_epsiode_memories.iter(){
                     
                     if episode.episode_memory._kill_switch.load(Ordering::Relaxed){
-                        println!("Thread Killed");
+                        // info!("Thread Killed");
                         continue;
                     }
-                    println!("Reading episode activ");
+                    // info!("Reading episode activ");
 
                     let agent_active_flag=tokio_rt.block_on(episode.is_episode_active());
 
@@ -607,49 +607,49 @@ impl Agent{
 
                     if agent_active_flag{
                         // info!("Agent locked for episode:{}",episode_id);
-                        println!("Agent active for episode:{}",episode_id);
+                        // info!("Agent active for episode:{}",episode_id);
                         if !agent_metacog_skip{
                             agent_last_active_timestamp.insert(episode_id.clone(), chrono::Utc::now());
                         }
-                        println!("Agent Active");
+                        // info!("Agent Active");
                         continue;
                     }
 
                     if agent_metacog_skip{
                         // info!("Agent locked for episode:{}",episode_id);
-                        println!("Agent agent_metacog_skip for episode:{}",episode_id);
+                        // info!("Agent agent_metacog_skip for episode:{}",episode_id);
                         continue;
                     }
-                    println!("Entering check:{}|{:?}",episode_id,agent_last_active_timestamp.get(episode_id));
+                    // info!("Entering check:{}|{:?}",episode_id,agent_last_active_timestamp.get(episode_id));
                     if let Some(last_active_time)=agent_last_active_timestamp.get(episode_id){
-                        println!("Entered Checks");
+                        // info!("Entered Checks");
                         if let Some(last_metacog_time)=agent_last_metacog_time.get(episode_id){
                             if last_metacog_time.clone()+chrono::Duration::from_std(Duration::from_secs(lag_after_last_metacog_secs)).unwrap() > chrono::Utc::now(){
                                 // info!("Meta-cognition cooldown active for episode:{}",episode_id);
-                                println!("last metacog not expired");
+                                // info!("last metacog not expired");
                                 continue;
                             }
                             if last_metacog_time>=last_active_time{
-                                println!("last metacog not beaten by active");
+                                // info!("last metacog not beaten by active");
                                 // info!("Meta-cognition cooldown active for episode:{}",episode_id);
                                 continue;
                             }
                         }
                         if last_active_time.clone()+chrono::Duration::from_std(Duration::from_secs(lag_after_active_secs)).unwrap() > chrono::Utc::now(){
                             // info!("Meta-cognition cooldown active for episode:{}",episode_id);
-                            println!("Recent last active");
+                            // info!("Recent last active");
                             continue;
                         }
 
                         if let Some(last_active_metcoged)=last_active_for_which_metacoged.get(episode_id){
                             if last_active_metcoged.clone()+chrono::Duration::from_std(Duration::from_secs(10)).unwrap() >last_active_time.clone(){
-                                println!("Activity already meta coged");
+                                // info!("Activity already meta coged");
                                 continue
                             }
 
 
                         }
-                        println!("Invoking MetaCog");
+                        info!("Invoking MetaCog");
 
                         last_active_for_which_metacoged.insert(episode_id.clone(),last_active_time.clone());
 
@@ -733,7 +733,7 @@ impl Agent{
         
         match &epid{
             Some(eid)=>{
-                agent_tx_clone.send(AgentPulse::lockAgentForEpisode(eid.clone())).unwrap();
+                // agent_tx_clone.send(AgentPulse::lockAgentForEpisode(eid.clone())).unwrap();
                 match agent_lock.episodes.read().await.get(eid).cloned(){
                     Some(current_episode)=>{
                         let mlen=current_episode.episode_memory.get_memory_len().await;
@@ -758,6 +758,7 @@ impl Agent{
                                 agent_lock.terminal.launch_app(new_app.unwrap()).await;
                             }
                         }
+                        info!("App launch stage passed");
                         let current_sys_info=get_sys_info();
 
                         let metacog_prompt=agent_lock.get_meta_cog_prompt();
@@ -1174,19 +1175,6 @@ impl Agent{
 
             if let Some(invoke_epid)= &invoking_episode_id{
                 info!("Invoking Model for episode:{} | MetaCog:{}",invoke_epid,is_metacog_run);
-                if is_metacog_run && !meta_cog_msg_sent{
-                    let reflectorcard=Source::new(Role::User,format!("{}reflector",agent_card.get_name()),None);
-
-                    meta_cog_msg_sent=true;
-                    agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&reflectorcard, "Reflect on the conversation happened so far".to_string(),
-                                                None, 
-                                                MemoryNodeType::ReflectionPrompt,Some(invoc_id.clone()),None,None),
-                            Some(invoke_epid.clone()))).unwrap();
-                    info!("Waiting for Reflector Init Message");
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                }
-                agent_tx.send(AgentPulse::lockAgentForEpisode(invoke_epid.clone())).unwrap();
-                agent_tx.send(AgentPulse::SetMetaCogSkip(invoke_epid.clone(),is_metacog_run.clone())).unwrap();
                 let lookupid:&String=invoke_epid;
                 
                 let mut choosen_prompt: Option<PromptStyle>;
@@ -1213,6 +1201,20 @@ impl Agent{
                     choosen_prompt=Some(PromptStyle::TOF);
                     agent_tof_prompt.clone()
                 };
+                if is_metacog_run && !meta_cog_msg_sent{
+                    let reflectorcard=Source::new(Role::User,format!("{}reflector",agent_card.get_name()),None);
+
+                    meta_cog_msg_sent=true;
+                    agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&reflectorcard, "[REFLECT]".to_string(),
+                                                None, 
+                                                MemoryNodeType::ReflectionPrompt,Some(invoc_id.clone()),None,None),
+                            Some(invoke_epid.clone()))).unwrap();
+                    info!("Waiting for Reflector Init Message");
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+                agent_tx.send(AgentPulse::lockAgentForEpisode(invoke_epid.clone())).unwrap();
+                agent_tx.send(AgentPulse::SetMetaCogSkip(invoke_epid.clone(),is_metacog_run.clone())).unwrap();
+                
                 
                 // info!("FINAL PROMPT:{}",final_agent_prompt);
                 let resp=reasoning_model_clone.chat(current_episode_memory.clone(),
@@ -1367,7 +1369,7 @@ impl Agent{
                             
                             // let commands_memory_node=MemoryNode::new(&agent_card, commands.join("\n"), None, MemoryNodeType::TerminalCommands,Some(invoc_id.clone()));
                             // current_episode_memory.insert(commands_memory_node).await;
-                            println!("Filtered cmds:{:?}",filtered_cmds);
+                            info!("Filtered cmds:{:?}",filtered_cmds);
 
                             if filtered_cmds.len()>0{
                                 terminal.execute_multi_commands(&filtered_cmds,invoke_epid.clone(),invoc_id.clone()).await;
@@ -1433,18 +1435,21 @@ impl Agent{
         info!("Last rerun:{}",need_rerun);
 
         if !parsed_response.success{
-            let error_message=MemoryNode::new(&agent_card, "Error Processing Last Message.Please try again".to_string(), None, MemoryNodeType::Error,Some(invoc_id.clone()),None,None);
-            match &interface_memory{
-                Some(imemory)=>{
-                    if imemory._read_only{
-                        info!("Interface memory is read only, skipping write");
+
+            if !is_metacog_run{
+                let error_message=MemoryNode::new(&agent_card, "Error Processing Last Message.Please try again".to_string(), None, MemoryNodeType::Error,Some(invoc_id.clone()),None,None);
+                match &interface_memory{
+                    Some(imemory)=>{
+                        if imemory._read_only{
+                            info!("Interface memory is read only, skipping write");
+                        }
+                        else{
+                            info!("Writing Error to interface memory");
+                            imemory.insert(error_message).await;
+                        }
                     }
-                    else{
-                        info!("Writing Error to interface memory");
-                        imemory.insert(error_message).await;
-                    }
+                    None=>{}
                 }
-                None=>{}
             }
         }
 

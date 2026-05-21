@@ -22,13 +22,14 @@ logging.basicConfig(filename="newdebug.log", level=logging.INFO)
 SE_AVAILABLE = False
 GLOBAL_SE_RUNTIME = None
 try:
-    import torch
-    _torch_lib = os.path.join(os.path.dirname(torch.__file__), "lib")
-    if os.path.exists(_torch_lib):
-        os.add_dll_directory(_torch_lib)
+    # import torch
+    # _torch_lib = os.path.join(os.path.dirname(torch.__file__), "lib")
+    # if os.path.exists(_torch_lib):
+    #     os.add_dll_directory(_torch_lib)
     from soulengine import PyRuntime
     SE_AVAILABLE = True
 except Exception as e:
+    print(f"SE import error: {e}")
     pass  # SE unavailability is shown in badge
 
 from textual import on, work

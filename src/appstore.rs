@@ -681,7 +681,7 @@ impl AppStore{
         for (target, emb) in target_map.iter() {
             let cos_sim=cosine(candidate_embedding, emb);
             // print!("Comparing '{}' with '{}': {}", candidate, target, cos_sim);
-            if cos_sim > 0.7 {
+            if cos_sim > 0.75 {
                 matched.push(target.clone());
             }
         }
