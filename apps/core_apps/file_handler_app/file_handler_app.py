@@ -522,4 +522,4 @@ class FileHandlerApp(soul_engine_app):
 # ── Entry point ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app = FileHandlerApp()
-    app.run_repl()
+    app.run_one_shot()

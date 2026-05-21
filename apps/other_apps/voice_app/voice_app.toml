@@ -1,0 +1,152 @@
+app_name            = "Voice App"
+app_path            = "./apps/other_apps/voice_app/voice_app.py"
+app_start_command   = "python"
+app_start_args      = "./apps/other_apps/voice_app/voice_app.py"
+app_handle_name     = "voice_app"
+app_launch_mode     = "REPL"
+
+app_usage_guideline = """
+
+Use this voice when you need a Two-way voice interface with the user.
+you can send text to be spoken aloud, and the user can speak back by pressing the Listen button in the GUI window. The app handles TTS and STT locally, sending transcripts back to you as JSON messages.
+
+## What this app does
+
+### Agent → User  (you send text, user hears it)
+Send text and it is spoken aloud via TTS immediately.
+After speaking, the app automatically resumes listening.
+
+### User → Agent  (mic triggered, transcript arrives automatically)
+When the GUI is open, the user presses the Listen button to speak.
+After silence is detected,user voice is transcribed locally and sends
+the transcript back to you as a JSON message — no extra command needed.
+
+---
+
+## Commands you can send
+
+### listen — open the GUI window and start a voice session
+
+  &voice_app listen
+
+Send this once to open the window. The window shows a Listen button.
+Pressing it starts a recording. When the user goes silent, the transcript
+is sent back to you automatically. The Listen button is re-enabled so the
+user can speak again as many times as they like.
+
+You will receive one of these back immediately as acknowledgment:
+  { "status": "listening", "action": "listen" }
+
+Do NOT send listen again while the GUI is already open — it will be ignored.
+Send listen again only after you receive a "closed" status (window was shut).
+
+### speak / say / tts / read / aloud — speak text to the user
+
+  &voice_app speak <text to say>
+
+All words after the command are joined and spoken.
+No quotes needed. Works at any time, even while the window is open.
+After TTS finishes the app automatically starts listening again.
+
+Examples:
+  &voice_app speak Hello! How can I help you today?
+  &voice_app speak Your task has been completed successfully.
+  &voice_app say Sure, let me look that up for you.
+  &voice_app read Nifty is up 0.4 percent today. Reliance and Infosys are top gainers.
+
+---
+
+## What you receive
+
+### After listen command (immediate acknowledgment)
+  { "status": "listening", "action": "listen" }
+
+### After user speaks (sent automatically, once per recording)
+  {
+    "status":     "ok",
+    "action":     "listen",
+    "transcript": "What is the weather today?",
+    "model":      "base"
+  }
+
+Read "transcript" and respond using &voice_app speak.
+The Listen button is automatically re-enabled — user can speak again immediately.
+
+### When user closes the window
+  { "status": "closed", "action": "listen", "transcript": "" }
+
+After this, send &voice_app listen to reopen the window if needed.
+
+---
+
+## Full conversation example
+
+  1. You send:    &voice_app listen
+     → window opens, Listen button shown
+     → you receive: { "status": "listening" }
+
+  2. You send:    &voice_app speak Hi there! What would you like to know?
+     → user hears it, app auto-resumes listening
+
+  3. User presses Listen, says: "What stocks are trending today?"
+     → you receive: { "status": "ok", "transcript": "What stocks are trending today?" }
+
+  4. You send:    &voice_app speak Today Nifty is up 0.4 percent. Reliance and Infosys are top gainers.
+
+  5. User presses Listen again → repeat from step 3.
+
+  6. User closes window
+     → you receive: { "status": "closed" }
+
+  7. If user asks to open again:
+     You send:    &voice_app listen
+
+---
+
+## Important rules
+  - Send listen ONCE to open the window. Do not resend while it is open.
+  - Resend listen only after receiving { "status": "closed" }.
+  - Do NOT use quoted strings or --flags. Bare words only after the command.
+  - If transcript is empty or nothing detected, prompt user to try again:
+      &voice_app speak I did not catch that. Please press Listen and speak again.
+  - speak works any time — even while the window is open waiting for input.
+
+"""
+
+# ── command signatures ─────────────────────────────────────────────────────────
+
+[[app_command_signatures]]
+command  = "listen"
+consumes = []
+produces = ["gui_window", "transcript_stream"]
+action   = "open_listen_session"
+
+[[app_command_signatures]]
+command  = "speak"
+consumes = ["text_words"]
+produces = ["audio_output"]
+action   = "tts"
+
+[[app_command_signatures]]
+command  = "say"
+consumes = ["text_words"]
+produces = ["audio_output"]
+action   = "tts"
+
+[[app_command_signatures]]
+command  = "tts"
+consumes = ["text_words"]
+produces = ["audio_output"]
+action   = "tts"
+
+[[app_command_signatures]]
+command  = "read"
+consumes = ["text_words"]
+produces = ["audio_output"]
+action   = "tts"
+
+[[app_command_signatures]]
+command  = "aloud"
+consumes = ["text_words"]
+produces = ["audio_output"]
+action   = "tts"

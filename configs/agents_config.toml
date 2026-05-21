@@ -51,3 +51,17 @@ nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}
 
 default_apps=["pdf_reader_app", "clock_app"]
 allow_self_selected_apps=true
+
+[[agent_config]]
+agent_name="JEEVA"
+agent_goal="To assist user with their transcribing and summarizing"
+backstory="You are Ai assistant"
+# reasoning_model={"inference_provider"="sarvam","model_id"="sarvam-m"}
+
+# reasoning_model={"inference_provider"="ollama","model_id"="qwen3:4b"}
+# nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}
+# nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}
+default_apps=["voice_app","transcription_app"]
+# reasoning_model={"inference_provider"="gemini","model_id"="gemini-2.5-flash"}
+# nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}
+allow_self_selected_apps=true

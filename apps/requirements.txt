@@ -1,29 +1,32 @@
-# Core data processing
+# Core data processing and utilities
 numpy
 pandas
 
-# Excel and tabular data handling
+# Tabular data handling (Excel, CSV, ODS, Parquet)
 openpyxl
 xlrd
 odfpy  # OpenDocument format support
-
-# Parquet file support
 pyarrow
 
-# PDF handling
+# PDF processing
 pypdf
 pdfplumber
 
 # Machine learning and text processing
 scikit-learn
 
-# Web and API
+# Web, browser automation, and API
 requests
 playwright
 
-# Audio processing
+# Audio and speech processing
 sounddevice
 faster-whisper
+pyttsx3  # Text-to-speech
+
+# Image processing and vision
+Pillow
+opencv-python
 
 # Financial data
 yfinance

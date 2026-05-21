@@ -36,23 +36,27 @@ pub trait inference_api_trait {
     async fn parse_response(&self, response: String, invoke_type: invoke_type) -> String {
             let parsed: Value = serde_json::from_str(&response).expect("Invalid JSON");
             
-            match invoke_type {
+            let response_str=match invoke_type {
                 invoke_type::Chat => {
                     // error!("{:?}",parsed);
                     parsed["message"]["content"]
                         .as_str()
-                        .expect("Response Parsing Failed")
-                        .to_string()
                 },
                 invoke_type::Generate => {
                     // error!("{:?}",parsed);
                     parsed["response"]
                         .as_str()
-                        .expect("Response Parsing Failed")
-                        .to_string()
                 }
-            }
+            };
 
+            if let Some(content) = response_str {
+                content.to_string()
+            }
+            else{
+                error!("Response Parsing Failed: could not find expected content field in response. Check model availability or API quota. Raw response: {}", response);
+                format!("```output \n Response Parsing Failed: Raw response: {}\n```\n```validation\nthoughts=False\nterminal=False\noutput=True\nfollowup_context=False\nneeds_followup=False\n```", response)
+                
+            }
             // MemoryNode::new("assistant".to_string(), content)
         }
 
@@ -63,7 +67,8 @@ pub trait inference_api_trait {
         memory.iter_memory(None,None,source).await
             .filter(|node| { 
                 // println!("node:{:?}", node);
-                let error_current_invocation_flag=if node.get_node_type()==MemoryNodeType::ModelError || node.get_node_type()==MemoryNodeType::ModelResponse{
+                let node_typ=node.get_node_type();
+                let error_current_invocation_flag=if node_typ==MemoryNodeType::ReflectionPrompt|| node_typ==MemoryNodeType::ModelError || node_typ==MemoryNodeType::ModelResponse{
                     match &invocation_id{
                         Some(in_id)=>{
                             // info!("Filtering for invocation_id: {}, node invocation_id: {:?}", in_id, node.get_invocation_id());

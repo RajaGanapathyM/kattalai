@@ -131,7 +131,7 @@ impl App {
         pub fn get_guidelines(&self)->String{
             self.app_usage_guideline.clone()
         }
-        pub async fn launch(&self) {
+        pub async fn launch(&self, mem_tx_channel: Option<crossbeam::channel::Sender<AgentPulse>>) {
             info!("Starting app: {}", self.app_card.get_name());
 
             match &self.app_type {
@@ -143,6 +143,10 @@ impl App {
                 },
                 AppType::ONE_SHOT => info!("Launching app in ONE_SHOT mode..."),
             }
+
+            if let Some(mem_tx) = mem_tx_channel {
+                self.attach(mem_tx).await;
+            }
             
         }
         
@@ -151,7 +155,7 @@ impl App {
             match &AppResponseParser::parse(&resp){
                 Ok(parsed)=>{
                     // sleep(Duration::from_secs(5));
-                    let new_mem_node=MemoryNode::new(app_card, format!("> APP Returns : APP NAME:{}|App Status:{}|{}",app_card.get_name(),parsed.command.clone(),parsed.message.clone()), None, MemoryNodeType::AppResponse,invocation_id,None);
+                    let new_mem_node=MemoryNode::new(app_card, format!("> APP Returns : APP NAME:{}|App Status:{}|{}",app_card.get_name(),parsed.command.clone(),parsed.message.clone()), None, MemoryNodeType::AppResponse,invocation_id,None,parsed.spill_path.clone());
 
                     info!("[App]{:?}",new_mem_node.get_content());
                     if parsed.command=="APP_EXECUTION_SUCCESS" || parsed.command=="APP_EXECUTION_ERROR" || parsed.command=="APP_INVOKE"{
@@ -313,7 +317,8 @@ struct ParsedResp{
     episode_id:String,
     invocation_id:String,
     message:String,
-    command:String
+    command:String,
+    spill_path:Option<String>
 }
 pub struct AppResponseParser;
 
@@ -340,24 +345,25 @@ impl AppResponseParser  {
         }
     }
 
-    fn resolve_spill(resp:&String)->String{
+    fn resolve_spill(resp:&String)->Option<String>{
         
         info!("Resolving spilled content from file: {:?}",resp);
-        let spillResp:SpillEnvelope= serde_json::from_str(resp).unwrap();
+        let spill_resp:SpillEnvelope= serde_json::from_str(resp).unwrap();
         
 
-        if spillResp.spilled{
-            let spilled_content=fs::read_to_string(&spillResp.file).map_err(|e| format!("{:?}",e)).unwrap();
+        if spill_resp.spilled{
+            Some(spill_resp.file.clone())
+            // let spilled_content=fs::read_to_string(&spillResp.file).map_err(|e| format!("{:?}",e)).unwrap();
 
-            if let Err(e)=fs::remove_file(&spillResp.file){
-                error!("Failed to remove spill file: {:?}. Error: {:?}",spillResp.file,e);
-            }
+            // if let Err(e)=fs::remove_file(&spillResp.file){
+            //     error!("Failed to remove spill file: {:?}. Error: {:?}",spillResp.file,e);
+            // }
 
 
-            return spilled_content;
+            // return spilled_content;
         }
         else{
-            return resp.clone();
+            None//return resp.clone();
         }
     }
 
@@ -373,12 +379,12 @@ impl AppResponseParser  {
             let episode_id=cap.name("episode_id").unwrap().as_str().to_string();
             let invocation_id=cap.name("invocation_id").unwrap().as_str().to_string();
             let mut msg=cap.name("message").unwrap().as_str().to_string();
-
+            let mut spill_path=None;
             if msg.contains("__spilled__"){
-                msg=AppResponseParser::resolve_spill(&msg);
+                spill_path=AppResponseParser::resolve_spill(&msg);
             }
 
-            Ok(ParsedResp{episode_id,invocation_id,message:msg,command})
+            Ok(ParsedResp{episode_id,invocation_id,message:msg,command,spill_path})
 
         }
         else{

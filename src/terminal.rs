@@ -34,12 +34,20 @@ impl Terminal{
         drop(app_hook_loc);
 
         if has_app{
-            app.launch().await;
+            
+            if let Some(mem_rx)=self.interface_memory_tx.clone(){
+                
+                // self.attach_memory(mem_rx).await;
+                app.launch(Some(mem_rx.clone())).await;
+                info!("Attached app:{}",app_handle_name);
+            
+            }
+            else{
+                app.launch(None).await;
+            }
             self.app_hooks.write().await.insert(format!("&{}", app_handle_name), Arc::new(app));
             info!("App Launched: {}",app_handle_name);
-            if let Some(mem_rx)=self.interface_memory_tx.clone(){
-                self.attach_memory(mem_rx).await;
-            }
+            
         }
         else{
             info!("App Alread Exist: {}",app_handle_name);
@@ -99,7 +107,7 @@ impl Terminal{
                     else{
                         error_ls.push(format!("App with handle name '{}' not found for command execution.", app_handle_name));
                     }
-                    error_ls.push(format!("App with handle name '{}' not found for command execution.", app_handle_name));
+                    // error_ls.push(format!("App with handle name '{}' not found for command execution.", app_handle_name));
                 }
 
             }
