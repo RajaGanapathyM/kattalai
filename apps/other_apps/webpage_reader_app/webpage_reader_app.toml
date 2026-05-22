@@ -1,6 +1,6 @@
 app_name="Webpage Reader"
 app_path="./apps/other_apps/webpage_reader_app/webpage_reader_app.py"
-app_start_command="C:\\Users\\RG\\anaconda3\\python.exe"
+app_start_command="python"
 app_start_args="./apps/other_apps/webpage_reader_app/webpage_reader_app.py"
 app_handle_name="webpage_reader"
 app_launch_mode="REPL"
