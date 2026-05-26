@@ -433,7 +433,7 @@ impl AppStore{
 
     pub async fn resolve_tools(&self,episode_memory:Arc<Memory>,cntxt_content:String,source:Option<&Source>)->(HashSet<String>, String){
 
-        let history_lookup_len=50 as isize;
+        let history_lookup_len=2 as isize;
         let memory_len=episode_memory.get_memory_len().await as isize;
         let mut detected_app_chains:HashSet<String> = HashSet::new();
         let mut include_chain=false;
@@ -480,7 +480,7 @@ impl AppStore{
             .into_iter().collect();
         
         info!("types_mapped{:?}",types_mapped);
-        let mut collected_pairs: HashSet<String> = HashSet::new();
+        let mut collected_pairs: HashMap<String, u32> = HashMap::new();
         for (s,t) in self.all_pairs(&types_mapped).iter(){
             if s==t{
                 continue;
@@ -493,11 +493,11 @@ impl AppStore{
             }
             
             let tool_chain=tool_chain.unwrap();
-            for obj in tool_chain.clone().iter(){
-                if let Some(app)=self.object_apps.get(obj){
-                    collected_pairs.extend(app.clone());
-                }
-            }
+            // for obj in tool_chain.clone().iter(){
+            //     if let Some(app)=self.object_apps.get(obj){
+            //         *collected_pairs.entry(app.clone()).or_insert(0) += 1;
+            //     }
+            // }
 
             let mut app_chains:Vec<Vec<String>>=Vec::new();
             include_chain=false;
@@ -510,14 +510,17 @@ impl AppStore{
 
                     if self.consume_produce_apps.contains_key(&nkey){
                         if let Some(app)=self.consume_produce_apps.get(&nkey){
-                            collected_pairs.extend(app.clone());
+                            
 
                             
                             let mut temp_chain=Vec::new();
 
-                            for each_app in app.iter(){
-                                if app_chains.len()>0{
-                                    include_chain=true;
+                            
+                            if app_chains.len()>0{
+                                include_chain=true;   
+                                for each_app in app.iter(){  
+                                    *collected_pairs.entry(each_app.clone()).or_insert(0) += 1;                          
+                                    
                                     for each_chain in app_chains.iter(){
                                         let mut new_chain=each_chain.clone();
                                         
@@ -531,11 +534,12 @@ impl AppStore{
                                         // temp_chain.push(format!("{} -> &{}",each_chain,each_app));
                                     }
                                 }
-                                else{
-                                    for each_app in app.iter(){
-                                        temp_chain.push(vec![format!("&{} {}",each_app,b)]);
-                                        // temp_chain.push(format!("&{}",each_app));
-                                    }
+                            }
+                            else{
+                                for each_app in app.iter(){
+                                    *collected_pairs.entry(each_app.clone()).or_insert(0) += 1;  
+                                    temp_chain.push(vec![format!("&{} {}",each_app,b)]);
+                                    // temp_chain.push(format!("&{}",each_app));
                                 }
                             }
                             app_chains=temp_chain;
@@ -642,14 +646,26 @@ impl AppStore{
 
         for (app_handle,guideline_embed) in self.guidelines_embeddings.iter(){
             if cosine(&conv_embedding[0], &guideline_embed)>0.75{
-                collected_pairs.insert(app_handle.clone());
+                *collected_pairs.entry(app_handle.clone()).or_insert(0) += 1;
             }
             else if conv_str.contains(app_handle){
-                collected_pairs.insert(app_handle.clone());
+                *collected_pairs.entry(app_handle.clone()).or_insert(0) += 1;
             }
         }
         info!("Shortlisted Apps:{:?}",collected_pairs);
-        (collected_pairs,app_chain_str)
+        let std_apps=vec![
+            "protocoladmin".to_string(),
+            "appfinder".to_string(),
+            "codex_app".to_string(),
+        ];
+
+        collected_pairs.retain(|app, _| !std_apps.contains(app) );
+
+        let max_count=collected_pairs.values().cloned().max().unwrap_or(2).max(2);
+        collected_pairs.retain(|_, count| *count == max_count);
+        let collected_apps=collected_pairs.keys().cloned().collect::<HashSet<String>>();
+        
+        (collected_apps,app_chain_str)
     }
     fn resolve_type(
         &self,
