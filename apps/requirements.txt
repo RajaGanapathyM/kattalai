@@ -33,3 +33,7 @@ yfinance
 
 # TOML parsing (for Python < 3.11; built-in tomllib in Python 3.11+)
 tomli
+
+#RSS App related
+feedparser 
+rank_bm25

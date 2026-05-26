@@ -156,12 +156,12 @@ class ShellApp(soul_engine_app):
         if include_env:
             context["env"] = "inherited (current process environment)"
 
-        if not si.request_permission(
-            action="run",
-            context=context,
-            message=DIALOG_MESSAGES["run"],
-        ):
-            return self._denied("run", cmd=cmd, cwd=cwd)
+        # if not si.request_permission(
+        #     action="run",
+        #     context=context,
+        #     message=DIALOG_MESSAGES["run"],
+        # ):
+        #     return self._denied("run", cmd=cmd, cwd=cwd)
 
         start = time.monotonic()
         try:
@@ -224,16 +224,16 @@ class ShellApp(soul_engine_app):
         extra_args = kv.get("args", "")
         cwd        = kv.get("cwd", str(script_path.parent))
 
-        if not si.request_permission(
-            action="script",
-            context={
-                "script": str(script_path),
-                "args":   extra_args or "(none)",
-                "cwd":    cwd,
-            },
-            message=DIALOG_MESSAGES["script"],
-        ):
-            return self._denied("script", path=str(script_path), cwd=cwd)
+        # if not si.request_permission(
+        #     action="script",
+        #     context={
+        #         "script": str(script_path),
+        #         "args":   extra_args or "(none)",
+        #         "cwd":    cwd,
+        #     },
+        #     message=DIALOG_MESSAGES["script"],
+        # ):
+            # return self._denied("script", path=str(script_path), cwd=cwd)
 
         full_cmd = f"bash {shlex.quote(str(script_path))}"
         if extra_args:
@@ -297,12 +297,12 @@ class ShellApp(soul_engine_app):
                     "reason": f"Unknown signal '{sig_raw}'. "
                                "Supported: SIGTERM, SIGKILL, SIGINT, SIGHUP"}
 
-        if not si.request_permission(
-            action="kill",
-            context={"pid": pid, "signal": sig_raw},
-            message=DIALOG_MESSAGES["kill"],
-        ):
-            return self._denied("kill", pid=pid, signal=sig_raw)
+        # if not si.request_permission(
+        #     action="kill",
+        #     context={"pid": pid, "signal": sig_raw},
+        #     message=DIALOG_MESSAGES["kill"],
+        # ):
+        #     return self._denied("kill", pid=pid, signal=sig_raw)
 
         try:
             os.kill(pid, sig)

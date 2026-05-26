@@ -193,7 +193,8 @@ async fn main() {
     // let my_msg="add the following, 23+45".to_string();
     // let my_msg="which one is best Engineer or doctor".to_string();
     // let my_msg="Suprise me!".to_string();
-    let my_msg="What is a prime number".to_string();
+    // let my_msg="What is a prime number".to_string();
+    let my_msg="subscribe to this rss feed and summarise latest news https://www.reddit.com/r/worldnews/new/.rss".to_string();
     
 // let msg="".to_string();
     println!("Inserting message: {}", my_msg);
