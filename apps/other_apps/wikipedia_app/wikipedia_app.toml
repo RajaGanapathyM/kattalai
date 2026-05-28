@@ -1,0 +1,150 @@
+app_name="Wikipedia App"
+app_path="./apps/other_apps/wikipedia_app/wikipedia_app.py"
+app_start_command="python"
+app_start_args="./apps/other_apps/wikipedia_app/wikipedia_app.py"
+app_handle_name="wikipedia_app"
+app_launch_mode="ONE_SHOT"
+app_usage_guideline="""
+Use this app to search and retrieve content from Wikipedia.
+All commands support a 'lang' parameter (default: "en") to query any language edition.
+
+## Dependencies
+  pip install requests
+
+## Supported Commands
+
+### search
+  Full-text search. Returns a ranked list of matching article titles and snippets.
+  Required: query
+  Optional: lang (default: en), limit (default: 5)
+  &wikipedia_app search query="Chennai export companies"
+  &wikipedia_app search query="soulengine Rust" lang=en limit=10
+
+### summary
+  Fetches the introductory summary (lead section) of an article.
+  Required: title
+  Optional: lang (default: en), max_chars (default: 2000)
+  &wikipedia_app summary title="Tamil Nadu"
+  &wikipedia_app summary title="Chennai" lang=ta max_chars=500
+
+### sections
+  Lists all section headings of an article with their level and anchor.
+  Use section 'index' values with the 'content' command to fetch specific sections.
+  Required: title
+  Optional: lang
+  &wikipedia_app sections title="Chennai"
+  &wikipedia_app sections title="Rust (programming language)"
+
+### content
+  Fetches full plain-text content of an article.
+  Optional: section (index from 'sections' command, e.g. section=2)
+  Required: title
+  Optional: lang, section
+  &wikipedia_app content title="Chennai"
+  &wikipedia_app content title="Chennai" section=3
+
+### links
+  Returns internal Wikipedia links found in an article body.
+  Required: title
+  Optional: lang, limit (default: 50)
+  &wikipedia_app links title="Chennai"
+  &wikipedia_app links title="India" limit=20
+
+### images
+  Lists image filenames used in an article.
+  Required: title
+  Optional: lang, limit (default: 20)
+  &wikipedia_app images title="Taj Mahal"
+
+### geo
+  Returns geographic coordinates (lat/lon) for a place article.
+  Required: title
+  Optional: lang
+  &wikipedia_app geo title="Chennai"
+  &wikipedia_app geo title="Ooty"
+
+### random
+  Returns one or more random Wikipedia article titles.
+  Optional: lang (default: en), count (default: 1, max: 10)
+  &wikipedia_app random
+  &wikipedia_app random count=5 lang=ta
+
+### langlinks
+  Lists all available language versions of an article.
+  Required: title
+  Optional: lang (default: en), limit (default: 30)
+  &wikipedia_app langlinks title="Chennai"
+
+## Path / Language Notes
+  lang=en  -> English Wikipedia (default)
+  lang=ta  -> Tamil Wikipedia
+  lang=hi  -> Hindi Wikipedia
+  lang=fr  -> French Wikipedia
+  (any valid ISO 639-1 language code supported by Wikipedia)
+
+## Output Behavior
+* search    -> total_hits, results [{title, pageid, snippet, word_count, timestamp}]
+* summary   -> title, pageid, url, summary, char_count
+* sections  -> section_count, sections [{index, level, anchor, title}]
+* content   -> title, pageid, url, section, char_count, content
+* links     -> link_count, links [title, ...]
+* images    -> image_count, images [filename, ...]
+* geo       -> title, lat, lon, globe
+* random    -> count, articles [{title, pageid}]
+* langlinks -> available_languages, langlinks [{lang, title}]
+* All errors return status="error", error_code, and reason.
+"""
+
+[[app_command_signatures]]
+command = "search"
+consumes = ["query", "lang", "limit"]
+produces = ["total_hits", "results"]
+action = "read"
+
+[[app_command_signatures]]
+command = "summary"
+consumes = ["title", "lang", "max_chars"]
+produces = ["title", "pageid", "url", "summary", "char_count"]
+action = "read"
+
+[[app_command_signatures]]
+command = "sections"
+consumes = ["title", "lang"]
+produces = ["section_count", "sections"]
+action = "read"
+
+[[app_command_signatures]]
+command = "content"
+consumes = ["title", "lang", "section"]
+produces = ["title", "pageid", "url", "content", "char_count"]
+action = "read"
+
+[[app_command_signatures]]
+command = "links"
+consumes = ["title", "lang", "limit"]
+produces = ["link_count", "links"]
+action = "read"
+
+[[app_command_signatures]]
+command = "images"
+consumes = ["title", "lang", "limit"]
+produces = ["image_count", "images"]
+action = "read"
+
+[[app_command_signatures]]
+command = "geo"
+consumes = ["title", "lang"]
+produces = ["lat", "lon", "globe"]
+action = "read"
+
+[[app_command_signatures]]
+command = "random"
+consumes = ["lang", "count"]
+produces = ["articles"]
+action = "read"
+
+[[app_command_signatures]]
+command = "langlinks"
+consumes = ["title", "lang", "limit"]
+produces = ["available_languages", "langlinks"]
+action = "read"

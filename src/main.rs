@@ -195,7 +195,7 @@ async fn main() {
     // let my_msg="Suprise me!".to_string();
     // let my_msg="What is a prime number".to_string();
     // let my_msg="subscribe to this rss feed and summarise latest news https://www.reddit.com/r/worldnews/new/.rss".to_string();
-    let my_msg="delegate an example task to email_drafter subworker of your choice".to_string();
+    let my_msg="Understand about chennai and delegate to email_drafter to write about chennai".to_string();
     
 // let msg="".to_string();
     println!("Inserting message: {}", my_msg);

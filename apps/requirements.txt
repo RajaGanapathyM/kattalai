@@ -37,3 +37,5 @@ tomli
 #RSS App related
 feedparser 
 rank_bm25
+#wikiapp
+wikipedia-api

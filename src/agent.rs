@@ -84,7 +84,8 @@ pub enum PromptStyle{
     RAC,
     TOF,
     PROTOCOL,
-    REPAIR
+    REPAIR,
+    PREFLIGHT
 }
 pub struct episode{
     episode_id:String,
@@ -1319,6 +1320,7 @@ impl Agent{
         const  MAX_RUN_ALLOWED:i32=7;
         // let repair_prompt_template=;
         let mut repair_prompt=String::new();
+        let preflight_prompt=include_str!("../prompts/AGENT_PREFLIGHT_PROMPT.md").to_string();
         let mut parsed_response=ParsedResponse{validation_block:None,thoughts:None,commands:None,outputs:None,followup_context:None,success:false};
 
         let invoking_episode_id:Option<String>=match &episode_id{
@@ -1337,7 +1339,8 @@ impl Agent{
 
         let mut last_response_empty=false;
         let mut meta_cog_msg_sent=false;
-        
+        let mut preflight_response=String::new();
+
         while need_rerun && run_count<MAX_RUN_ALLOWED {
             
 
@@ -1350,6 +1353,23 @@ impl Agent{
 
             if let Some(invoke_epid)= &invoking_episode_id{
                 info!("Invoking Model for episode:{} | MetaCog:{}",invoke_epid,is_metacog_run);
+                agent_tx.send(AgentPulse::lockAgentForEpisode(invoke_epid.clone())).unwrap();
+                agent_tx.send(AgentPulse::SetMetaCogSkip(invoke_epid.clone(),is_metacog_run.clone())).unwrap();
+                
+                
+
+                if run_count==0 && !is_metacog_run{
+                    info!("Invoking PREFLIGHTModel for episode:{} | MetaCog:{}",invoke_epid,is_metacog_run);
+                    preflight_response=reasoning_model_clone.chat(current_episode_memory.clone(),
+                            preflight_prompt.clone(),
+                        Some(invoc_id.clone()),Some(&agent_card)).await;
+                    agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, preflight_response.clone(),
+                                                Some(PromptStyle::PREFLIGHT),
+                                                MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None),
+                            Some(invoke_epid.clone()))).unwrap();
+                    info!("PREFLIGHT MODEL RESP Agent :{} for episode:{} | MetaCog:{} |\n{}",agent_card.get_name(),invoke_epid,is_metacog_run,preflight_response);
+
+                }
                 let lookupid:&String=invoke_epid;
                 
                 let mut choosen_prompt: Option<PromptStyle>;
@@ -1357,7 +1377,12 @@ impl Agent{
                     invoc_id=Uuid::now_v7().to_string();
                     info!(" Agent :{} | MetaCog:{} | Invoking Reasoning prompt  | Episode Id:{} |",agent_card.get_name(),is_metacog_run,invoke_epid.clone());
                     choosen_prompt=Some(PromptStyle::REASONING);
-                    agent_prompt.clone()
+                    if is_metacog_run{
+                        agent_prompt.clone()
+                    }
+                    else{
+                        format!("{}\n[PREFLIGHT CONTEXT]\n{}", agent_prompt.clone(), preflight_response.clone())
+                    }
                 }
                 else if run_count==1 || run_count==3 || run_count==5{
                     info!(" Agent :{} | MetaCog:{} | Invoking Repair prompt | Episode Id:{} |",agent_card.get_name(),is_metacog_run,invoke_epid.clone());
@@ -1368,13 +1393,23 @@ impl Agent{
                     invoc_id=Uuid::now_v7().to_string();
                     info!(" Agent :{} | MetaCog:{} | Invoking RAC prompt | Episode Id:{} |",agent_card.get_name(),is_metacog_run,invoke_epid.clone());
                     choosen_prompt=Some(PromptStyle::RAC);
-                    agent_rac_prompt.clone()
+                    if is_metacog_run{
+                        agent_rac_prompt.clone()
+                    }
+                    else{
+                        format!("{}\n[PREFLIGHT CONTEXT]\n{}", agent_rac_prompt.clone(), preflight_response.clone())
+                    }
                 }
                 else{
                     invoc_id=Uuid::now_v7().to_string();
                     info!(" Agent :{} | MetaCog:{} | Invoking TOF prompt | Episode Id:{} |",agent_card.get_name(),is_metacog_run,invoke_epid.clone());
                     choosen_prompt=Some(PromptStyle::TOF);
-                    agent_tof_prompt.clone()
+                    if is_metacog_run{
+                        agent_tof_prompt.clone()
+                    }
+                    else{
+                        format!("{}\n[PREFLIGHT CONTEXT]\n{}", agent_tof_prompt.clone(), preflight_response.clone())
+                    }
                 };
                 if is_metacog_run && !meta_cog_msg_sent{
                     let reflectorcard=Source::new(Role::User,format!("{}reflector",agent_card.get_name()),None);
@@ -1387,10 +1422,6 @@ impl Agent{
                     info!("Waiting for Reflector Init Message");
                     tokio::time::sleep(Duration::from_secs(2)).await;
                 }
-                agent_tx.send(AgentPulse::lockAgentForEpisode(invoke_epid.clone())).unwrap();
-                agent_tx.send(AgentPulse::SetMetaCogSkip(invoke_epid.clone(),is_metacog_run.clone())).unwrap();
-                
-                
                 // info!("FINAL PROMPT:{}",final_agent_prompt);
                 let resp=reasoning_model_clone.chat(current_episode_memory.clone(),
                 final_agent_prompt,
