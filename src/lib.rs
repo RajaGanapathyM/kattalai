@@ -94,7 +94,7 @@ impl Runtime{
         let app_store=AppStore::new("./apps/".to_string(),embedder.clone()).await;
         let inference_store=InferenceStore::load_configs("./configs/inference_config.toml");
         let protocol_store=ProtocolStore::new("./protocols/".to_string(),app_store.clone(),inference_store.clone());
-        let agent_store=AgentStore::load_agents("./configs/agents_config.toml", inference_store.clone(), app_store.clone(),protocol_store.clone());
+        let agent_store=AgentStore::load_agents("./configs/agents_config.toml","./configs/subagents_config.toml", inference_store.clone(), app_store.clone(),protocol_store.clone());
 
         let sharedruntime= Arc::new(RwLock::new(Self{
             topics:HashMap::new(),
@@ -126,7 +126,9 @@ impl Runtime{
         info!("Starting Cogitare Agent...");
         let shared_rt=sharedruntime.read().await;
         info!("Cogitare Agent Started");
-        let cogitare_agent=shared_rt.agent_store.get_agent("Cogitare".to_string());
+        let cogitare_agent=shared_rt.agent_store.get_agent("Cogitare".to_string(),shared_rt.agent_store.clone()).await.unwrap();
+
+
         info!("Cogitare Agent instance obtained from Agent Store.");
         let mut agent_episode_lastseen_length:HashMap<String,usize>=HashMap::new();
         drop(shared_rt);
@@ -246,7 +248,7 @@ impl Runtime{
 
     }
     pub async fn deploy_agent(&mut self,agent_name:String)->String{
-        let agent=self.agent_store.get_agent(agent_name);
+        let agent=self.agent_store.get_agent(agent_name,self.agent_store.clone()).await.unwrap();
         let agent_id=agent.read().await.get_agent_id();
         self.agents.insert(agent_id.clone(), agent.clone());
         agent_id

@@ -1,4 +1,4 @@
-use crate::agent::{Agent, PromptStyle,agent_model_config};
+use crate::agent::{self, Agent, PromptStyle, agent_model_config};
 use crate::app::App;
 use tokio::runtime::Handle;
 use futures::executor::block_on;
@@ -13,11 +13,12 @@ use crate::inference::{inference_api_trait};
 use crate::terminal::Terminal;
 use arc_swap::cache;
 use crate::appstore::AppStore;
+use crate::agent::AgentStore;
+use std::sync::Arc;
 use crate::config::InferenceConfig;
 use crate::source::{Source,Role};
 use uuid::Uuid;
 use std::fmt::format;
-use std::sync::Arc;
 use std::fs;
 use crate::config::InferenceStore;
 use std::hash::Hash;
@@ -60,7 +61,7 @@ impl Protocol{
         
         let pcard=Source::new(Role::App,format!("{}ProtocolRunner",protocol_config.protocol_name.clone()),None);
 
-        let terminal=Arc::new(Terminal::new(Some(app_store.clone()), interface_memory.get_memory_tx().clone()));
+        let terminal=Arc::new(Terminal::new(Some(app_store.clone()), interface_memory.get_memory_tx().clone(), None));
         for app_handle_name in protocol_config.apps_used.iter(){
             let app=app_store.clone_app(app_handle_name.clone());
             if app.is_none(){
@@ -124,7 +125,7 @@ impl Protocol{
 
                             if let Some(app_command) = &step.app_command{
                                 info!("Running app command: {}", app_command);
-                                self.terminal.execute_command(app_command.clone(),self.interface_memory._memory_id.clone(),invocation_id.clone()).await;
+                                self.terminal.execute_command(app_command.clone(),self.interface_memory._memory_id.clone(),invocation_id.clone(),false).await;
                                 wait_sec=15;
                             }
                             if let Some(prompt) = &step.prompt{
