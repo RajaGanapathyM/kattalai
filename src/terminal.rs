@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use app::App;
 use std::collections::HashMap;
 use crate::appstore::AppStore;
+use crate::agent::AgentStore;
 use crate::memory::Memory;
 use std::sync::{Arc};
 use tokio::sync::RwLock;
@@ -15,15 +16,17 @@ pub struct Terminal{
     app_hooks:Arc<RwLock<HashMap<String, Arc<App>>>>,
     interface_memory_tx:Option<crossbeam::channel::Sender<AgentPulse>>,
     app_store:Option<Arc<AppStore>>,
+    agent_store:Option<Arc<AgentStore>>
 }
 
 impl Terminal{
-    pub fn new(app_store:Option<Arc<AppStore>>,interface_memory_tx:Option<crossbeam::channel::Sender<AgentPulse>>) -> Self {
+    pub fn new(app_store:Option<Arc<AppStore>>,interface_memory_tx:Option<crossbeam::channel::Sender<AgentPulse>>,agent_store:Option<Arc<AgentStore>>) -> Self {
         Self {
             env_vars: Vec::new(),
             app_hooks:Arc::new(RwLock::new(HashMap::new())),
             interface_memory_tx,
-            app_store
+            app_store,
+            agent_store
         }
     }
 
@@ -81,7 +84,7 @@ impl Terminal{
         format!("{}\nApps Guidebook:\n{}", app_list, app_guide_book)
     }
 
-    pub async fn validate_app_commands(&self,commands:&Vec<String>)->Vec<String>{
+    pub async fn validate_app_commands(&self,commands:&Vec<String>,is_subtask:bool)->Vec<String>{
         let mut error_ls:Vec<String>=Vec::new();
         for cmd in commands{
             let command_args=cmd.split_whitespace().collect::<Vec<&str>>();
@@ -111,7 +114,24 @@ impl Terminal{
                 }
 
             }
+            else if app_handle_name.starts_with("@") {
+                if is_subtask{
+                    error_ls.push("This is subtask routine.Task delegation to other agents is not allowed to be used inside subtask execution.".to_string());
+                }
+                if self.agent_store.is_none(){
+                    error_ls.push(format!("Agent store not available for validating agent route command: {}. Typically this means routing to other agents are prohibited.", cmd));
+                    continue;
+                }
+                if let Some(local_agent_store)=self.agent_store.clone(){
+                    if let Err(e) = local_agent_store.validate_route_command(cmd.clone()).await {
+                        error_ls.push(format!("Agent Route command validation failed: {}", e));
+                    }
+                }
+            }
             else if app_handle_name.starts_with("/") {
+                if is_subtask{
+                    error_ls.push("This is subtask routine.Protocol usage is not allowed to be used inside subtask execution.".to_string());
+                }
                 continue;
             }
             else{
@@ -121,14 +141,14 @@ impl Terminal{
         error_ls
     }
 
-    pub async fn execute_multi_commands(&self,commands:&Vec<String>,episode_id:String,invocation_id:String){
+    pub async fn execute_multi_commands(&self,commands:&Vec<String>,episode_id:String,invocation_id:String,is_subtask:bool){
         for command in commands{
             info!("Executing command:{}",command);
-            self.execute_command(command.clone(),episode_id.clone(),invocation_id.clone()).await;
+            self.execute_command(command.clone(),episode_id.clone(),invocation_id.clone(),is_subtask).await;
         }
     }
-    pub async fn execute_command(&self, command: String,episode_id:String,invocation_id:String) {
-        if self.validate_app_commands(&vec![command.clone()]).await.len()>0{
+    pub async fn execute_command(&self, command: String,episode_id:String,invocation_id:String,is_subtask:bool) {
+        if self.validate_app_commands(&vec![command.clone()],is_subtask).await.len()>0{
             error!("Command validation failed for command:{}",command);
             return;
         }

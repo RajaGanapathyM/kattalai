@@ -1,5 +1,6 @@
 use crate::appstore::AppStore;
 use futures::executor::block_on;
+use futures::task;
 use crate::{agent, memory, source};
 use crate::memory::{Memory,MemoryNode,MemoryNodeType,IOPhase};
 use crate::source::{Source,Role};
@@ -12,7 +13,7 @@ use core::error;
 use chrono::Local;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::hash::Hash;
-use std::mem;
+use std::mem::{self, transmute};
 use std::process::Output;
 use std::ptr::read;
 use std::sync::{Arc};
@@ -22,6 +23,8 @@ use anyhow::Error;
 use regex::Regex;
 use reqwest::header::AGE;
 use std::fmt::{self, format};
+
+use std::result::Result;
 use serde::Deserialize;
 use std::fs;
 use crate::InferenceStore;
@@ -91,9 +94,25 @@ pub struct episode{
     last_fetched_imemory_id:Mutex<Option<String>>,
     agent_lock:Mutex<bool>,
     followup_planned:Mutex<bool>,
-    metacog_skip:Mutex<bool>
+    metacog_skip:Mutex<bool>,
+    is_subtask:bool,
+    main_agent_tx:Option<channel::Sender<AgentPulse>>,
+    main_agent_epid:Option<String>
 }
 impl  episode {
+
+    pub fn is_subtask(&self)->bool{
+        self.is_subtask.clone()
+    }
+
+    pub fn get_mainagent_epid(&self)->Option<String>{
+        if let Some(meid)=&self.main_agent_epid{
+            Some(meid.clone())
+        }
+        else{
+            None
+        }
+    }
     pub fn get_episode_id(&self)->String{
         self.episode_id.clone()
     }
@@ -158,6 +177,7 @@ impl  episode {
 pub enum AgentPulse{
     Invoke(Option<String>),
     Generate,
+    ResolveTask(String,String,Option<Arc<Memory>>,Option<channel::Sender<AgentPulse>>,Option<String>),
     NewEpisode(String,Option<Arc<Memory>>,bool),
     AttachApp(App),
     AddMemory(MemoryNode,Option<String>),
@@ -198,12 +218,14 @@ pub struct agent_model_config{
 pub struct agent_config{
     agent_name:String,
     agent_goal:String,
+    agent_capability_statement:Option<String>,
     backstory:String,
     reasoning_model:Option<agent_model_config>,
     nlp_model:Option<agent_model_config>,
     default_apps:Vec<String>,
     allow_self_selected_apps:bool,
-    is_public:Option<bool>
+    is_public:Option<bool>,
+    is_subagent:Option<bool>
 }#[derive(Deserialize,Clone)]
 pub struct DefaultModelConfig{
     default_reasoning_model:agent_model_config,
@@ -218,18 +240,23 @@ pub struct AgentStore{
     agents_config:HashMap<String,agent_config>,
     inference_store:Arc<InferenceStore>,
     app_store:Arc<AppStore>,
-    protocols_store:Arc<ProtocolStore>
+    protocols_store:Arc<ProtocolStore>,
+    activated_agents:Arc<RwLock<HashMap<String,Arc<RwLock<Arc<Agent>>>>>>,
 
 }
 impl AgentStore{
-    pub fn load_agents(agent_config_path:&str,inference_store:Arc<InferenceStore>,app_store:Arc<AppStore>,protocols_store:Arc<ProtocolStore>)->Self{
+    pub fn load_agents(agent_config_path:&str,subagent_config_path:&str,inference_store:Arc<InferenceStore>,app_store:Arc<AppStore>,protocols_store:Arc<ProtocolStore>)->Self{
         let content = fs::read_to_string(agent_config_path).unwrap();
+        let subagent_content=fs::read_to_string(subagent_config_path).unwrap();
         let cogitare_toml=include_str!("../prompts/cogitare_config.toml").to_string();
         let default_model_toml=fs::read_to_string("./configs/model_config.toml").unwrap();
         let mut config: AgentConfigs = toml::from_str(&content).unwrap();
+        let mut subagent_config: AgentConfigs = toml::from_str(&subagent_content).unwrap();
         let cogitare_config: AgentConfigs = toml::from_str(&cogitare_toml).unwrap();
         let default_model_config: DefaultModelConfig = toml::from_str(&default_model_toml).unwrap();
         config.agent_config.push(cogitare_config.agent_config[0].clone());
+        config.agent_config.extend(subagent_config.agent_config.clone());
+
 
         for agent_conf in config.agent_config.iter_mut(){
             if agent_conf.reasoning_model.is_none(){
@@ -259,14 +286,15 @@ impl AgentStore{
 
                 }
             }
-            agent_map.insert(agent.agent_name.clone(), agent.clone());
+            agent_map.insert(agent.agent_name.clone().to_lowercase(), agent.clone());
         }
 
         Self{
             agents_config:agent_map,
             inference_store,
             app_store,
-            protocols_store
+            protocols_store,
+            activated_agents:Arc::new(RwLock::new(HashMap::new()))
         }
 
     }
@@ -281,11 +309,46 @@ impl AgentStore{
         agents.sort();
         agents
     }
-    pub fn get_agent(&self,agent_name:String)->Arc<RwLock<Arc<Agent>>>{
+    pub async fn validate_route_command(&self,command_str:String)->Result<(),String>{
+        let trimmed_cmd=command_str.trim();
+        if trimmed_cmd.starts_with("@") {
+            let agent_name=trimmed_cmd[1..].split_whitespace().collect::<Vec<&str>>()[0].to_string();
+            if !self.agents_config.contains_key(&agent_name.to_lowercase()){
+                return Err(format!("Agent with name '{}' not found for task routing.", agent_name));
+            }
+            Ok(())
+        }
+        else{
+            Err(format!("Command '{}' not recognized as a valid route command.", command_str))
+        }
+    }
+    pub async fn route_task(&self,command_str:String,arc_self:Arc<Self>,current_episode_memory:Arc<Memory>,main_agent_tx:Option<channel::Sender<AgentPulse>>,mainagent_epid:Option<String>)->Result<String,String>{
+        let splited_cmd=command_str.trim().split_whitespace().collect::<Vec<&str>>();
+        let agent_name=splited_cmd[0][1..].to_string().to_lowercase();
+        let task_desc=splited_cmd[1..].join(" ");
+        let target_agent=self.get_agent(agent_name.clone(),arc_self.clone()).await;
+        match target_agent{
+            Ok(agent_lock)=>{
+                let agent=agent_lock.read().await;
+                let task_id=format!("SUBTASK_{}", Uuid::now_v7().to_string());
+                agent._agent_tx.send(AgentPulse::ResolveTask(task_id,task_desc,Some(current_episode_memory.clone()),main_agent_tx,mainagent_epid)).or_else(|e| Err(e)).unwrap();
+                Ok(format!("Task routed to agent:{}",agent_name))
+            },
+            Err(e)=>{
+                Err(format!("Failed to route task to agent:{} | Error:{}",agent_name,e))
+            }
+        }
 
-        if self.agents_config.contains_key(&agent_name){
+    }
+    pub async fn get_agent(&self,agent_name:String,arc_self:Arc<Self>)->Result<Arc<RwLock<Arc<Agent>>>, String>{
+        let readble_activated_agents=self.activated_agents.read().await;
+        if readble_activated_agents.contains_key(&agent_name.to_lowercase()){
+            return Ok(readble_activated_agents.get(&agent_name.to_lowercase()).unwrap().clone());
+        }
+        drop(readble_activated_agents);
+        if self.agents_config.contains_key(&agent_name.to_lowercase()){
 
-            let aconfig=self.agents_config.get(&agent_name).unwrap();
+            let aconfig=self.agents_config.get(&agent_name.to_lowercase()).unwrap();
 
             
 
@@ -302,7 +365,8 @@ impl AgentStore{
                     None,
                     self.app_store.clone(),
                     self.protocols_store.clone(),
-                    aconfig.allow_self_selected_apps
+                    aconfig.allow_self_selected_apps,
+                    Some(arc_self.clone())
                 );
 
             for dapp in &aconfig.default_apps{
@@ -314,14 +378,27 @@ impl AgentStore{
                 }
                 block_on(Agent::ping(&first_agent,AgentPulse::AttachApp(identified_app.unwrap())));
             }
+            let mut writeble_activated_agents=self.activated_agents.write().await;
+
+            writeble_activated_agents.insert(agent_name.clone().to_lowercase(), first_agent.clone());
             
-            first_agent
+            Ok(first_agent)
         }
         else{
-            panic!("No agent named:{} found",agent_name);
+            Err(format!("No agent named:{} found",agent_name))
         }
 
 
+    }
+
+    pub fn get_subagents_book(&self)->String{
+        let mut subagent_book=String::new();
+        for (agent_name,agent_config) in &self.agents_config{
+            if agent_config.is_subagent.unwrap_or(false){
+                subagent_book.push_str(&format!("Subagent Name: {}, Capability: {}\n", agent_name, agent_config.agent_goal));
+            }
+        }
+        subagent_book
     }
 }
 pub struct Agent{
@@ -340,6 +417,7 @@ pub struct Agent{
     app_store:Arc<AppStore>,
     protocols_store:Arc<ProtocolStore>,
     allow_self_selected_apps:bool,
+    agent_store:Option<Arc<AgentStore>>
     // _post_invoke_fn:Option<fn(String)->MemoryNode>
 }
 impl Agent{
@@ -354,6 +432,7 @@ impl Agent{
         app_store:Arc<AppStore>,
         protocols_store:Arc<ProtocolStore>,
         allow_self_selected_apps:bool,
+        agent_store:Option<Arc<AgentStore>>
     )->Arc<RwLock<Arc<Self>>>{
         let (tx, rx) = channel::unbounded();
         let agent_card=Source::new(Role::Agent, agent_name.clone(), Some(agent_info));
@@ -366,7 +445,7 @@ impl Agent{
             backstory,
             reasoning_model:reasoning_model.clone(),
             nlp_model:nlp_model.clone(),
-            terminal:Arc::new(Terminal::new(Some(app_store.clone()), Some(tx.clone()))),
+            terminal:Arc::new(Terminal::new(Some(app_store.clone()), Some(tx.clone()),agent_store.clone())),
             latest_episode_id:RwLock::new(None),
             invoke_post_fn,
             validator_card:Source::new(Role::App,format!("{}ResponseValidator",agent_name.clone()),None),
@@ -374,7 +453,8 @@ impl Agent{
             _agent_rx:rx.clone(),
             app_store,
             protocols_store,
-            allow_self_selected_apps
+            allow_self_selected_apps,
+            agent_store:agent_store.clone()
         })));
 
         let new_agent_clone=new_agent.clone();
@@ -404,6 +484,9 @@ impl Agent{
                             },
                             AgentPulse::NewEpisode(edesc,i_mem,react_for_history)=>{
                                 tokio_rt.spawn(Agent::initiate_new_episode(aclone,edesc.clone(),i_mem,react_for_history));
+                            },
+                            AgentPulse::ResolveTask(tid,tdesc,imem,ma_tx,ma_epid)=>{
+                                tokio_rt.spawn(Agent::resolve_task(tid,aclone, tdesc, imem,ma_tx,ma_epid));
                             },
                             AgentPulse::AttachApp(app)=>{  
                                tokio_rt.spawn(Agent::attach_app(aclone, app));
@@ -522,7 +605,7 @@ impl Agent{
                 for (episode_id,episode) in readable_epsiode_memories.iter(){
                     
 
-                    if tokio_rt.block_on(episode.get_agent_lock_status()){
+                    if tokio_rt.block_on(episode.get_agent_lock_status()) || episode.is_subtask(){
                         // info!("Agent locked for episode:{}",episode_id);
                         continue;
                     }
@@ -722,6 +805,7 @@ impl Agent{
         let agent_lock = new_agent_clone.read().await;
 
         let latest_episode_id=agent_lock.latest_episode_id.read().await.clone();
+        let agent_store=agent_lock.agent_store.clone();
         let reasoning_model_clone=agent_lock.reasoning_model.clone();
         let nlp_model_clone=agent_lock.nlp_model.clone();
         let agent_card=agent_lock.agent_card.clone();
@@ -729,6 +813,7 @@ impl Agent{
         let validator_card=agent_lock.validator_card.clone();
         let agent_tx_clone=agent_lock._agent_tx.clone();
         let allow_self_selected_apps=agent_lock.allow_self_selected_apps;
+        
         info!("Invoking {} Meta Cog Flag:{}",agent_card.get_name(),is_meta_cog.clone());
         
         match &epid{
@@ -736,6 +821,9 @@ impl Agent{
                 // agent_tx_clone.send(AgentPulse::lockAgentForEpisode(eid.clone())).unwrap();
                 match agent_lock.episodes.read().await.get(eid).cloned(){
                     Some(current_episode)=>{
+                        let is_subtask= current_episode.is_subtask();
+                        let main_agent_tx=current_episode.main_agent_tx.clone();
+                        let main_epid=current_episode.get_mainagent_epid();
                         let mlen=current_episode.episode_memory.get_memory_len().await;
 
                         if !is_meta_cog{
@@ -761,26 +849,37 @@ impl Agent{
                         info!("App launch stage passed");
                         let current_sys_info=get_sys_info();
 
-                        let metacog_prompt=agent_lock.get_meta_cog_prompt();
+                        let metacog_prompt=agent_lock.get_meta_cog_prompt(&is_subtask);
+                        
+
+                        let mut subworker_book:String;
+                        
+                        if let Some(local_agent_store)=agent_lock.agent_store.as_ref(){
+                            subworker_book=local_agent_store.get_subagents_book();
+                        }
+                        else{
+                            subworker_book="".to_string();
+                        }
+
                         let agent_prompt=if is_meta_cog{
                             metacog_prompt.clone()
                         }
                         else{
-                            agent_lock.get_sys_prompt(&current_sys_info,&app_chain_str)                            
+                            agent_lock.get_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask)                            
                         };
                         // info!("Model Prompt :\n{}",agent_prompt);
                         let agent_tof_prompt=if is_meta_cog{
                             metacog_prompt.clone()
                         }
                         else{
-                            agent_lock.get_tof_sys_prompt(&current_sys_info,&app_chain_str)                            
+                            agent_lock.get_tof_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask)                            
                         };
                         
                         let agent_rac_prompt=if is_meta_cog{
                             metacog_prompt.clone()
                         }
                         else{
-                            agent_lock.get_rac_sys_prompt(&current_sys_info,&app_chain_str)                            
+                            agent_lock.get_rac_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask)                            
                         };      
                         
                         let terminal=agent_lock.terminal.clone();
@@ -804,7 +903,11 @@ impl Agent{
                             interface_memory,
                             validator_card.clone(),
                             agent_tx_clone,  
-                            is_meta_cog 
+                            is_meta_cog ,
+                            agent_store,
+                            is_subtask,
+                            main_agent_tx,
+                            main_epid
                         ).await;
 
                     },
@@ -866,12 +969,34 @@ impl Agent{
         *writable_episode=Some(episode_id.clone());
 
         let mut writable_episodes=agent_self.episodes.write().await;    
-        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc,interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false),metacog_skip:Mutex::new(false) }));
+        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc,interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false),metacog_skip:Mutex::new(false),is_subtask:false,main_agent_tx:None,main_agent_epid:None }));
     
         
         info!("New Episode Launched:{}",episode_id);
         episode_id.clone()  
         
+    }
+
+
+    
+    pub async fn resolve_task(task_id:String,agent_lock: Arc<RwLock<Arc<Agent>>>,task_desc:String,episode_interface_memory:Option<Arc<Memory>>,ma_tx:Option<channel::Sender<AgentPulse>>,ma_epid:Option<String>){
+        let agent_self=agent_lock.write().await;
+        let mut episode_id=task_id;
+        
+        let episode_memory=Memory::new(None,MemoryType::AgentEpisode);
+        
+        let latest_fetched_id=None;
+        let mut writable_episode=agent_self.latest_episode_id.write().await;
+        *writable_episode=Some(episode_id.clone());
+
+        let mut writable_episodes=agent_self.episodes.write().await;    
+        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc:task_desc.clone(),interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false),metacog_skip:Mutex::new(false),is_subtask:true,main_agent_tx:ma_tx,main_agent_epid:ma_epid}));
+    
+        
+        info!("New Task Episode Launched:{}",episode_id);
+        episode_memory.insert(MemoryNode::new(&agent_self.agent_card, task_desc, None, MemoryNodeType::Message, None, None, None)).await;
+
+        agent_self._agent_tx.send(AgentPulse::Invoke(Some(episode_id.clone()))).unwrap();
     }
 
     pub async fn insert(&self,memory_node:MemoryNode,episode_id:Option<String>){
@@ -1002,28 +1127,48 @@ impl Agent{
         }
     }
 
-    fn get_meta_cog_prompt(&self)->String{
-        format!(include_str!("../prompts/AGENT_META_COGNITION_PROMPT.md"),
-        agent_name=self.agent_card.get_name(),)
+    fn get_meta_cog_prompt(&self,is_subtask:&bool)->String{
+        if *is_subtask{
+            format!(include_str!("../prompts/SUBAGENT_META_COGNITION_PROMPT.md"),
+            agent_name=self.agent_card.get_name(),)
+
+        }
+        else{
+            format!(include_str!("../prompts/AGENT_META_COGNITION_PROMPT.md"),
+            agent_name=self.agent_card.get_name(),)            
+        }
         // app_guidelines=block_on(self.terminal.get_app_guidebook()),)
     }
+
     
-    fn get_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String)->String{
+    fn get_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool)->String{
         // info!("App Guidebook:\n{}",self.terminal.get_app_guidebook());
         // if self.agent_card.get_name()=="Cogitare"{
         //     info!("Using custom prompt for Cogitare : Reasoning Prompt");
         //     return fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.md").unwrap();
         // }
-        
-        format!( include_str!("../prompts/AGENT_REASONING_PROMPT.md"),
-        agent_name=self.agent_card.get_name(),
-        agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
-        agent_goal=self.agent_goal,
-        agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
-        app_guidelines=block_on(self.terminal.get_app_guidebook()),
-        protocols_book=self.protocols_store.get_protocols_book(),
-        current_os_info=current_sys_info,
-        knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()))
+        if *is_subtask{
+            format!( include_str!("../prompts/SUBAGENT_REASONING_PROMPT.md"),
+            agent_name=self.agent_card.get_name(),
+            agent_rules=include_str!("../prompts/SUBAGENT_OPERATING_RULES.md"),
+            agent_goal=self.agent_goal,
+            agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
+            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            current_os_info=current_sys_info,
+            knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string())) 
+        }
+        else{
+            format!( include_str!("../prompts/AGENT_REASONING_PROMPT.md"),
+            agent_name=self.agent_card.get_name(),
+            agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
+            agent_goal=self.agent_goal,
+            agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
+            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            protocols_book=self.protocols_store.get_protocols_book(),
+            current_os_info=current_sys_info,
+            knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()),
+            subworkers_book=subworker_book) 
+        }
         
     }
 
@@ -1034,42 +1179,68 @@ impl Agent{
         
     }
 
-    fn get_tof_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String)->String{
+    fn get_tof_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool)->String{
         // if self.agent_card.get_name()=="Cogitare"{
         //     info!("Using custom prompt for Cogitare : TOF Prompt");
         //     return fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.md").unwrap();
         // }
         
         
-        format!(include_str!("../prompts/AGENT_TOT_PROMPT.md"),
-        agent_name=self.agent_card.get_name(),
-        agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
-        agent_goal=self.agent_goal,
-        agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
-        app_guidelines=block_on(self.terminal.get_app_guidebook()),
-        protocols_book=self.protocols_store.get_protocols_book(),
-        current_os_info=current_sys_info,
-        knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()))
+        if *is_subtask{
+            format!(include_str!("../prompts/SUBAGENT_TOT_PROMPT.md"),
+            agent_name=self.agent_card.get_name(),
+            agent_rules=include_str!("../prompts/SUBAGENT_OPERATING_RULES.md"),
+            agent_goal=self.agent_goal,
+            agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
+            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            current_os_info=current_sys_info,
+            knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()),)
+        }
+        else{
+            format!(include_str!("../prompts/AGENT_TOT_PROMPT.md"),
+            agent_name=self.agent_card.get_name(),
+            agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
+            agent_goal=self.agent_goal,
+            agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
+            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            protocols_book=self.protocols_store.get_protocols_book(),
+            current_os_info=current_sys_info,
+            knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()),
+            subworkers_book=subworker_book)
+        }
     }
 
     
 
-    fn get_rac_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String)->String{
+    fn get_rac_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool)->String{
         // if self.agent_card.get_name()=="Cogitare"{
         //     info!("Using custom prompt for Cogitare : RAC Prompt");
         //     return fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.md").unwrap();
         // }
         
         
-        format!(include_str!("../prompts/AGENT_RAC_PROMPT.md"),
-        agent_name=self.agent_card.get_name(),
-        agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
-        agent_goal=self.agent_goal,
-        agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
-        app_guidelines=block_on(self.terminal.get_app_guidebook()),
-        protocols_book=self.protocols_store.get_protocols_book(),
-        current_os_info=current_sys_info,
-        knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()))
+        if *is_subtask{
+            format!(include_str!("../prompts/SUBAGENT_RAC_PROMPT.md"),
+            agent_name=self.agent_card.get_name(),
+            agent_rules=include_str!("../prompts/SUBAGENT_OPERATING_RULES.md"),
+            agent_goal=self.agent_goal,
+            agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
+            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            current_os_info=current_sys_info,
+            knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()))
+        }
+        else{
+            format!(include_str!("../prompts/AGENT_RAC_PROMPT.md"),
+            agent_name=self.agent_card.get_name(),
+            agent_rules=include_str!("../prompts/AGENT_OPERATING_RULES.md"),
+            agent_goal=self.agent_goal,
+            agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
+            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            protocols_book=self.protocols_store.get_protocols_book(),
+            current_os_info=current_sys_info,
+            knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()),
+            subworkers_book=subworker_book)
+        }
         // knowledge_base_index=format!(include_str!("../knowledge_base/index.md")))
     }
 
@@ -1137,7 +1308,11 @@ impl Agent{
         interface_memory:Option<Arc<Memory>>,
         validator_card:Source,
         agent_tx:channel::Sender<AgentPulse>,
-        is_metacog_run:bool
+        is_metacog_run:bool,
+        agent_store:Option<Arc<AgentStore>>,
+        is_subtask:bool,
+        main_agent_tx:Option<channel::Sender<AgentPulse>>,
+        main_agent_epid:Option<String>
     ){
         let mut need_rerun:bool=true;
         let mut run_count=0;
@@ -1220,7 +1395,7 @@ impl Agent{
                 let resp=reasoning_model_clone.chat(current_episode_memory.clone(),
                 final_agent_prompt,
             Some(invoc_id.clone()),Some(&agent_card)).await;
-                info!("Model resp:{}",resp);
+                info!("MODEL RESP Agent :{} for episode:{} | MetaCog:{} |\n{}",agent_card.get_name(),invoke_epid,is_metacog_run,resp);
 
 
 
@@ -1248,7 +1423,7 @@ impl Agent{
                 
                 match AgentResponseParser::parse_commands(&mut val_block, &resp){
                     Ok(CommandBlock { commands })=>{
-                        let commands_errs=terminal.validate_app_commands(&commands).await;
+                        let commands_errs=terminal.validate_app_commands(&commands,is_subtask.clone()).await;
                             if commands_errs.len()>0{
                                 error_ls.push(ParseError::CommandsError(commands_errs.join("\n")));
                             }
@@ -1306,6 +1481,22 @@ impl Agent{
                 parsed_response.success=!need_rerun;
 
                 if parsed_response.success{
+                    if is_subtask{
+                        let output_memory_node=MemoryNode::new(&agent_card, resp.clone(), choosen_prompt.clone(), MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None);
+                        match &interface_memory{
+                            Some(imemory)=>{
+                                if imemory._read_only{
+                                    info!("Interface memory is read only, skipping write subagent resp");
+                                }
+                                else{
+                                    info!("Writing subagent response to interface memory");
+                                    imemory.insert(output_memory_node).await;
+                                }
+                            }
+                            None=>{}
+                        }
+                    }    
+                
                     if let(Some(validation_block))=&parsed_response.validation_block{
                         if validation_block.needs_followup{
                             followup_planned=true;
@@ -1315,7 +1506,13 @@ impl Agent{
                     if let Some(outputs)=&parsed_response.outputs{
                         if outputs.len()>0{
                             // followup_planned=outputs.iter().any(|o| o.starts_with("/"));
-                            let output_memory_node=MemoryNode::new(&agent_card, outputs.join("\n"), None, MemoryNodeType::Message,Some(invoc_id.clone()),None,None);
+                            let output_content=if is_subtask{
+                                format!("SUBWORKER_SUCCESS Worker_name:{} Message:{}",agent_card.get_name(),outputs.join("\n"))
+                            }
+                            else{
+                                outputs.join("\n")
+                            };
+                            let output_memory_node=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Message,Some(invoc_id.clone()),None,None);
                             match &interface_memory{
                                 Some(imemory)=>{
                                     if imemory._read_only{
@@ -1344,8 +1541,16 @@ impl Agent{
                             
                             let mut filtered_cmds=Vec::new();
                             for comnds in commands.iter(){
-                                if comnds.trim().starts_with("/"){
-                                    let output_memory_node=MemoryNode::new(&agent_card, comnds.trim().to_string().clone(), None, MemoryNodeType::Message,Some(invoc_id.clone()),None,None);
+                                let trimmed_cmds=comnds.trim();
+                                if trimmed_cmds.starts_with("/"){
+                                    let output_content=if is_subtask{
+                                        format!("SUBWORKER_SUCCESS Worker_name:{} Message:{}",agent_card.get_name(),trimmed_cmds.to_string().clone())
+                                    }
+                                    else{
+                                        trimmed_cmds.to_string().clone()
+                                    };
+
+                                    let output_memory_node=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Message,Some(invoc_id.clone()),None,None);
                                     match &interface_memory{
                                         Some(imemory)=>{
                                             if imemory._read_only{
@@ -1357,6 +1562,13 @@ impl Agent{
                                             }
                                         }
                                         None=>{}
+                                    }
+                                }
+                                else if trimmed_cmds.starts_with("@"){
+                                    if let Some(local_agent_store)=agent_store.clone(){
+                                        if let Err(e)=local_agent_store.route_task(trimmed_cmds.to_string(), local_agent_store.clone(),current_episode_memory.clone(),Some(agent_tx.clone()),Some(invoke_epid.clone())).await{
+                                            error!("Routing Task Error:{}",e);
+                                        }
                                     }
                                 }
                                 else{
@@ -1372,7 +1584,7 @@ impl Agent{
                             info!("Filtered cmds:{:?}",filtered_cmds);
 
                             if filtered_cmds.len()>0{
-                                terminal.execute_multi_commands(&filtered_cmds,invoke_epid.clone(),invoc_id.clone()).await;
+                                terminal.execute_multi_commands(&filtered_cmds,invoke_epid.clone(),invoc_id.clone(),is_subtask.clone()).await;
                             }
                         }
                     }
@@ -1437,7 +1649,13 @@ impl Agent{
         if !parsed_response.success{
 
             if !is_metacog_run{
-                let error_message=MemoryNode::new(&agent_card, "Error Processing Last Message.Please try again".to_string(), None, MemoryNodeType::Error,Some(invoc_id.clone()),None,None);
+                let output_content=if is_subtask{
+                    format!("SUBWORKER_ERROR Worker_name:{} Message:{}",agent_card.get_name(),"Error Processing Last Subtask.Please try again".to_string())
+                }
+                else{
+                    "Error Processing Last Message.Please try again".to_string()
+                };
+                let error_message=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Error,Some(invoc_id.clone()),None,None);
                 match &interface_memory{
                     Some(imemory)=>{
                         if imemory._read_only{
@@ -1450,6 +1668,20 @@ impl Agent{
                     }
                     None=>{}
                 }
+            }
+        }
+
+        if is_subtask{
+            if !(followup_planned){
+                if let Some(mtx)=main_agent_tx{
+                    if let Some(ma_epid)=main_agent_epid{
+                        info!("Invoking Main Agent for episode:{} after subtask completion from {}",ma_epid.clone(), agent_card.get_name());
+                        if let Err(e)=mtx.send(AgentPulse::Invoke(Some(ma_epid.clone()))){
+                            error!("Error occurred while invoking main agent: {}", e);
+                        }
+                    }
+                }
+
             }
         }
 
@@ -1537,13 +1769,13 @@ impl AgentResponseParser  {
             // return Ok(Validation{thoughts:false,commands:false,output:false,needs_followup:false,followup_context:false});
             Err(ParseError::ValidationError("No Validation block found in your response.Validation block is required.".to_string()))
         }
-        else if re_iter_count>1 {
-            Err(ParseError::ValidationError("Multiple Validation Block found. Only one is allowed".to_string()))
+        // else if re_iter_count>1 {
+        //     Err(ParseError::ValidationError("Multiple Validation Block found. Only one is allowed".to_string()))
             
-        }
+        // }
         else{
             
-            if let Some(m) =matches[0].get(1) {
+            if let Some(m) =matches.last().and_then(|c| c.get(1)) {
                 return Self::parse_val_string(m.as_str().trim().to_string());
             }
             else{
@@ -1621,9 +1853,9 @@ impl AgentResponseParser  {
 
         let matches:Vec<_> = re.captures_iter(resp).collect();
         
-        let commands_strings: Vec<_> = matches.iter().filter_map(|m| {
+        let commands_strings: Vec<_> = matches.last().and_then(|m| {
             m.get(1).map(|cap| cap.as_str().trim().to_string()).filter(|s| !s.is_empty())
-        }).collect();
+        }).into_iter().collect();
 
         let re_iter_count=commands_strings.len();
         if let Some(v_block)=validation{
@@ -1685,8 +1917,8 @@ impl AgentResponseParser  {
             if trimmed.is_empty(){
                 continue;
             }
-            if !(line.starts_with("&") || line.starts_with("/")){
-                error_ls.push(format!("{} commands did not start with & or /. Valid command format is &<app_name> or /<protocol_name>.Analyze and correct your mistakes",line));
+            if !(line.starts_with("@") ||line.starts_with("&") || line.starts_with("/")){
+                error_ls.push(format!("{} commands did not start with & or / or @. Valid command format is &<app_name> or /<protocol_name> or @<agent_name>.Analyze and correct your mistakes",line));
             }
             else{
                 commands.push(line);
@@ -1723,9 +1955,9 @@ impl AgentResponseParser  {
 
         let matches:Vec<_> = re.captures_iter(resp).collect();
         
-        let thoughts_strings: Vec<_> = matches.iter().filter_map(|m| {
+        let thoughts_strings: Vec<_> = matches.last().and_then(|m| {
             m.get(1).map(|cap| cap.as_str().trim().to_string()).filter(|s| !s.is_empty())
-        }).collect();
+        }).into_iter().collect();
 
         let re_iter_count=thoughts_strings.len();
         if let Some(v_block)=validation{
@@ -1765,9 +1997,9 @@ impl AgentResponseParser  {
         let matches:Vec<_> = re.captures_iter(resp).collect();
 
         
-        let outputs_string: Vec<_> = matches.iter().filter_map(|m| {
+        let outputs_string: Vec<_> = matches.last().and_then(|m| {
             m.get(1).map(|cap| cap.as_str().trim().to_string()).filter(|s| !s.is_empty())
-        }).collect();
+        }).into_iter().collect();
 
         let re_iter_count=outputs_string.len();
 
@@ -1809,9 +2041,9 @@ impl AgentResponseParser  {
         let matches:Vec<_> = re.captures_iter(resp).collect();
         
 
-        let followup_context_strings: Vec<_> = matches.iter().filter_map(|m| {
+        let followup_context_strings: Vec<_> = matches.last().and_then(|m| {
             m.get(1).map(|cap| cap.as_str().trim().to_string()).filter(|s| !s.is_empty())
-        }).collect();
+        }).into_iter().collect();
 
         let re_iter_count=followup_context_strings.len();
         

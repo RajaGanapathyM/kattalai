@@ -194,7 +194,8 @@ async fn main() {
     // let my_msg="which one is best Engineer or doctor".to_string();
     // let my_msg="Suprise me!".to_string();
     // let my_msg="What is a prime number".to_string();
-    let my_msg="subscribe to this rss feed and summarise latest news https://www.reddit.com/r/worldnews/new/.rss".to_string();
+    // let my_msg="subscribe to this rss feed and summarise latest news https://www.reddit.com/r/worldnews/new/.rss".to_string();
+    let my_msg="delegate an example task to email_drafter subworker of your choice".to_string();
     
 // let msg="".to_string();
     println!("Inserting message: {}", my_msg);
@@ -210,7 +211,7 @@ async fn main() {
     for mem in mem_iter{
         println!("{}:{}",mem.get_source_name(),mem.get_content());
     }
-    sleep(Duration::from_secs(3));
+    sleep(Duration::from_secs(60));
 
     
     println!("Final Agent Memory");
@@ -218,7 +219,7 @@ async fn main() {
     for mem in mem_iter{
         println!("{}:{}",mem.get_source_name(),mem.get_content());
     }
-    // sleep(Duration::from_secs(3));
+    sleep(Duration::from_secs(30));
 
     // println!("Agent Memory");
     // let locked_Agent=first_agent.read().unwrap();

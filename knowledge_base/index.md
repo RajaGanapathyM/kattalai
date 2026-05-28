@@ -28,6 +28,10 @@
    `./knowledge_base/news/indianexpress.md`  
   _Latest news source for Indian Express website_
 
-7. **Windows path handling for PDF readers**  
+7. **Subworker naming conventions**  
+   `./knowledge_base/subworkers.md`  
+  _Users might confuse subworker names (e.g., `email_drafter` vs `email_composer`). Always use the exact subworker name from the Registered Subworkers list._
+
+8. **Windows path handling for PDF readers**  
    `./knowledge_base/windows_path_handling.md`  
   _When using Windows paths in shell commands, escape backslashes with forward slashes or use quotes to prevent path errors. Example: C:/Users/RG/Downloads/CC_sample.pdf instead of C:\Users\RG\Downloads\CC_sample.pdf._
