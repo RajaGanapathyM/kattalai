@@ -1,0 +1,315 @@
+app_name          = "RSS App"
+app_path          = "./apps/other_apps/rss_app/rss_app.py"
+app_start_command = "python"
+app_start_args    = "./apps/other_apps/rss_app/rss_app.py"
+app_handle_name   = "rss_app"
+app_launch_mode   = "REPL"
+
+app_usage_guideline = """
+
+Use this app to subscribe to RSS / Atom news feeds, poll for new articles,
+and search cached items. All subscriptions are scoped to the given
+episode_id — each conversation episode has its own independent feed list
+and seen-state.
+
+## Auto-refresh (hands-free)
+
+A background task runs inside the app process and wakes every 60 seconds.
+When any feed's refresh window has elapsed it send a notification with APP_INVOKE and a follow-up 'poll'
+invocation is scheduled without any agent command.
+
+You do NOT need a cron protocol to keep feeds current; simply subscribe
+and the app self-manages. Manual 'poll' / 'check' commands still work and
+respect (or override) the same refresh window.
+
+## Key concept: episode-scoped subscriptions
+
+Subscriptions are stored per episode_id. Use 'list' to see what is
+subscribed in the current episode. Other episodes' subscriptions are
+invisible here.
+
+## Key concept: seen vs unseen
+
+When you run 'check', 'fetch', or 'poll', new items are returned AND
+marked as seen. The next check will only return items published after that.
+Use 'clear_seen' to reset and re-report previously seen items.
+Use 'peek' to inspect unseen items without marking them as seen.
+
+---
+
+## Commands
+
+### subscribe — add a feed to this episode
+
+  &rss_app subscribe <url> <label> [refresh=<minutes>]
+
+  refresh defaults to 60 minutes if not specified.
+  Subscribing to an already-subscribed label updates its URL and refresh rate.
+  After subscribing, the background auto-refresh task will begin honouring
+  the refresh window immediately — no further setup needed.
+
+  Examples:
+    &rss_app subscribe https://feeds.feedburner.com/ndtvnews NDTV refresh=30
+    &rss_app subscribe https://icai.org/feed ICAI refresh=120
+    &rss_app subscribe https://www.gst.gov.in/rss GST
+
+### unsubscribe — remove a feed
+
+  &rss_app unsubscribe <label>
+
+  Removes the subscription AND clears all cached items for that label.
+  The auto-refresh task will no longer fire for this label.
+
+### list — show subscriptions for this episode
+
+  &rss_app list
+
+  Returns label, URL, refresh rate, last fetch time, total items, unseen count.
+
+### check — fetch new items (respects refresh rate)
+
+  &rss_app check [<label>]
+
+  If called without label, checks the single default subscription (if only
+  one exists). If the feed was fetched recently and the refresh window has
+  not elapsed, it is skipped with a 'next_in_minutes' value.
+
+  Returns only items that haven't been seen before. Items are marked seen.
+
+### fetch — force-fetch regardless of refresh rate
+
+  &rss_app fetch [<label>]
+
+  Same as check but ignores the refresh window. Useful after first subscribe.
+
+### poll — check all subscriptions
+
+  &rss_app poll
+
+  Runs 'check' across every subscribed feed. Each feed respects its own
+  refresh rate. Skipped feeds are reported with their remaining wait time.
+  The auto-refresh background task calls this internally when windows elapse.
+
+### peek — view unseen items without marking them seen
+
+  &rss_app peek [<label>] [n=<count>]
+
+  Default n=20. Does NOT mark items as seen — safe to call multiple times.
+  Use this when you want to inspect before deciding to surface items.
+
+### items — show recent cached items (all, including seen)
+
+  &rss_app items [<label>] [n=<count>]
+
+  Default n=15. Includes seen=true/false flag on each item.
+
+### search — BM25 or keyword search over cached items
+
+  &rss_app search <query> [in=<label>] [n=<count>]
+
+  Default n=10. If rank_bm25 is installed, uses BM25Okapi; otherwise
+  falls back to case-insensitive substring match.
+
+  Examples:
+    &rss_app search GST circular
+    &rss_app search Infosys results in=NSE n=5
+
+### digest — compact new-item briefing, marks items seen
+
+  &rss_app digest [<label>] [n=<count>]
+
+  Default n=10. Returns title + link only — ideal for morning briefing
+  protocols that summarise headlines. All returned items are marked seen.
+
+### clear_seen — reset seen state
+
+  &rss_app clear_seen [<label>]
+
+  Without label: resets ALL subscriptions in this episode.
+  Next check/fetch will re-report all cached items as new.
+
+### status — timing and count summary
+
+  &rss_app status
+
+  Returns per-feed: last_fetched, ready_to_poll, next_check_in_min,
+  total_items, unseen_items. Also returns auto_refresh_interval_s so
+  you can confirm the background task cadence.
+
+### help — command reference
+
+  &rss_app help
+
+---
+
+## What you receive
+
+All responses are JSON. Key fields:
+
+  { "status": "ok" | "error",
+    "action": "<command>",
+    "message": "<human summary>",
+    ... command-specific fields ... }
+
+For check / fetch / poll (including auto-refresh-triggered polls):
+  {
+    "status": "ok",
+    "action": "fetch",
+    "total_new_items": 3,
+    "feed_count": 2,
+    "feeds": [
+      {
+        "label": "NDTV",
+        "status": "ok",
+        "new_item_count": 3,
+        "new_items": [
+          { "title": "...", "link": "...", "summary": "...", "pub_date": "..." },
+          ...
+        ]
+      },
+      {
+        "label": "ICAI",
+        "status": "skipped",
+        "reason": "Fetched 12 min ago. Next in 48 min.",
+        "new_item_count": 0,
+        "new_items": []
+      }
+    ]
+  }
+
+For auto-refresh trigger events (sent by background task via send_and_invoke):
+  {
+    "status": "auto_refresh_trigger",
+    "action": "poll",
+    "episode_id": "<id>",
+    "feeds_due": ["NDTV", "ICAI"],
+    "message": "Auto-refresh: 2 feed(s) due — NDTV, ICAI"
+  }
+
+---
+
+## Typical usage pattern
+
+  First time setup in an episode:
+    &rss_app subscribe https://icai.org/feed ICAI refresh=120
+    &rss_app subscribe https://www.gst.gov.in/rss GST refresh=60
+    &rss_app fetch         ← force first fetch on all
+    (auto-refresh takes over from here — no cron protocol needed)
+
+  Check auto-refresh state:
+    &rss_app status        ← see next_check_in_min per feed
+
+  Morning briefing protocol:
+    &rss_app digest n=5    ← headlines only, marks seen
+
+  On-demand lookup:
+    &rss_app search GST notification
+    &rss_app check ICAI
+
+  Reset if you want to re-read all cached items:
+    &rss_app clear_seen ICAI
+    &rss_app items ICAI n=20
+
+---
+
+## Important rules
+
+  - Subscribe ONCE per label per episode. Re-subscribing with the same label
+    updates the URL and refresh_minutes; it does NOT clear the item cache.
+  - After subscribing, run 'fetch <label>' (not 'check') the first time —
+    'check' may skip if last_fetched was just set by a prior fetch.
+  - The background auto-refresh task wakes every 60 seconds and calls
+    send_and_invoke when any feed's window has elapsed. The Rust runtime
+    treats this as a new invocation and runs 'poll' for that episode.
+  - Auto-refresh only fires for episodes that have issued at least one
+    command in the current process lifetime (the interface cache is in-memory).
+    On process restart, auto-refresh resumes as soon as the episode sends
+    any command again.
+  - 'poll' is still the right command for explicit cron-style protocols;
+    it batches all feeds and respects per-feed refresh rates.
+  - When new_item_count is 0 and status is 'ok', the feed is live but no
+    new articles have been published since the last fetch.
+  - If status is 'error', check the 'reason' field — usually a bad URL or
+    network timeout. The subscription is kept; fix the URL with re-subscribe.
+
+"""
+
+# ── command signatures ─────────────────────────────────────────────────────────
+
+[[app_command_signatures]]
+command  = "subscribe"
+consumes = ["rss_url","feed_url", "label", "refresh_minutes"]
+produces = ["subscription_record"]
+action   = "add_subscription"
+
+[[app_command_signatures]]
+command  = "unsubscribe"
+consumes = ["label"]
+produces = ["confirmation"]
+action   = "remove_subscription"
+
+[[app_command_signatures]]
+command  = "list"
+consumes = []
+produces = ["subscription_list"]
+action   = "list_subscriptions"
+
+[[app_command_signatures]]
+command  = "check"
+consumes = ["label_optional"]
+produces = ["new_items"]
+action   = "fetch_new_items_rate_limited"
+
+[[app_command_signatures]]
+command  = "fetch"
+consumes = ["label_optional"]
+produces = ["new_items"]
+action   = "force_fetch_new_items"
+
+[[app_command_signatures]]
+command  = "poll"
+consumes = []
+produces = ["new_items_all_feeds"]
+action   = "poll_all_subscriptions"
+
+[[app_command_signatures]]
+command  = "peek"
+consumes = ["label_optional", "count_optional"]
+produces = ["unseen_items"]
+action   = "view_unseen_no_side_effects"
+
+[[app_command_signatures]]
+command  = "items"
+consumes = ["label_optional", "count_optional"]
+produces = ["item_list"]
+action   = "list_cached_items"
+
+[[app_command_signatures]]
+command  = "search"
+consumes = ["query_text", "label_optional", "count_optional"]
+produces = ["search_results"]
+action   = "bm25_search_items"
+
+[[app_command_signatures]]
+command  = "digest"
+consumes = ["label_optional", "count_optional"]
+produces = ["digest_list"]
+action   = "headline_digest_mark_seen"
+
+[[app_command_signatures]]
+command  = "clear_seen"
+consumes = ["label_optional"]
+produces = ["confirmation"]
+action   = "reset_seen_flags"
+
+[[app_command_signatures]]
+command  = "status"
+consumes = []
+produces = ["feed_status_report"]
+action   = "subscription_status"
+
+[[app_command_signatures]]
+command  = "help"
+consumes = []
+produces = ["command_reference"]
+action   = "show_help"
