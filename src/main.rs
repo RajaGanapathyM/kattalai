@@ -84,10 +84,15 @@ async fn main() {
 
 
     // build a memory instance asynchronously
+    println!("Creating Memory instance...");
     let mut se_write_runtime=se_runtime.write().await;
+    println!("Cfreating demo user...");
+
     let demo_user_id=se_write_runtime.create_user("Alice".to_string()).await;
+    println!("Demo user created with ID: {}", demo_user_id);
     let topic_id=se_write_runtime.create_topic_thread().await;
     let agent_id=se_write_runtime.deploy_agent("DIA".to_string()).await;
+    println!("Agent deployed with ID: {}", agent_id);   
     se_write_runtime.add_agent_to_topic(&topic_id, &agent_id).await;
     println!("Memory instance created...");
     drop(se_write_runtime);
