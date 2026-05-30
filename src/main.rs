@@ -84,10 +84,15 @@ async fn main() {
 
 
     // build a memory instance asynchronously
+    println!("Creating Memory instance...");
     let mut se_write_runtime=se_runtime.write().await;
+    println!("Cfreating demo user...");
+
     let demo_user_id=se_write_runtime.create_user("Alice".to_string()).await;
+    println!("Demo user created with ID: {}", demo_user_id);
     let topic_id=se_write_runtime.create_topic_thread().await;
     let agent_id=se_write_runtime.deploy_agent("DIA".to_string()).await;
+    println!("Agent deployed with ID: {}", agent_id);   
     se_write_runtime.add_agent_to_topic(&topic_id, &agent_id).await;
     println!("Memory instance created...");
     drop(se_write_runtime);
@@ -195,7 +200,7 @@ async fn main() {
     // let my_msg="Suprise me!".to_string();
     // let my_msg="What is a prime number".to_string();
     // let my_msg="subscribe to this rss feed and summarise latest news https://www.reddit.com/r/worldnews/new/.rss".to_string();
-    let my_msg="delegate an example task to email_drafter subworker of your choice".to_string();
+    let my_msg="Understand about chennai and delegate to email_drafter to write about chennai".to_string();
     
 // let msg="".to_string();
     println!("Inserting message: {}", my_msg);

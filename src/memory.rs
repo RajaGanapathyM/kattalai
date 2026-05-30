@@ -145,6 +145,17 @@ impl MemoryNode {
     pub fn is_allowed(&self, allowed_roles: &HashSet<Role>) -> bool {
         allowed_roles.contains(&self.source.get_role())
     }
+    pub fn is_hidden(&self) -> bool {
+        if self.prompt_info.is_some(){
+            match self.prompt_info.clone().unwrap(){
+                PromptStyle::PREFLIGHT=>true,
+                _=>false
+            }
+        }
+        else{
+            false
+        }
+    }
     pub fn append_content(&mut self,new_cont:String){
         self.content=format!("{}\n{}",self.content,new_cont);
     }

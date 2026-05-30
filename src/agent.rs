@@ -84,7 +84,8 @@ pub enum PromptStyle{
     RAC,
     TOF,
     PROTOCOL,
-    REPAIR
+    REPAIR,
+    PREFLIGHT
 }
 pub struct episode{
     episode_id:String,
@@ -448,7 +449,7 @@ impl Agent{
             terminal:Arc::new(Terminal::new(Some(app_store.clone()), Some(tx.clone()),agent_store.clone())),
             latest_episode_id:RwLock::new(None),
             invoke_post_fn,
-            validator_card:Source::new(Role::App,format!("{}ResponseValidator",agent_name.clone()),None),
+            validator_card:Source::new(Role::User,format!("{}ResponseValidator",agent_name.clone()),None),
             _agent_tx:tx.clone(),
             _agent_rx:rx.clone(),
             app_store,
@@ -1317,10 +1318,12 @@ impl Agent{
         let mut need_rerun:bool=true;
         let mut run_count=0;
         const  MAX_RUN_ALLOWED:i32=7;
+        let preflight_guidelines=include_str!("../prompts/PREFLIGHT_USAGE_INSTRUCTIONS.md").to_string();
         // let repair_prompt_template=;
         let mut repair_prompt=String::new();
+        let preflight_prompt=include_str!("../prompts/AGENT_PREFLIGHT_PROMPT.md").to_string();
         let mut parsed_response=ParsedResponse{validation_block:None,thoughts:None,commands:None,outputs:None,followup_context:None,success:false};
-
+        let mut final_invok_epid=String::new();
         let invoking_episode_id:Option<String>=match &episode_id{
             Some(eid)=>{Some(eid.clone())},
             None=>{
@@ -1337,19 +1340,58 @@ impl Agent{
 
         let mut last_response_empty=false;
         let mut meta_cog_msg_sent=false;
-        
+        let mut preflight_response=String::new();
+
         while need_rerun && run_count<MAX_RUN_ALLOWED {
             
 
-            if last_response_empty{
-                run_count+=1;
-                info!("Empty Response;Incrementing to next style");
-            }
             need_rerun=false;
 
 
             if let Some(invoke_epid)= &invoking_episode_id{
+                if last_response_empty{
+                    run_count+=1;
+                    info!("Empty Response;Incrementing to next style");
+                }
+                final_invok_epid=invoke_epid.clone();
+            
                 info!("Invoking Model for episode:{} | MetaCog:{}",invoke_epid,is_metacog_run);
+                agent_tx.send(AgentPulse::lockAgentForEpisode(invoke_epid.clone())).unwrap();
+                agent_tx.send(AgentPulse::SetMetaCogSkip(invoke_epid.clone(),is_metacog_run.clone())).unwrap();
+                
+                
+
+                if run_count==0 && !is_metacog_run{
+                    info!("Invoking PREFLIGHTModel for episode:{} | MetaCog:{}",invoke_epid,is_metacog_run);
+                    preflight_response=reasoning_model_clone.chat(current_episode_memory.clone(),
+                            preflight_prompt.clone(),
+                        Some(invoc_id.clone()),Some(&agent_card)).await;
+                    if !preflight_response.trim().is_empty(){
+                        
+                        agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, preflight_response.clone(),
+                                                    Some(PromptStyle::PREFLIGHT),
+                                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None),
+                                Some(invoke_epid.clone()))).unwrap();
+                        info!("PREFLIGHT MODEL RESP Agent :{} for episode:{} | MetaCog:{} |\n{}",agent_card.get_name(),invoke_epid,is_metacog_run,preflight_response);
+                        let parsed_preflight=AgentResponseParser::parse_preflight_response(&preflight_response);
+                        match parsed_preflight{
+                            Ok(parsed_preflight_resp)=>{
+                                preflight_response=format!("\nPreflight usage guidelines:\n{}\n[PREFLIGHT_CONTEXT]\n{}\n[END_PREFLIGHT_CONTEXT]\n",preflight_guidelines,parsed_preflight_resp);
+                                info!("Parsed PREFLIGHT Response:{}",preflight_response);
+                            }
+                            Err(e) => {
+                                // preflight_response="".to_string();
+                                preflight_response=format!("\nPreflight usage guidelines:\n{}\n[PREFLIGHT_CONTEXT]\n{}\n[END_PREFLIGHT_CONTEXT]\n",preflight_guidelines,preflight_response);
+                                error!("Failed to parse PREFLIGHT response: {:?}", e);
+                            }
+                        }
+                    }
+                    else{
+                        info!("PREFLIGHT response was empty");
+                        preflight_response="".to_string();
+                    }
+
+                }
                 let lookupid:&String=invoke_epid;
                 
                 let mut choosen_prompt: Option<PromptStyle>;
@@ -1357,7 +1399,12 @@ impl Agent{
                     invoc_id=Uuid::now_v7().to_string();
                     info!(" Agent :{} | MetaCog:{} | Invoking Reasoning prompt  | Episode Id:{} |",agent_card.get_name(),is_metacog_run,invoke_epid.clone());
                     choosen_prompt=Some(PromptStyle::REASONING);
-                    agent_prompt.clone()
+                    if is_metacog_run{
+                        agent_prompt.clone()
+                    }
+                    else{
+                        format!("{}{}", agent_prompt.clone(), preflight_response.clone())
+                    }
                 }
                 else if run_count==1 || run_count==3 || run_count==5{
                     info!(" Agent :{} | MetaCog:{} | Invoking Repair prompt | Episode Id:{} |",agent_card.get_name(),is_metacog_run,invoke_epid.clone());
@@ -1368,13 +1415,23 @@ impl Agent{
                     invoc_id=Uuid::now_v7().to_string();
                     info!(" Agent :{} | MetaCog:{} | Invoking RAC prompt | Episode Id:{} |",agent_card.get_name(),is_metacog_run,invoke_epid.clone());
                     choosen_prompt=Some(PromptStyle::RAC);
-                    agent_rac_prompt.clone()
+                    if is_metacog_run{
+                        agent_rac_prompt.clone()
+                    }
+                    else{
+                        format!("{}{}", agent_rac_prompt.clone(), preflight_response.clone())
+                    }
                 }
                 else{
                     invoc_id=Uuid::now_v7().to_string();
                     info!(" Agent :{} | MetaCog:{} | Invoking TOF prompt | Episode Id:{} |",agent_card.get_name(),is_metacog_run,invoke_epid.clone());
                     choosen_prompt=Some(PromptStyle::TOF);
-                    agent_tof_prompt.clone()
+                    if is_metacog_run{
+                        agent_tof_prompt.clone()
+                    }
+                    else{
+                        format!("{}{}", agent_tof_prompt.clone(), preflight_response.clone())
+                    }
                 };
                 if is_metacog_run && !meta_cog_msg_sent{
                     let reflectorcard=Source::new(Role::User,format!("{}reflector",agent_card.get_name()),None);
@@ -1387,10 +1444,17 @@ impl Agent{
                     info!("Waiting for Reflector Init Message");
                     tokio::time::sleep(Duration::from_secs(2)).await;
                 }
-                agent_tx.send(AgentPulse::lockAgentForEpisode(invoke_epid.clone())).unwrap();
-                agent_tx.send(AgentPulse::SetMetaCogSkip(invoke_epid.clone(),is_metacog_run.clone())).unwrap();
                 
-                
+                if last_response_empty{
+                    info!("Last response was empty, sending reminder message to model");
+                    agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&validator_card, "You are required to respond with a valid response.Check for new informations or updates and continue your task".to_string(),
+                                        None, 
+                                        MemoryNodeType::ModelError,Some(invoc_id.clone()),None,None),
+                    Some(invoke_epid.clone()))).unwrap();
+                    info!("Waiting for Empty Response Init Message");
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+
+                }
                 // info!("FINAL PROMPT:{}",final_agent_prompt);
                 let resp=reasoning_model_clone.chat(current_episode_memory.clone(),
                 final_agent_prompt,
@@ -1481,6 +1545,12 @@ impl Agent{
                 parsed_response.success=!need_rerun;
 
                 if parsed_response.success{
+                    
+                    
+                    agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, resp.clone(),
+                                        choosen_prompt.clone(), 
+                                        MemoryNodeType::Message,Some(invoc_id.clone()),None,None),
+                    Some(invoke_epid.clone()))).unwrap();
                     if is_subtask{
                         let output_memory_node=MemoryNode::new(&agent_card, resp.clone(), choosen_prompt.clone(), MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None);
                         match &interface_memory{
@@ -1606,11 +1676,6 @@ impl Agent{
                         
                     // }
                     
-                    agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, resp.clone(),
-                                        choosen_prompt.clone(), 
-                                        MemoryNodeType::Message,Some(invoc_id.clone()),None,None),
-                    Some(invoke_epid.clone()))).unwrap();
-                    
                 }
                     
                 if !(need_rerun && (run_count+1)<MAX_RUN_ALLOWED){
@@ -1671,12 +1736,16 @@ impl Agent{
             }
         }
 
-        if is_subtask{
+        if is_subtask && !is_metacog_run{
             if !(followup_planned){
                 if let Some(mtx)=main_agent_tx{
                     if let Some(ma_epid)=main_agent_epid{
                         info!("Invoking Main Agent for episode:{} after subtask completion from {}",ma_epid.clone(), agent_card.get_name());
-                        if let Err(e)=mtx.send(AgentPulse::Invoke(Some(ma_epid.clone()))){
+                        let inovke_mem=MemoryNode::new(&validator_card,
+                             format!("Subworker {} completed task and sent response. Analyze and continue task or show output as required.", agent_card.get_name()),
+                             None,
+                             MemoryNodeType::Message,Some(invoc_id.clone()),None,None);
+                        if let Err(e)=mtx.send(AgentPulse::AddMemoryAndInvoke(inovke_mem,Some(ma_epid.clone()))){
                             error!("Error occurred while invoking main agent: {}", e);
                         }
                     }
@@ -1710,6 +1779,7 @@ pub enum ParseError {
     ThoughtsError(String),
     OutputError(String),
     FollowupContextError(String),
+    PreflightValidationError(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2071,6 +2141,31 @@ impl AgentResponseParser  {
         else{
             Ok(FollowupContextBlock{followup_context:Vec::new()})
         }
+    }
+
+    fn parse_preflight_response(resp:&String) -> Result<String, ParseError>{
+        let preflight_block_pattern=r"```\s*\n?preflight\s*\n?([\s\S]*?)```";
+        let re= Regex::new(preflight_block_pattern).map_err(|e: regex::Error| ParseError::RegexError(e.to_string()))?;
+
+        let mut error_ls:Vec<String>=Vec::new();
+
+        let matches:Vec<_> = re.captures_iter(resp).collect();
+        let re_iter_count=matches.len();
+        if re_iter_count==0{
+            // return Ok(Validation{thoughts:false,commands:false,output:false,needs_followup:false,followup_context:false});
+            Err(ParseError::PreflightValidationError("No Preflight block found in your response.Preflight block is required.".to_string()))
+        }
+        else{
+            
+            if let Some(m) =matches.last().and_then(|c| c.get(1)) {
+                return Ok(m.as_str().trim().to_string());
+            }
+            else{
+                Err(ParseError::PreflightValidationError("Preflight Block Parsing Error.Check Preflight block".to_string()))
+            }
+
+        }
+
     }
 
 }

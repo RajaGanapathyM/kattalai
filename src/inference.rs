@@ -20,7 +20,7 @@ pub trait inference_api_trait {
     
     async fn invoke(&self,api_url: &str, payload: Value, invoke_type: invoke_type) -> String {
         let client = Client::new();
-        // info!("PAYLOAD: {}",payload);
+        info!("PAYLOAD: {}",payload);
         let response = client
             .post(api_url)
             .json(&payload)
@@ -69,17 +69,22 @@ pub trait inference_api_trait {
                 // println!("node:{:?}", node);
                 let node_typ=node.get_node_type();
                 let error_current_invocation_flag=if node_typ==MemoryNodeType::ReflectionPrompt|| node_typ==MemoryNodeType::ModelError || node_typ==MemoryNodeType::ModelResponse{
-                    match &invocation_id{
-                        Some(in_id)=>{
-                            // info!("Filtering for invocation_id: {}, node invocation_id: {:?}", in_id, node.get_invocation_id());
-                            if let Some(nivc_id)=&node.get_invocation_id(){
-                                nivc_id==in_id
-                            }
-                            else{
-                                true
-                            }
-                        },
-                        None=>{true}
+                    if node.is_hidden(){
+                        false
+                    }
+                    else{
+                        match &invocation_id{
+                            Some(in_id)=>{
+                                // info!("Filtering for invocation_id: {}, node invocation_id: {:?}", in_id, node.get_invocation_id());
+                                if let Some(nivc_id)=&node.get_invocation_id(){
+                                    nivc_id==in_id
+                                }
+                                else{
+                                    true
+                                }
+                            },
+                            None=>{true}
+                        }
                     }
                 }
                 else{

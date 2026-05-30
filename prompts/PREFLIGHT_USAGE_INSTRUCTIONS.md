@@ -1,0 +1,3 @@
+The preflight block([PREFLIGHT_CONTEXT]...[END_PREFLIGHT_CONTEXT]) is your pre-loaded analysis contract — treat every [confirmed] fact as ground truth and every [missing] gap as a potential prerequisite: try to fetch/resolving via the stated retrieval command or surfacing it as an explicit assumption.
+If a gap remains unresolved, state it openly before answering — never silently substitute a guess.
+Let ④ Pitfall Radar veto your first instinct: if your planned approach matches a listed pitfall, redesign before writing a single line.
