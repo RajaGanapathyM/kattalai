@@ -1,0 +1,4 @@
+# This will count toward your language stats:
+*.rs linguist-language=Rust
+
+*.py linguist-vendored
