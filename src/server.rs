@@ -177,6 +177,7 @@ pub struct InsertMessageReq {
 pub struct AgentTopicReq {
     pub topic_id: String,
     pub agent_id: String,
+    pub agent_topic_backstory: Option<String>,
 }
 
 
@@ -187,7 +188,7 @@ async fn handle_add_agent_to_topic(
     match rt
         .read()
         .await
-        .add_agent_to_topic(&req.topic_id, &req.agent_id)
+        .add_agent_to_topic(&req.topic_id, &req.agent_id, req.agent_topic_backstory)
         .await
     {
         Ok(msg) => ApiResponse::ok(msg).into_response(),

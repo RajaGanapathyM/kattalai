@@ -4,7 +4,7 @@ use std::fs;
 use log::{info, warn, error, debug, trace};
 use std::sync::{Arc, RwLock};
 use crate::inference::{Gemini, HuggingFace, OLLAMA, SarvamConfig};
-use crate::inference::{OllamaConfig,GeminiConfig,HuggingFaceConfig};
+use crate::inference::{OllamaConfig,GeminiConfig,HuggingFaceConfig,ClaudeConfig};
 use crate::inference::inference_api_trait;
 use crate::terminal::Terminal;
 use crate::app::{App,AppType};
@@ -40,12 +40,23 @@ pub struct SarvamConfigLoader {
     pub reasoning_effort:String
 }
 
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ClaudeConfigLoader {
+    pub api_key: String,
+    pub max_tokens: Option<u32>,
+    pub temperature: Option<f32>,
+    pub top_p: Option<f32>,
+    pub stream_response: Option<bool>,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct InferenceConfig {
     pub ollama_config: Vec<OllamaConfigLoader>,
     pub gemini_config: Vec<GeminiConfigLoader>,
     pub huggingface_config: Vec<HuggingFaceConfigLoader>,
     pub sarvam_config: Vec<SarvamConfigLoader>,
+    pub claude_config: Vec<ClaudeConfigLoader>,
 }
 
 pub struct InferenceStore{
@@ -126,6 +137,23 @@ impl InferenceStore {
             }
             else{
                 panic!("Sarvam Config not found");
+            }
+        }
+        else if inference_provider=="claude"{
+            if self.config.claude_config.len()>0{
+                let claude_config=&self.config.claude_config[0];
+                ClaudeConfig::new(
+                    claude_config.api_key.clone(), 
+                    vec![source::Role::User, source::Role::Agent,source::Role::App].into_iter().collect(),
+                    vec![source::Role::User, source::Role::Agent].into_iter().collect(),
+                     claude_config.stream_response.unwrap_or(false),
+                    claude_config.temperature,
+                    claude_config.top_p,
+                    claude_config.max_tokens,
+                ).get_model(model_id.clone())
+            }
+            else{
+                panic!("Claude Config not found");
             }
         }
         else{            

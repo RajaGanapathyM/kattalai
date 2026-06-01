@@ -207,7 +207,7 @@ impl Runtime{
                         let focus_branch_id=readonly_agent_episode_mem.get_branch_id();
 
 
-                        Agent::ping(&cogitare_agent,AgentPulse::NewEpisode(format!("Cogitare Episode:{}",focus_branch_id.clone()),Some(readonly_agent_episode_mem),true)).await;
+                        Agent::ping(&cogitare_agent,AgentPulse::NewEpisode(format!("Cogitare Episode:{}",focus_branch_id.clone()),Some(readonly_agent_episode_mem),true,None)).await;
                         tokio::time::sleep(Duration::from_secs(5)).await;
 
                         let cogitare_user=Source::new(source::Role::User, "CogitareUser".to_string(), None);
@@ -308,13 +308,13 @@ impl Runtime{
         }
     }
 
-    pub async fn add_agent_to_topic(&self,topic_id:&String,agent_id:&String)->Result<&str,&str>{
+    pub async fn add_agent_to_topic(&self,topic_id:&String,agent_id:&String,agent_topic_backstory: Option<String>)->Result<&str,&str>{
         if self.topics.contains_key(topic_id){
             if self.agents.contains_key(agent_id){
                 let agent=self.agents.get(agent_id).unwrap().clone();
                 let topic=self.topics.get(topic_id).unwrap().clone();
 
-                Agent::ping(&agent,AgentPulse::NewEpisode(format!("Interface Episode:{}",topic_id.clone()),Some(topic),false)).await;
+                Agent::ping(&agent,AgentPulse::NewEpisode(format!("Interface Episode:{}",topic_id.clone()),Some(topic),false,agent_topic_backstory)).await;
 
                 Ok("Agent added successfully")
             }
@@ -511,7 +511,8 @@ impl PyRuntime {
         &self,
         py: Python<'py>,
         topic_id: String,
-        agent_id: String
+        agent_id: String,
+        agent_topic_backstory: Option<String>
     ) -> PyResult<&'py PyAny> {
 
         let rt = self.inner.clone();
@@ -519,7 +520,7 @@ impl PyRuntime {
         pyo3_asyncio::tokio::future_into_py(py, async move {
 
             let runtime = rt.read().await;
-            let result=runtime.add_agent_to_topic(&topic_id, &agent_id).await;
+            let result=runtime.add_agent_to_topic(&topic_id, &agent_id, agent_topic_backstory).await;
 
             match result {
                 Ok(msg) => Ok(msg.to_string()),

@@ -19,3 +19,10 @@ api_key="ddddd"
 max_new_tokens=8000
 temperature=0.1
 reasoning_effort="high"
+
+[[claude_config]]
+api_key="AAAA"
+max_tokens=4096
+temperature=0.1
+# top_p=0.1 Either temperature or top_p can be set, not both
+stream_response=false
