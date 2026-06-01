@@ -64,7 +64,7 @@ pub trait inference_api_trait {
     
     
     async fn filter_messages(&self, memory: Arc<Memory>,invocation_id:Option<String>,allowed_roles: &HashSet<Role>,non_tool_roles: &HashSet<Role>,source:Option<&Source>) -> Vec<Value>{
-        memory.iter_memory(None,None,source).await
+        let filtered_memory=memory.iter_memory(None,None,source).await
             .filter(|node| { 
                 // println!("node:{:?}", node);
                 let node_typ=node.get_node_type();
@@ -96,7 +96,10 @@ pub trait inference_api_trait {
             
             })
             .map(|node| node.get_payload(non_tool_roles))
-            .collect::<Vec<Value>>()
+            .collect::<Vec<Value>>();
+        
+        // let last_element=
+        filtered_memory
         }
     
     async fn request_payload_builder(&self, message_history: &mut Vec<Value>,system_prompt:String)->Value;
@@ -1091,8 +1094,8 @@ impl inference_api_trait for ClaudeAI {
         }
 
         // Anthropic requires the conversation to start with a user turn
-        if messages.is_empty() || messages[0]["role"].as_str() != Some("user") {
-            messages.insert(0, json!({ "role": "user", "content": "" }));
+        if messages.is_empty()  {
+            messages.insert(0, json!({ "role": "user", "content": "INVOKE AND EXECUTE" }));
         }
 
         let mut payload = json!({

@@ -243,6 +243,24 @@ pub struct Memory {
 }
 
 impl Memory {
+    pub fn append_user_last_node(&self,content:String){
+        if self.check_if_last_message_is_user(){
+            // pass
+        } else {
+            let mut last_node=MemoryNode::new(&Source::new(Role::User,"RG".to_string(),None), content, None, MemoryNodeType::Message,None,None,None);
+            last_node.branch_id=Some(self._branch_id.clone());
+            if let Err(e) = self._memory_tx.send(AgentPulse::AddMemory(last_node,None)) {
+                error!("Failed to send last user memory pulse: {:?}", e);
+            }
+        }
+    }
+    pub fn check_if_last_message_is_user(&self)->bool{
+        let loaded_mem_vec = self._memory_store.mem_vec.load_full();
+        if let Some(last_node) = loaded_mem_vec.last() {
+            return last_node.source.get_role() == Role::User;
+        }
+        false
+    }
     /// construct a new Memory container
     pub fn new(protocol_store: Option<Arc<ProtocolStore>>,memory_type:MemoryType) -> Arc<Self> {
         let (tx, rx) = channel::unbounded();
@@ -404,7 +422,11 @@ impl Memory {
     }  
     fn read_spill(spill_path:&String)->String{
         
-        let spilled_content=fs::read_to_string(spill_path).map_err(|e| format!("{:?}",e)).unwrap();
+        let spilled_content=if let Ok(content)=fs::read_to_string(spill_path).map_err(|e| format!("{:?}",e)){
+            content
+        } else {
+            "App results File Not Found".to_string()
+        };
 
         if let Err(e)=fs::remove_file(spill_path){
             error!("Failed to remove spill file: {:?}. Error: {:?}",spill_path,e);

@@ -85,7 +85,8 @@ pub enum PromptStyle{
     TOF,
     PROTOCOL,
     REPAIR,
-    PREFLIGHT
+    PREFLIGHT,
+    
 }
 pub struct episode{
     episode_id:String,
@@ -1379,7 +1380,9 @@ impl Agent{
         let mut last_response_empty=false;
         let mut meta_cog_msg_sent=false;
         let mut preflight_response=String::new();
-
+        if !is_metacog_run{
+            current_episode_memory.append_user_last_node("[INVOKE]".to_string());
+        }
         while need_rerun && run_count<MAX_RUN_ALLOWED {
             
 
