@@ -1,2 +1,3 @@
+# default_reasoning_model={"inference_provider"="claude","model_id"="claude-haiku-4-5-20251001"}
 default_reasoning_model={"inference_provider"="ollama","model_id"="qwen3:4b"}
 default_nlp_model={"inference_provider"="ollama","model_id"="qwen3:0.6b"}

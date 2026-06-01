@@ -207,7 +207,7 @@ impl Runtime{
                         let focus_branch_id=readonly_agent_episode_mem.get_branch_id();
 
 
-                        Agent::ping(&cogitare_agent,AgentPulse::NewEpisode(format!("Cogitare Episode:{}",focus_branch_id.clone()),Some(readonly_agent_episode_mem),true)).await;
+                        Agent::ping(&cogitare_agent,AgentPulse::NewEpisode(format!("Cogitare Episode:{}",focus_branch_id.clone()),Some(readonly_agent_episode_mem),true,None)).await;
                         tokio::time::sleep(Duration::from_secs(5)).await;
 
                         let cogitare_user=Source::new(source::Role::User, "CogitareUser".to_string(), None);
@@ -252,8 +252,14 @@ impl Runtime{
         let agent_id=agent.read().await.get_agent_id();
         self.agents.insert(agent_id.clone(), agent.clone());
         agent_id
-
-
+    }
+    pub async fn update_agent_context(&self,agent_id:&String,topic_id:&String,context:&String){
+        if let Some(readble_agent) = self.agents.get(agent_id) {
+            Agent::ping(&readble_agent, AgentPulse::UpdateEpisodeContext(topic_id.clone(), context.clone())).await;
+        }
+        else{
+            error!("Agent with ID {} not found for context update.", agent_id);
+        }
     }
     pub async fn get_topic_history_len(&self,topic_id:&String)->Result<usize,&str>{
         if self.topics.contains_key(topic_id){
@@ -308,13 +314,13 @@ impl Runtime{
         }
     }
 
-    pub async fn add_agent_to_topic(&self,topic_id:&String,agent_id:&String)->Result<&str,&str>{
+    pub async fn add_agent_to_topic(&self,topic_id:&String,agent_id:&String,agent_topic_backstory: Option<String>)->Result<&str,&str>{
         if self.topics.contains_key(topic_id){
             if self.agents.contains_key(agent_id){
                 let agent=self.agents.get(agent_id).unwrap().clone();
                 let topic=self.topics.get(topic_id).unwrap().clone();
 
-                Agent::ping(&agent,AgentPulse::NewEpisode(format!("Interface Episode:{}",topic_id.clone()),Some(topic),false)).await;
+                Agent::ping(&agent,AgentPulse::NewEpisode(format!("Interface Episode:{}",topic_id.clone()),Some(topic),false,agent_topic_backstory)).await;
 
                 Ok("Agent added successfully")
             }
@@ -511,7 +517,8 @@ impl PyRuntime {
         &self,
         py: Python<'py>,
         topic_id: String,
-        agent_id: String
+        agent_id: String,
+        agent_topic_backstory: Option<String>
     ) -> PyResult<&'py PyAny> {
 
         let rt = self.inner.clone();
@@ -519,12 +526,30 @@ impl PyRuntime {
         pyo3_asyncio::tokio::future_into_py(py, async move {
 
             let runtime = rt.read().await;
-            let result=runtime.add_agent_to_topic(&topic_id, &agent_id).await;
+            let result=runtime.add_agent_to_topic(&topic_id, &agent_id, agent_topic_backstory).await;
 
             match result {
                 Ok(msg) => Ok(msg.to_string()),
                 Err(e) => Err(pyo3::exceptions::PyValueError::new_err(e.to_string()))
             }
+
+        })
+    }
+    fn update_agent_context<'py>(
+        &self,
+        py: Python<'py>,
+        agent_id: String,
+        topic_id: String,
+        context: String
+    ) -> PyResult<&'py PyAny> {
+
+        let rt = self.inner.clone();
+
+        pyo3_asyncio::tokio::future_into_py(py, async move {
+
+            let runtime = rt.read().await;
+            runtime.update_agent_context(&agent_id, &topic_id, &context).await;
+            Ok("Agent context updated successfully".to_string())
 
         })
     }

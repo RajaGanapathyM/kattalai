@@ -1,1 +1,2 @@
 019db886-dae7-7fa3-b534-dde8c68b8dd2|019db884-1368-7eb0-ae0d-73e366406039|"0 8 * * *"|morning_news_summary
+019e7ab7-eb16-7a50-84b0-12bee6bebde5|019e7ab4-5278-7b30-8198-d579638b98b1|"0 8 * * *" --context "morning news summary (UTC time)"|morning_news_summary|

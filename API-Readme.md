@@ -193,7 +193,8 @@ Attach a deployed agent to a topic thread. The agent will respond to new message
 ```json
 {
   "topic_id": "<topic_id>",
-  "agent_id": "<agent_id>"
+  "agent_id": "<agent_id>",
+  "agent_topic_backstory":"Context for the topic"
 }
 ```
 

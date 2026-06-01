@@ -929,3 +929,259 @@ impl inference_api_trait for SarvamAI {
         self.parse_response(response, invoke_type).await
     }
 }
+
+
+//CLAUDE SUPPORT
+// Claude (Anthropic) Integration
+
+pub struct ClaudeConfig {
+    pub api_key: String,
+    pub allowed_roles: HashSet<Role>,
+    pub non_tool_roles: HashSet<Role>,
+    pub stream_response: bool,
+    pub temperature: Option<f32>,
+    pub top_p: Option<f32>,
+    pub max_tokens: Option<u32>,
+}
+
+impl ClaudeConfig {
+    pub fn new(
+        api_key: String,
+        allowed_roles: HashSet<Role>,
+        non_tool_roles: HashSet<Role>,
+        stream_response: bool,
+        temperature: Option<f32>,
+        top_p: Option<f32>,
+        max_tokens: Option<u32>,
+    ) -> Self {
+        Self {
+            api_key,
+            allowed_roles,
+            non_tool_roles,
+            stream_response,
+            temperature,
+            top_p,
+            max_tokens,
+        }
+    }
+
+    pub fn get_model(&self, model_id: String) -> Arc<ClaudeAI> {
+        ClaudeAI::new(
+            model_id,
+            self.api_key.clone(),
+            self.allowed_roles.clone(),
+            self.non_tool_roles.clone(),
+            self.stream_response,
+            self.temperature,
+            self.top_p,
+            self.max_tokens,
+        )
+    }
+}
+
+pub struct ClaudeAI {
+    pub model_id: String,
+    pub api_key: String,
+    pub allowed_roles: HashSet<Role>,
+    pub non_tool_roles: HashSet<Role>,
+    pub stream_response: bool,
+    pub temperature: Option<f32>,
+    pub top_p: Option<f32>,
+    pub max_tokens: Option<u32>,
+}
+
+impl ClaudeAI {
+    pub fn new(
+        model_id: String,
+        api_key: String,
+        allowed_roles: HashSet<Role>,
+        non_tool_roles: HashSet<Role>,
+        stream_response: bool,
+        temperature: Option<f32>,
+        top_p: Option<f32>,
+        max_tokens: Option<u32>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            model_id,
+            api_key,
+            allowed_roles,
+            non_tool_roles,
+            stream_response,
+            temperature,
+            top_p,
+            max_tokens,
+        })
+    }
+
+    pub fn get_api_url(&self) -> String {
+        "https://api.anthropic.com/v1/messages".to_string()
+    }
+}
+
+#[async_trait]
+impl inference_api_trait for ClaudeAI {
+
+    async fn chat(
+        &self,
+        memory: Arc<Memory>,
+        system_prompt: String,
+        invocation_id: Option<String>,
+        source: Option<&Source>,
+    ) -> String {
+        self._chat_invoke(
+            &self.get_api_url(),
+            memory,
+            system_prompt,
+            invocation_id,
+            &self.allowed_roles,
+            &self.non_tool_roles,
+            source,
+        )
+        .await
+    }
+
+    async fn generate(&self, prompt: String) -> String {
+        // Wrap the prompt as a single-turn user message
+        let mut history = vec![json!({
+            "role": "user",
+            "content": prompt
+        })];
+
+        let payload = self.request_payload_builder(&mut history, "".to_string()).await;
+        self.invoke(&self.get_api_url(), payload, invoke_type::Chat).await
+    }
+
+    async fn request_payload_builder(
+        &self,
+        message_history: &mut Vec<Value>,
+        system_prompt: String,
+    ) -> Value {
+        // Anthropic Messages API:
+        // - system prompt goes in a dedicated top-level "system" field (string)
+        // - "assistant" role stays as "assistant" (no renaming needed unlike Gemini)
+        // - "tool" role messages are skipped/coerced to avoid validation errors
+        //   (full tool_use/tool_result blocks would need richer MemoryNode support)
+        let mut messages: Vec<Value> = Vec::new();
+
+        for msg in message_history.iter() {
+            let role = msg["role"].as_str().unwrap_or("user");
+            match role {
+                "system" => continue, // handled via top-level "system" field
+                "tool" | "app" => {
+                    // Coerce tool results to user turn until tool_use block support is added
+                    messages.push(json!({
+                        "role": "user",
+                        "content": format!("[Tool Result]\n{}", msg["content"].as_str().unwrap_or(""))
+                    }));
+                }
+                "assistant" | "user" => {
+                    messages.push(json!({
+                        "role": role,
+                        "content": msg["content"].as_str().unwrap_or("")
+                    }));
+                }
+                other => {
+                    warn!("ClaudeAI: unrecognised role '{}', coercing to 'user'", other);
+                    messages.push(json!({
+                        "role": "user",
+                        "content": msg["content"].as_str().unwrap_or("")
+                    }));
+                }
+            }
+        }
+
+        // Anthropic requires the conversation to start with a user turn
+        if messages.is_empty() || messages[0]["role"].as_str() != Some("user") {
+            messages.insert(0, json!({ "role": "user", "content": "" }));
+        }
+
+        let mut payload = json!({
+            "model": self.model_id,
+            "messages": messages,
+            // max_tokens is REQUIRED by the Anthropic API
+            "max_tokens": self.max_tokens.unwrap_or(1024),
+            "stream": self.stream_response
+        });
+
+        // Optional generation params
+        if let Some(temp) = self.temperature {
+            payload["temperature"] = json!(temp);
+        }
+        else if let Some(tp) = self.top_p {
+            payload["top_p"] = json!(tp);
+        }
+
+        // System prompt goes in its own root field, NOT as a message
+        if !system_prompt.is_empty() {
+            payload["system"] = json!(system_prompt);
+        }
+
+        payload
+    }
+
+    async fn parse_response(&self, response: String, _invoke_type: invoke_type) -> String {
+        let parsed: Value = serde_json::from_str(&response)
+            .expect("ClaudeAI: failed to parse response as JSON");
+
+        // Check for API-level errors (e.g. invalid key, quota exceeded)
+        if let Some(err_type) = parsed["type"].as_str() {
+            if err_type == "error" {
+                let msg = parsed["error"]["message"].as_str().unwrap_or("unknown error");
+                error!("ClaudeAI API error: {}", msg);
+                return format!(
+                    "```output\nClaude API Error: {}\n```\n```validation\nthoughts=False\nterminal=False\noutput=True\nfollowup_context=False\nneeds_followup=False\n```",
+                    msg
+                );
+            }
+        }
+
+        // Anthropic response shape:
+        // { "content": [ { "type": "text", "text": "..." }, ... ] }
+        // There can be multiple content blocks; collect all text blocks.
+        let content_blocks = parsed["content"]
+            .as_array()
+            .map(|blocks| {
+                blocks
+                    .iter()
+                    .filter(|b| b["type"].as_str() == Some("text"))
+                    .filter_map(|b| b["text"].as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default();
+
+        if content_blocks.is_empty() {
+            error!(
+                "ClaudeAI: no text content in response. Raw: {}",
+                response
+            );
+            return format!(
+                "```output\nResponse Parsing Failed. Raw: {}\n```\n```validation\nthoughts=False\nterminal=False\noutput=True\nfollowup_context=False\nneeds_followup=False\n```",
+                response
+            );
+        }
+
+        content_blocks
+    }
+
+    // Override invoke to inject Anthropic-specific headers
+    async fn invoke(&self, api_url: &str, payload: Value, invoke_type: invoke_type) -> String {
+        let client = Client::new();
+        info!("PAYLOAD: {}", payload);
+
+        let response = client
+            .post(api_url)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01") // required by all Anthropic API calls
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await
+            .expect("ClaudeAI: inference request failed")
+            .text()
+            .await
+            .expect("ClaudeAI: failed to read response body");
+
+        self.parse_response(response, invoke_type).await
+    }
+}

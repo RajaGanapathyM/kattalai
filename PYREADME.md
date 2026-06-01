@@ -182,12 +182,12 @@ agent_id = await runtime.deploy_agent("Researcher")
 
 ---
 
-### `add_agent_to_topic(topic_id: str, agent_id: str)` → `str`
+### `add_agent_to_topic(topic_id: str, agent_id: str,agent_topic_backstory:str)` → `str`
 
 Attaches an agent to a topic thread. The agent begins responding to new messages inserted into that topic.
 
 ```python
-await runtime.add_agent_to_topic(topic_id, agent_id)
+await runtime.add_agent_to_topic(topic_id, agent_id,agent_topic_backstory)
 ```
 
 > Only one agent should be active on a topic at a time. Call `remove_agent_from_topic` before switching agents.
@@ -416,6 +416,7 @@ async def main():
     # 2. Deploy and attach an agent
     agents   = await runtime.get_agent_list()
     agent_id = await runtime.deploy_agent(agents[0])
+    agent_topic_backstory = "You are the first agent for this topic"
     await runtime.add_agent_to_topic(topic_id, agent_id)
 
     # 3. Snapshot cursor, send message

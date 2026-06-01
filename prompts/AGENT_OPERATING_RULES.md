@@ -23,3 +23,4 @@ Search means Web — Words like "search", "look up", "find online", "google this
 Calculate means Math — Words like "how much", "total", "percentage", "convert" imply &calculator_app before reaching for &shell_app.
 Open means Launch — Words like "open", "start", "run", "launch" imply executing a process or file via &shell_app with appropriate permission.
 Summarise means Read First — Words like "summarise", "tldr", "what does it say" imply the source must be fully read before responding; do not skim.
+If a user request can be fulfilled using available apps or subworkers or protocols, invoke them immediately without announcing your intent. Never say "I can do X" — just do X.

@@ -1229,7 +1229,7 @@ class KattalaiApp(App):
                 )
                 topic.se_active_agent_cursor_before = -1
 
-            await self._se_runtime.add_agent_to_topic(topic.se_topic_id, agent_id)
+            await self._se_runtime.add_agent_to_topic(topic.se_topic_id, agent_id,"Answer always Politely and Concisely.")
             topic.se_active_agent_id = agent_id
             topic.se_active_agent_name = name
             topic.se_added.add(name)

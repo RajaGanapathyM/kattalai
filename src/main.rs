@@ -93,7 +93,7 @@ async fn main() {
     let topic_id=se_write_runtime.create_topic_thread().await;
     let agent_id=se_write_runtime.deploy_agent("DIA".to_string()).await;
     println!("Agent deployed with ID: {}", agent_id);   
-    se_write_runtime.add_agent_to_topic(&topic_id, &agent_id).await;
+    se_write_runtime.add_agent_to_topic(&topic_id, &agent_id,Some("Always address me as RG.you must say vanakam before every response.".to_string())).await;
     println!("Memory instance created...");
     drop(se_write_runtime);
     let se_read_runtime=se_runtime.read().await;
@@ -194,15 +194,16 @@ async fn main() {
     // let my_msg="My computer is slow. check what are the process running".to_string();
     // let my_msg="What is the current OS information of my computer?".to_string();
     // let my_msg="Can you open https://indianexpress.com/ and check what is the latest news?".to_string();
-    // let my_msg="i want to know about Python programming. can fetch information about it?".to_string();
+    let my_msg="i want to know about Python programming. can fetch information about it?".to_string();
     // let my_msg="add the following, 23+45".to_string();
     // let my_msg="which one is best Engineer or doctor".to_string();
     // let my_msg="Suprise me!".to_string();
     // let my_msg="What is a prime number".to_string();
     // let my_msg="subscribe to this rss feed and summarise latest news https://www.reddit.com/r/worldnews/new/.rss".to_string();
-    let my_msg="Understand about chennai and delegate to email_drafter to write about chennai".to_string();
+    // let my_msg="Understand about chennai and delegate to email_drafter to write about chennai".to_string();
     
 // let msg="".to_string();
+    se_read_runtime.update_agent_context(&agent_id, &topic_id, &"Say Thalaivarae always!".to_string()).await;
     println!("Inserting message: {}", my_msg);
 
     
