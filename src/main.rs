@@ -203,6 +203,7 @@ async fn main() {
     // let my_msg="Understand about chennai and delegate to email_drafter to write about chennai".to_string();
     
 // let msg="".to_string();
+    se_read_runtime.update_agent_context(&agent_id, &topic_id, &"Say Thalaivarae always!".to_string()).await;
     println!("Inserting message: {}", my_msg);
 
     

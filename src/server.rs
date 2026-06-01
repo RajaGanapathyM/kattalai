@@ -78,6 +78,7 @@ impl RuntimeServer {
             .route("/agent/episode-history-len",post(handle_agent_episode_history_len))
             .route("/agent/working-status",     post(handle_is_agent_working))
             .route("/agent/iter-memory",        post(handle_iter_agent_memory))
+            .route("/agent/update-episode-context", post(handle_update_agent_context))
             // topics
             .route("/topic/create",             post(handle_create_topic))
             .route("/topic/history-len",        post(handle_topic_history_len))
@@ -266,7 +267,26 @@ async fn handle_deploy_agent(
     ApiResponse::ok(agent_id)
 }
 
+///POST/agent/update-episode-context
 
+#[derive(Deserialize)]
+pub struct UpdateAgentContextReq {
+    pub agent_id: String,
+    pub topic_id: String,
+    pub context: String,
+}
+
+async fn handle_update_agent_context(
+    State(rt): State<SharedRuntime>,
+    Json(req): Json<UpdateAgentContextReq>,
+) -> impl IntoResponse {
+    rt
+        .write()
+        .await
+        .update_agent_context(&req.agent_id, &req.topic_id, &req.context)
+        .await;
+    ApiResponse::ok("Context update request sent").into_response()
+}
 
 /// POST /agent/episode-history-len
 

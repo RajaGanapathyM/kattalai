@@ -17,6 +17,7 @@ backstory = "You are a meticulous web research subworker. Given a topic, questio
 default_apps = ["wikipedia_app","webpage_reader"]
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 2. DOCUMENT READER
@@ -30,6 +31,7 @@ backstory = "You are a document-processing subworker. You receive file paths or 
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 3. DATA ANALYST
@@ -43,6 +45,7 @@ backstory = "You are a data analysis subworker. You work with tabular data, time
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 4. TEXT SUMMARISER
@@ -56,6 +59,7 @@ backstory = "You are a summarisation subworker specialised in distilling large v
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 5. WRITER / CONTENT DRAFTER
@@ -69,6 +73,7 @@ backstory = "You are a versatile writing subworker. You produce well-structured,
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 6. CODE ASSISTANT
@@ -82,6 +87,7 @@ backstory = "You are a software engineering subworker. You write clean, efficien
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 7. TRANSLATOR
@@ -95,6 +101,7 @@ backstory = "You are a language translation subworker. You handle literal and id
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 8. CALENDAR & SCHEDULER
@@ -108,6 +115,7 @@ backstory = "You are a scheduling and calendar subworker. You understand natural
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 9. EMAIL COMPOSER
@@ -121,6 +129,7 @@ backstory = "You are an email drafting subworker. You write emails that are conc
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 10. CALCULATOR / MATH SOLVER
@@ -134,6 +143,7 @@ backstory = "You are a mathematical computation subworker. You handle everything
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 11. FORM FILLER / DATA EXTRACTOR
@@ -147,6 +157,7 @@ backstory = "You are a data extraction subworker. Given raw text, a scanned form
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 12. IMAGE DESCRIBER
@@ -160,6 +171,7 @@ backstory = "You are a vision analysis subworker. You examine images and produce
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 13. QUESTION ANSWERER (RAG / Knowledge)
@@ -173,6 +185,7 @@ backstory = "You are a question-answering subworker. You read provided context c
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 14. TASK PLANNER
@@ -186,6 +199,7 @@ backstory = "You are a planning and decomposition subworker. Given an objective,
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 15. SENTIMENT & TONE ANALYSER
@@ -199,6 +213,7 @@ backstory = "You are a sentiment analysis subworker. You evaluate text for posit
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 16. NOTIFICATION DISPATCHER
@@ -212,6 +227,7 @@ backstory = "You are a notification management subworker. You take event or aler
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 17. MEMORY & CONTEXT MANAGER
@@ -225,6 +241,7 @@ backstory = "You are a memory and context subworker. You receive information to 
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 18. API CALLER
@@ -238,6 +255,7 @@ backstory = "You are an API integration subworker. You construct and execute RES
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 19. FILE MANAGER
@@ -251,6 +269,7 @@ backstory = "You are a file management subworker. You handle file I/O tasks safe
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false
 
 # ------------------------------------------------------------
 # 20. REPORT GENERATOR
@@ -264,3 +283,4 @@ backstory = "You are a report generation subworker. You take raw data, insights,
 default_apps = []
 allow_self_selected_apps = true
 is_subagent = true
+is_public=false

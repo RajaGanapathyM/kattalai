@@ -99,12 +99,17 @@ pub struct episode{
     is_subtask:bool,
     main_agent_tx:Option<channel::Sender<AgentPulse>>,
     main_agent_epid:Option<String>,
-    episode_backstory: Option<String>
+    episode_backstory: Mutex<Option<String>>
 }
 impl  episode {
 
-    pub fn get_episode_context(&self)->String{
-        if let Some(backstory)=&self.episode_backstory{
+    pub async fn update_episode_backstory(&self, new_backstory: String) {
+        // Since episode_backstory is an Option<String>, we can simply replace it with the new backstory wrapped in Some()
+        *self.episode_backstory.lock().await = Some(new_backstory);
+    }
+
+    pub async fn get_episode_context(&self)->String{
+        if let Some(backstory)=&*self.episode_backstory.lock().await{
             format!("{}", backstory)
         }else{
             "No episode context provided.".to_string()
@@ -196,6 +201,7 @@ pub enum AgentPulse{
     AddMemoryAndInvoke(MemoryNode,Option<String>),
     UpdateEpisode(String,String),
     unlockAgentForEpisode(String),
+    UpdateEpisodeContext(String,String),
     lockAgentForEpisode(String),
     SetAgentFollowupStatus(String,bool),
     InvokeMetaCog(Option<String>),
@@ -474,7 +480,8 @@ impl Agent{
         thread::spawn(move || {
                 let tokio_rt: tokio::runtime::Runtime  = tokio::runtime::Runtime::new().unwrap();
                 let agent_lock = tokio_rt.block_on(new_agent_clone.write());
-                info!("Agent thread started. Agent ID: {}", agent_lock.agent_card.get_name());
+                let agent_name=agent_lock.agent_card.get_name();
+                info!("Agent thread started. Agent ID: {}", &agent_name);
                 drop(agent_lock);
 
                 
@@ -484,6 +491,21 @@ impl Agent{
                         
                         // info!("Agent message receive:");
                         match new_pulse{
+                            AgentPulse::UpdateEpisodeContext(epid,contxt )=>{
+                                let agent_name_clone=agent_name.clone();
+                                tokio_rt.spawn(async move{
+                                    info!("Updating episode context for Agent:{} | episode:{}",&agent_name_clone,epid);
+                                    let agent_lock = aclone.read().await;
+                                    let readble_episode=agent_lock.episodes.read().await;
+                                    let req_episode=readble_episode.get(&epid);
+                                    match req_episode{
+                                        Some(repisode)=>{
+                                            repisode.update_episode_backstory(contxt).await;
+                                        },
+                                        None=>{error!("Episode with ID {} not found for context update.", epid);}
+                                    }
+                                });
+                            }
                             AgentPulse::Invoke(epid)=>{
                                tokio_rt.spawn(Agent::_invoke(aclone, epid,false));
                                 
@@ -501,6 +523,7 @@ impl Agent{
                             AgentPulse::AttachApp(app)=>{  
                                tokio_rt.spawn(Agent::attach_app(aclone, app));
                             },
+                            
                             AgentPulse::lockAgentForEpisode(epid)=>{                            
                                 tokio_rt.spawn(async move{
                                     let agent_lock = aclone.read().await;
@@ -510,7 +533,7 @@ impl Agent{
                                         Some(repisode)=>{
                                             repisode.lock_agent().await;
                                         },
-                                        None=>{}
+                                        None=>{error!("Episode with ID {} not found for locking agent.", epid);}
                                     }
                                 });
                             },
@@ -523,7 +546,7 @@ impl Agent{
                                         Some(repisode)=>{
                                             repisode.set_metacog_skip(flag).await;
                                         },
-                                        None=>{}
+                                        None=>{error!("Episode with ID {} not found for setting meta cog skip.", epid);}
                                     }
                                 });
                             },
@@ -832,7 +855,7 @@ impl Agent{
                 match agent_lock.episodes.read().await.get(eid).cloned(){
                     Some(current_episode)=>{
                         let is_subtask= current_episode.is_subtask();
-                        let episode_context= current_episode.get_episode_context();
+                        let episode_context= current_episode.get_episode_context().await;
                         let main_agent_tx=current_episode.main_agent_tx.clone();
                         let main_epid=current_episode.get_mainagent_epid();
                         let mlen=current_episode.episode_memory.get_memory_len().await;
@@ -980,7 +1003,7 @@ impl Agent{
         *writable_episode=Some(episode_id.clone());
 
         let mut writable_episodes=agent_self.episodes.write().await;    
-        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc,interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false),metacog_skip:Mutex::new(false),is_subtask:false,main_agent_tx:None,main_agent_epid:None ,episode_backstory}));
+        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc,interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false),metacog_skip:Mutex::new(false),is_subtask:false,main_agent_tx:None,main_agent_epid:None ,episode_backstory:Mutex::new(episode_backstory)}));
     
         
         info!("New Episode Launched:{}",episode_id);
@@ -1001,7 +1024,7 @@ impl Agent{
         *writable_episode=Some(episode_id.clone());
 
         let mut writable_episodes=agent_self.episodes.write().await;    
-        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc:task_desc.clone(),interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false),metacog_skip:Mutex::new(false),is_subtask:true,main_agent_tx:ma_tx,main_agent_epid:ma_epid,episode_backstory}));
+        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc:task_desc.clone(),interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false),metacog_skip:Mutex::new(false),is_subtask:true,main_agent_tx:ma_tx,main_agent_epid:ma_epid,episode_backstory:Mutex::new(episode_backstory)}));
     
         
         info!("New Task Episode Launched:{}",episode_id);

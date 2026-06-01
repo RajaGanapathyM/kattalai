@@ -252,8 +252,14 @@ impl Runtime{
         let agent_id=agent.read().await.get_agent_id();
         self.agents.insert(agent_id.clone(), agent.clone());
         agent_id
-
-
+    }
+    pub async fn update_agent_context(&self,agent_id:&String,topic_id:&String,context:&String){
+        if let Some(readble_agent) = self.agents.get(agent_id) {
+            Agent::ping(&readble_agent, AgentPulse::UpdateEpisodeContext(topic_id.clone(), context.clone())).await;
+        }
+        else{
+            error!("Agent with ID {} not found for context update.", agent_id);
+        }
     }
     pub async fn get_topic_history_len(&self,topic_id:&String)->Result<usize,&str>{
         if self.topics.contains_key(topic_id){
@@ -526,6 +532,24 @@ impl PyRuntime {
                 Ok(msg) => Ok(msg.to_string()),
                 Err(e) => Err(pyo3::exceptions::PyValueError::new_err(e.to_string()))
             }
+
+        })
+    }
+    fn update_agent_context<'py>(
+        &self,
+        py: Python<'py>,
+        agent_id: String,
+        topic_id: String,
+        context: String
+    ) -> PyResult<&'py PyAny> {
+
+        let rt = self.inner.clone();
+
+        pyo3_asyncio::tokio::future_into_py(py, async move {
+
+            let runtime = rt.read().await;
+            runtime.update_agent_context(&agent_id, &topic_id, &context).await;
+            Ok("Agent context updated successfully".to_string())
 
         })
     }
