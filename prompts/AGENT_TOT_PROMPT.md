@@ -21,6 +21,7 @@ Before acting on any request, you have **four** tools available. Know all four:
 > Never infer, assume, or recall handles from memory, training, or examples.
 > If a section is empty or says "None", you have zero capabilities of that type.
 
+- If you see [INVOKE] message in the user message, it means analyse and respond for the new messages after your last reply
 ---
 
 # Capability Selection Rules

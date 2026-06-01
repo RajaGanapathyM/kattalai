@@ -28,11 +28,13 @@ automatically on every create / delete / move operation.
   New document        -> &codex_app new path=./knowledge_base/topic.md title="Topic Title" [description="One-line summary"]
   New category folder -> &codex_app mkdir path=./knowledge_base/category
   Edit document       -> &codex_app edit path=./knowledge_base/topic.md content="# New content..."
-  Append to document  -> &codex_app append path=./knowledge_base/topic.md content="## New Section..."
+  Append to document -> &codex_app append path=./knowledge_base/topic.md content="## New Section..."
   Delete document     -> &codex_app delete path=./knowledge_base/topic.md
   Move / rename doc   -> &codex_app move src=./knowledge_base/old.md dest=./knowledge_base/new.md
   Link two documents  -> &codex_app link src=./knowledge_base/a.md dest=./knowledge_base/b.md [label="See also"]
-
+  
+  NOTE: For the `edit` and `append` commands, when passing the `content` argument, do NOT include newline characters in the shell input as they will break the command into separate lines. If you want to log multi-line content, please provide it through separate commands or ensure that the content is properly escaped to maintain it as a single argument.
+  
 ## index.md Behaviour
   * Created automatically if absent when the app starts.
   * Every entry records: title, relative path, optional description.
