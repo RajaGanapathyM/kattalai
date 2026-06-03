@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
+use std::str::FromStr;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Role {
@@ -27,7 +28,23 @@ impl Role {
     }
 }
 
-#[derive(Clone, Debug)]
+impl FromStr for Role {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "system" => Ok(Role::System),
+            "user" => Ok(Role::User),
+            "agent" | "assistant" => Ok(Role::Agent),
+            "app" => Ok(Role::App),
+            "environment" => Ok(Role::Environment),
+            "runtime" => Ok(Role::Runtime),
+            "protocol" => Ok(Role::Protocol),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Source {
     role: Role,
     name: String,

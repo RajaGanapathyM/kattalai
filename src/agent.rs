@@ -2,6 +2,8 @@ use crate::appstore::AppStore;
 use futures::executor::block_on;
 use futures::task;
 use crate::{agent, memory, source};
+use std::str::FromStr;
+use serde::{Serialize,Deserialize};
 use crate::memory::{Memory,MemoryNode,MemoryNodeType,IOPhase};
 use crate::source::{Source,Role};
 use crate::terminal::Terminal;
@@ -25,7 +27,6 @@ use reqwest::header::AGE;
 use std::fmt::{self, format};
 
 use std::result::Result;
-use serde::Deserialize;
 use std::fs;
 use crate::InferenceStore;
 use crossbeam::channel;
@@ -78,7 +79,7 @@ pub fn get_sys_info() -> String {
     )
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PromptStyle{
     REASONING,
     RAC,
@@ -87,6 +88,34 @@ pub enum PromptStyle{
     REPAIR,
     PREFLIGHT,
     
+}
+impl PromptStyle{
+    pub fn as_str(&self)->&str{
+        match self {
+            PromptStyle::REASONING => "reasoning",
+            PromptStyle::RAC => "rac",
+            PromptStyle::TOF => "tof",
+            PromptStyle::PROTOCOL => "protocol",
+            PromptStyle::REPAIR => "repair",
+            PromptStyle::PREFLIGHT => "preflight",
+        }
+
+    }
+}
+impl FromStr for PromptStyle{
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "reasoning" => Ok(PromptStyle::REASONING),
+            "rac" => Ok(PromptStyle::RAC),
+            "tof" => Ok(PromptStyle::TOF),
+            "protocol" => Ok(PromptStyle::PROTOCOL),
+            "repair" => Ok(PromptStyle::REPAIR),
+            "preflight" => Ok(PromptStyle::PREFLIGHT),
+            _ => Err(()),
+        }
+    }
 }
 pub struct episode{
     episode_id:String,
@@ -189,7 +218,6 @@ impl  episode {
     
 }
 
-#[derive(Debug)]
 pub enum AgentPulse{
     Invoke(Option<String>),
     Generate,
@@ -209,7 +237,6 @@ pub enum AgentPulse{
     SetMetaCogSkip(String,bool),
 }
 
-#[derive(Debug)]
 pub enum EpisodePulse{
     AttachListener(String,Arc<Memory>,Arc<Memory>),
 }
@@ -363,6 +390,7 @@ impl AgentStore{
             return Ok(readble_activated_agents.get(&agent_name.to_lowercase()).unwrap().clone());
         }
         drop(readble_activated_agents);
+        info!("Activating agent:{}",agent_name);
         if self.agents_config.contains_key(&agent_name.to_lowercase()){
 
             let aconfig=self.agents_config.get(&agent_name.to_lowercase()).unwrap();
@@ -393,17 +421,20 @@ impl AgentStore{
                     error!("Default app:{} for agent:{} not found in app store",dapp,agent_name);
                     continue;
                 }
-                block_on(Agent::ping(&first_agent,AgentPulse::AttachApp(identified_app.unwrap())));
+                Agent::ping(&first_agent,AgentPulse::AttachApp(identified_app.unwrap())).await;
             }
             let mut writeble_activated_agents=self.activated_agents.write().await;
 
             writeble_activated_agents.insert(agent_name.clone().to_lowercase(), first_agent.clone());
-            
+            info!("Returning get agent");
             Ok(first_agent)
         }
         else{
+            info!("Returning ERROR get agent");
             Err(format!("No agent named:{} found",agent_name))
         }
+        
+        
 
 
     }
@@ -618,7 +649,7 @@ impl Agent{
                                 });
 
                             }
-                            _=>{info!("Unknown pulse:{:?}",new_pulse);}
+                            _=>{info!("Unknown pulse");}
                         }
                     }
         });   
@@ -900,21 +931,21 @@ impl Agent{
                             metacog_prompt.clone()
                         }
                         else{
-                            agent_lock.get_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask,&episode_context)                            
+                            agent_lock.get_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask,&episode_context).await                      
                         };
                         // info!("Model Prompt :\n{}",agent_prompt);
                         let agent_tof_prompt=if is_meta_cog{
                             metacog_prompt.clone()
                         }
                         else{
-                            agent_lock.get_tof_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask,&episode_context)                            
+                            agent_lock.get_tof_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask,&episode_context).await                           
                         };
                         
                         let agent_rac_prompt=if is_meta_cog{
                             metacog_prompt.clone()
                         }
                         else{
-                            agent_lock.get_rac_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask,&episode_context)                            
+                            agent_lock.get_rac_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask,&episode_context).await                           
                         };      
                         
                         let terminal=agent_lock.terminal.clone();
@@ -987,7 +1018,7 @@ impl Agent{
         } else {
             Uuid::now_v7().to_string()
         };
-        let episode_memory=Memory::new(None,MemoryType::AgentEpisode);
+        let episode_memory=Memory::new(None,MemoryType::AgentEpisode).await;
         
         let latest_fetched_id=match &episode_interface_memory{
             Some(mem)=>{
@@ -1018,7 +1049,7 @@ impl Agent{
         let agent_self=agent_lock.write().await;
         let mut episode_id=task_id;
         
-        let episode_memory=Memory::new(None,MemoryType::AgentEpisode);
+        let episode_memory=Memory::new(None,MemoryType::AgentEpisode).await;
         
         let latest_fetched_id=None;
         let mut writable_episode=agent_self.latest_episode_id.write().await;
@@ -1178,7 +1209,7 @@ impl Agent{
     }
 
     
-    fn get_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool,episode_context:&String)->String{
+    async fn get_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool,episode_context:&String)->String{
         // info!("App Guidebook:\n{}",self.terminal.get_app_guidebook());
         // if self.agent_card.get_name()=="Cogitare"{
         //     info!("Using custom prompt for Cogitare : Reasoning Prompt");
@@ -1190,7 +1221,7 @@ impl Agent{
             agent_rules=include_str!("../prompts/SUBAGENT_OPERATING_RULES.md"),
             agent_goal=self.agent_goal,
             agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
-            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            app_guidelines=self.terminal.get_app_guidebook().await,
             current_os_info=current_sys_info,
             knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string())) 
         }
@@ -1201,7 +1232,7 @@ impl Agent{
             agent_goal=self.agent_goal,
             agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
             agent_episode_context=episode_context,
-            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            app_guidelines=self.terminal.get_app_guidebook().await,
             protocols_book=self.protocols_store.get_protocols_book(),
             current_os_info=current_sys_info,
             knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()),
@@ -1217,7 +1248,7 @@ impl Agent{
         
     }
 
-    fn get_tof_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool,episode_context:&String)->String{
+    async fn get_tof_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool,episode_context:&String)->String{
         // if self.agent_card.get_name()=="Cogitare"{
         //     info!("Using custom prompt for Cogitare : TOF Prompt");
         //     return fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.md").unwrap();
@@ -1230,7 +1261,7 @@ impl Agent{
             agent_rules=include_str!("../prompts/SUBAGENT_OPERATING_RULES.md"),
             agent_goal=self.agent_goal,
             agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
-            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            app_guidelines=self.terminal.get_app_guidebook().await,
             current_os_info=current_sys_info,
             knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()),)
         }
@@ -1241,7 +1272,7 @@ impl Agent{
             agent_goal=self.agent_goal,
             agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
             agent_episode_context=episode_context,
-            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            app_guidelines=self.terminal.get_app_guidebook().await,
             protocols_book=self.protocols_store.get_protocols_book(),
             current_os_info=current_sys_info,
             knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()),
@@ -1251,7 +1282,7 @@ impl Agent{
 
     
 
-    fn get_rac_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool,episode_context:&String)->String{
+    async fn get_rac_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool,episode_context:&String)->String{
         // if self.agent_card.get_name()=="Cogitare"{
         //     info!("Using custom prompt for Cogitare : RAC Prompt");
         //     return fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.md").unwrap();
@@ -1264,7 +1295,7 @@ impl Agent{
             agent_rules=include_str!("../prompts/SUBAGENT_OPERATING_RULES.md"),
             agent_goal=self.agent_goal,
             agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
-            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            app_guidelines=self.terminal.get_app_guidebook().await,
             current_os_info=current_sys_info,
             knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()))
         }
@@ -1275,7 +1306,7 @@ impl Agent{
             agent_goal=self.agent_goal,
             agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
             agent_episode_context=episode_context,
-            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            app_guidelines=self.terminal.get_app_guidebook().await,
             protocols_book=self.protocols_store.get_protocols_book(),
             current_os_info=current_sys_info,
             knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()),

@@ -10,7 +10,8 @@ mod model;
 mod config;
 mod server;
 mod protocol;
-
+mod database;
+use database::DB;
 use anyhow::Error;
 use chrono::Local;
 use itertools::Itertools;
@@ -83,7 +84,7 @@ pub struct Runtime{
     inference_store:Arc<InferenceStore>,
     agent_store:Arc<AgentStore>,
     protocols_store:Arc<ProtocolStore>,
-    runtime_card:Source
+    runtime_card:Source,
 }
 
 impl Runtime{
@@ -95,7 +96,7 @@ impl Runtime{
         let inference_store=InferenceStore::load_configs("./configs/inference_config.toml");
         let protocol_store=ProtocolStore::new("./protocols/".to_string(),app_store.clone(),inference_store.clone());
         let agent_store=AgentStore::load_agents("./configs/agents_config.toml","./configs/subagents_config.toml", inference_store.clone(), app_store.clone(),protocol_store.clone());
-
+        
         let sharedruntime= Arc::new(RwLock::new(Self{
             topics:HashMap::new(),
             users:HashMap::new(),
@@ -105,7 +106,7 @@ impl Runtime{
             inference_store,
             agent_store:Arc::new(agent_store),
             protocols_store:protocol_store,
-            runtime_card:Source::new(source::Role::Runtime, "Runtime".to_string(), None)
+            runtime_card:Source::new(source::Role::Runtime, "Runtime".to_string(), None),
         }));
 
         if let Some(addr)=bind{
@@ -234,7 +235,7 @@ impl Runtime{
     }
 
     pub async fn create_topic_thread(&mut self)->String{
-        let memory = Memory::new(Some(self.protocols_store.clone()),MemoryType::Topic);
+        let memory = Memory::new(Some(self.protocols_store.clone()),MemoryType::Topic).await;
         let memory_id_clone=memory._memory_id.clone();
         self.topics.insert(memory_id_clone.clone(), memory);
         memory_id_clone
@@ -249,7 +250,9 @@ impl Runtime{
     }
     pub async fn deploy_agent(&mut self,agent_name:String)->String{
         let agent=self.agent_store.get_agent(agent_name,self.agent_store.clone()).await.unwrap();
+        // println!("Agent obtained from Agent Store.");
         let agent_id=agent.read().await.get_agent_id();
+        // println!("Agent ID {} obtained.", agent_id);
         self.agents.insert(agent_id.clone(), agent.clone());
         agent_id
     }

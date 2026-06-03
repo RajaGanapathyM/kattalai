@@ -8,11 +8,15 @@ use crate::protocol::ProtocolStore;
 use env_logger::filter;
 use crate::appstore::AppStore;
 use crate::config::InferenceStore;
+use crate::database::{DB,DBTable};
+use serde_json::Value;
 
+use serde::{Deserialize, Serialize};
 use regex::Regex;
 use std::fmt::format;
 use std::ptr::read;
-use std::sync::{Arc,RwLock};
+use std::sync::{Arc,RwLock,OnceLock};
+use tokio::sync::OnceCell;
 use std::{
     clone,
     collections::{HashMap, HashSet},
@@ -32,6 +36,7 @@ use tokio::time::{sleep, Duration};
 use cron::Schedule;
 use std::str::FromStr;
 use pyo3::prelude::*;
+pub static GLOBAL_MEMORY_DB: OnceCell<Arc<DB>> = OnceCell::const_new();
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum IOPhase {
@@ -39,7 +44,7 @@ pub enum IOPhase {
     Out,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash,Serialize, Deserialize)]
 pub enum MemoryNodeType {
     Perception,
     Thought,
@@ -85,7 +90,33 @@ impl MemoryNodeType {
         }
     }
 }
+impl FromStr for MemoryNodeType {
+    type Err = ();
 
+    fn from_str(input: &str) -> Result<MemoryNodeType, Self::Err> {
+        match input {
+            "Perception" => Ok(MemoryNodeType::Perception),
+            "Thought" => Ok(MemoryNodeType::Thought),
+            "Decision" => Ok(MemoryNodeType::Decision),
+            "Action" => Ok(MemoryNodeType::Action),
+            "Protocol" => Ok(MemoryNodeType::Protocol),
+            "ProtocolPrompt" => Ok(MemoryNodeType::ProtocolPrompt),
+            "TerminalCommands" => Ok(MemoryNodeType::TerminalCommands),
+            "ModelResponse" => Ok(MemoryNodeType::ModelResponse),
+            "AppResponse" => Ok(MemoryNodeType::AppResponse),
+            "ProtocolLog" => Ok(MemoryNodeType::ProtocolLog),
+            "Error" => Ok(MemoryNodeType::Error),
+            "ModelError" => Ok(MemoryNodeType::ModelError),
+            "Message" => Ok(MemoryNodeType::Message),
+            "Signal" => Ok(MemoryNodeType::Signal),
+            "Applog" => Ok(MemoryNodeType::Applog),
+            "FollowupContext" => Ok(MemoryNodeType::FollowupContext),
+            "ValidationBlock" => Ok(MemoryNodeType::ValidationBlock),
+            "ReflectionPrompt"=>Ok(MemoryNodeType::ReflectionPrompt),
+            _ => Err(()),
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub struct MemoryNode {
     pub node_id: String,
@@ -102,6 +133,77 @@ pub struct MemoryNode {
     spill_path:Option<String>
 }
 impl MemoryNode {
+    pub fn import_from_json(json_node: &Value) -> Self {
+        let node_id = json_node["node_id"].as_str().unwrap_or("").to_string();
+        let source_role_str = json_node["source_role"].as_str().unwrap_or("system");
+        let source_name = json_node["source_name"].as_str().unwrap_or("unknown").to_string();
+        let source_id = json_node["source_id"].as_str().unwrap_or("").to_string();
+        let timestamp_str = json_node["timestamp"].as_str().unwrap_or("");
+        let content = json_node["content"].as_str().unwrap_or("").to_string();
+        let prompt_info_str = json_node["prompt_info"].as_str().unwrap_or("");
+        let node_type_str = json_node["node_type"].as_str().unwrap_or("Message");
+        let branch_id = json_node["branch_id"].as_str().map(|s| s.to_string());
+        let tags_str = json_node["tags"].as_str().unwrap_or("");
+        let intents_str = json_node["intents"].as_str().unwrap_or("");
+        let invocation_id = json_node["invocation_id"].as_str().map(|s| s.to_string());
+        let target_id = json_node["target"].as_str().map(|s| s.to_string());
+        let spill_path = json_node["spill_path"].as_str().map(|s| s.to_string());
+
+        let source_role = source_role_str.parse::<Role>().unwrap_or(Role::System);
+        
+
+        MemoryNode {
+            node_id,
+            source: Source::new(source_role, source_name,None),
+            timestamp: timestamp_str.parse::<DateTime<Utc>>().unwrap_or_else(|_| Utc::now()),
+            content,
+            prompt_info: prompt_info_str.parse::<PromptStyle>().ok(),
+            node_type: node_type_str.parse::<MemoryNodeType>().unwrap_or(MemoryNodeType::Message),
+            branch_id,
+            tags: tags_str.split(", ").map(|s| s.to_string()).collect(),
+            intents: intents_str.split(", ").map(|s| s.to_string()).collect(),
+            invocation_id,
+            target: target_id.map(|id| Source::new(Role::System, "target".to_string(), None)),
+            spill_path
+        }
+    }
+
+    pub fn export_to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "node_id":self.node_id,
+            "source_role":self.source.get_role().as_str(),
+            "source_name":self.source.get_name(),
+            "source_id":self.source.get_id(),
+            "timestamp":self.timestamp.to_rfc3339(),
+            "content":self.content,
+            "prompt_info":self.prompt_info.as_ref().map(|p| p.as_str().to_string()).unwrap_or("NULL".to_string()),
+            "node_type":self.node_type,
+            "branch_id":self.branch_id.clone().unwrap_or("NULL".to_string()),
+            "tags":self.tags.iter().cloned().collect::<Vec<_>>().join(", "),
+            "intents":self.intents.iter().cloned().collect::<Vec<_>>().join(", "),
+            "invocation_id":self.invocation_id.clone().unwrap_or("NULL".to_string()),
+            "target":self.target.as_ref().map(|t| t.get_id()).unwrap_or("NULL".to_string()),
+            "spill_path":self.spill_path.clone().unwrap_or("NULL".to_string())
+        })
+    }
+    pub fn get_schema()->Value{
+        serde_json::json!({
+            "node_id":"string",
+            "source_role":"string",
+            "source_name":"string",
+            "source_id":"string",
+            "timestamp":"datetime",
+            "content":"string",
+            "prompt_info":"string",
+            "node_type":"string",
+            "branch_id":"string",
+            "tags":"string",
+            "intents":"string",
+            "invocation_id":"string",
+            "target":"string",
+            "spill_path":"string"
+        })
+    }
     pub fn new(
         source: &Source,
         mut content: String,
@@ -112,12 +214,14 @@ impl MemoryNode {
         spill_path:Option<String>
     ) -> Self {
 
+        let current_tokio_handle=tokio::runtime::Handle::current();
+
         let mut tags: HashSet<String>    =HashSet::new();
         let mut actions:HashSet<String>=HashSet::new();
 
         let embedder=GLOBAL_EMBEDDER.get();
         if let Some(emb)=embedder{
-            let pos_model=block_on(emb.get_pos_tags(&vec![content.clone()]));
+            let pos_model=current_tokio_handle.block_on(emb.get_pos_tags(&vec![content.clone()]));
             let pos_tags=&pos_model[0];
             let (tag,action)=pos_model[0].clone();
             tags.extend(tag.clone().iter().cloned());
@@ -209,19 +313,59 @@ impl MemoryNode {
     }
 }
 
-#[derive(Debug)]
 struct MemoryStore {
+    mem_id:String,
     mem_vec: ArcSwap<Vec<Arc<MemoryNode>>>,
     mem_indx: Arc<RwLock<HashMap<String, usize>>>,
     tags_indx: Arc<RwLock<HashMap<String, Vec<String>>>>,
+    mem_table:Arc<DBTable>
 }
 impl MemoryStore {
-    pub fn new() -> Arc<Self> {
+    pub async fn init_memory_db()->Arc<DB>{
+        Arc::new(DB::new("memory".into(), 20).await.unwrap())
+    }
+    pub async fn new(mem_id:String) -> Arc<Self> {
+        let memory_db=GLOBAL_MEMORY_DB.get_or_init(||MemoryStore::init_memory_db()).await;
+        let memory_table = DBTable::new(format!("M_{}", mem_id.clone()), MemoryNode::get_schema(), memory_db.pool.clone()).await;
+        
         Arc::new(MemoryStore {
+            mem_id:mem_id.clone(),
             mem_vec: ArcSwap::from_pointee(Vec::new()),
             mem_indx: Arc::new(RwLock::new(HashMap::new())),
             tags_indx: Arc::new(RwLock::new(HashMap::new())),
+            mem_table:memory_table.clone()
         })
+    }
+
+    pub async fn insert(&self,new_node: MemoryNode){
+        let loaded_mem_vec = self.mem_vec.load_full();
+        let mut writable_mem_vec = (*loaded_mem_vec).clone();
+        let new_node_id=new_node.node_id.clone();
+        let new_node_tags=new_node.tags.clone();
+        
+        let json_node=new_node.export_to_json();
+        self.mem_table.insert( vec![json_node]).await;
+        writable_mem_vec.push(Arc::new(new_node));
+        let mem_len=writable_mem_vec.len();
+        self.mem_vec.store(Arc::new(writable_mem_vec));
+
+        let mut writable_mem_index=self.mem_indx.write().unwrap();
+        writable_mem_index.insert(
+            new_node_id.clone(),
+            mem_len-1,
+        );
+
+        drop(writable_mem_index);
+
+        let mut writable_tags_indx = self.tags_indx.write().unwrap();
+
+        for tag in &new_node_tags {
+            writable_tags_indx
+                .entry(tag.clone())
+                .or_default()
+                .push(new_node_id.clone());
+        }
+        drop(writable_tags_indx);
     }
 }
 
@@ -231,7 +375,6 @@ pub enum MemoryType{
     AgentEpisode
 }
 
-#[derive(Debug)]
 pub struct Memory {
     pub _memory_id: String,
     _memory_store: Arc<MemoryStore>,
@@ -262,19 +405,19 @@ impl Memory {
         false
     }
     /// construct a new Memory container
-    pub fn new(protocol_store: Option<Arc<ProtocolStore>>,memory_type:MemoryType) -> Arc<Self> {
+    pub async fn new(protocol_store: Option<Arc<ProtocolStore>>,memory_type:MemoryType) -> Arc<Self> {
+        
         let (tx, rx) = channel::unbounded();
-        let my_memory_id=Uuid::now_v7().to_string();
+        let my_memory_id=Uuid::now_v7().simple().to_string();
         let arc_memory = Arc::new(Memory {
             _memory_id: my_memory_id.clone(),
-            _memory_store: MemoryStore::new(),
+            _memory_store: MemoryStore::new(my_memory_id.clone()).await,
             _branch_id: my_memory_id,
             _memory_tx: tx,
             _kill_switch:Arc::new(AtomicBool::new(false)),
             _memory_type:memory_type,
-            _read_only:false
+            _read_only:false,
         });
-
         let rx_clone = rx.clone();
         let arc_memory_clone = arc_memory.clone();
         let thread_protocol_store = protocol_store.clone();
@@ -303,40 +446,47 @@ impl Memory {
                     new_node.append_content(spill_content);
                 }
                 let new_node_content=new_node.get_content();
-                // println!("Inserting Memory Node: {:?}", new_node);
+                // info!("Inserting Memory Node: {:?}", new_node);
                 let kill_switch = arc_memory_clone._kill_switch.load(Ordering::Relaxed);
-                // println!("kill{:?}",kill_switch);
+                // info!("kill{:?}",kill_switch);
                 if kill_switch{
                     info!("Killing Memory ID:{}", arc_memory_clone._memory_id);
                     break
                 }
 
-                let loaded_mem_vec = arc_memory_clone._memory_store.mem_vec.load_full();
-                let mut writable_mem_vec = (*loaded_mem_vec).clone();
-                let new_node_id=new_node.node_id.clone();
-                let new_node_tags=new_node.tags.clone();
+                tokio_rt_handle.block_on(arc_memory_clone._memory_store.insert(new_node));
 
-                writable_mem_vec.push(Arc::new(new_node));
-                let mem_len=writable_mem_vec.len();
-                arc_memory_clone._memory_store.mem_vec.store(Arc::new(writable_mem_vec));
 
-                let mut writable_mem_index=arc_memory_clone._memory_store.mem_indx.write().unwrap();
-                writable_mem_index.insert(
-                    new_node_id.clone(),
-                    mem_len-1,
-                );
 
-                drop(writable_mem_index);
+                // let loaded_mem_vec = arc_memory_clone._memory_store.mem_vec.load_full();
+                // let mut writable_mem_vec = (*loaded_mem_vec).clone();
+                // let new_node_id=new_node.node_id.clone();
+                // let new_node_tags=new_node.tags.clone();
+                
+                // let arc_memory_clone_new=arc_memory_clone.clone();
+                // let json_node=new_node.export_to_json();
+                // tokio_rt_handle.spawn(async move{arc_memory_clone_new._memory_table.insert( vec![json_node]).await});
+                // writable_mem_vec.push(Arc::new(new_node));
+                // let mem_len=writable_mem_vec.len();
+                // arc_memory_clone._memory_store.mem_vec.store(Arc::new(writable_mem_vec));
 
-                let mut writable_tags_indx = arc_memory_clone._memory_store.tags_indx.write().unwrap();
+                // let mut writable_mem_index=arc_memory_clone._memory_store.mem_indx.write().unwrap();
+                // writable_mem_index.insert(
+                //     new_node_id.clone(),
+                //     mem_len-1,
+                // );
 
-                for tag in &new_node_tags {
-                    writable_tags_indx
-                        .entry(tag.clone())
-                        .or_default()
-                        .push(new_node_id.clone());
-                }
-                drop(writable_tags_indx);
+                // drop(writable_mem_index);
+
+                // let mut writable_tags_indx = arc_memory_clone._memory_store.tags_indx.write().unwrap();
+
+                // for tag in &new_node_tags {
+                //     writable_tags_indx
+                //         .entry(tag.clone())
+                //         .or_default()
+                //         .push(new_node_id.clone());
+                // }
+                // drop(writable_tags_indx);
 
                 if let Some(protocol_store_clone) = thread_protocol_store.clone(){
                  
@@ -350,10 +500,10 @@ impl Memory {
                             let context_str = caps.get(5).map_or("", |m| m.as_str());
 
                             if action == "run" {
-                                println!("Triggering protocol for node content: {}", new_node_content);
+                                info!("Triggering protocol for node content: {}", new_node_content);
                                 tokio_rt_handle.block_on(protocol_store_clone.trigger_protocol(command.to_string(), Some(format!("{}\n{}", arg, context_str)), arc_memory_clone.clone() ));
                             } else if action == "schedule" {
-                                println!("Scheduling protocol for node content: {}-{}", command,arg);
+                                info!("Scheduling protocol for node content: {}-{}", command,arg);
                                 tokio_rt_handle.block_on(protocol_store_clone.schedule_protocol(&command,&arg,Some(context_str.to_string()),arc_memory_clone.clone()));
                             }
                             else{
@@ -361,7 +511,7 @@ impl Memory {
                             }
                         }
                         else{
-                            println!("No regex match for protocol command in node content: {}", new_node_content);
+                            info!("No regex match for protocol command in node content: {}", new_node_content);
                         }                        
                     }
                 }
@@ -378,10 +528,10 @@ impl Memory {
                 let new_protocol_store=new_protocol_store_clone;
                 let my_memory_id=memory_id_clone;
                 let my_arc_memory=new_arc_memory_clone;
-                println!("Started protocol schedule checker for Memory ID: {}", my_memory_id);
+                info!("Started protocol schedule checker for Memory ID: {}", my_memory_id);
 
                 loop {
-                    // println!("Checking scheduled protocols for Memory ID: {}", my_memory_id);
+                    // info!("Checking scheduled protocols for Memory ID: {}", my_memory_id);
                     if let Ok(file) = fs::File::open(file_path) {
                         let reader = BufReader::new(file);
                         
@@ -394,7 +544,7 @@ impl Memory {
                                         if let Some(schedule_string) = parts.get(1) {
                                             if let Some(handle_name)=parts.get(2){
                                                 if should_trigger(schedule_string) {
-                                                    println!("Triggering scheduled protocol: {} for memory_id: {}", schedule_string, my_memory_id);
+                                                    info!("Triggering scheduled protocol: {} for memory_id: {}", schedule_string, my_memory_id);
                                                     new_protocol_store.trigger_protocol(handle_name.to_string(), Some(parts.get(3).map_or("".to_string(), |s| s.to_string())), my_arc_memory.clone()).await;                                                        
                                                 }
                                             }                                                
@@ -409,7 +559,7 @@ impl Memory {
                 }
             });
         }
-
+        // info!
         arc_memory
     }
     pub fn get_memory_tx(&self) -> Option<channel::Sender<AgentPulse>> {
@@ -423,14 +573,16 @@ impl Memory {
     fn read_spill(spill_path:&String)->String{
         
         let spilled_content=if let Ok(content)=fs::read_to_string(spill_path).map_err(|e| format!("{:?}",e)){
+            
+
+            if let Err(e)=fs::remove_file(spill_path){
+                error!("Failed to remove spill file: {:?}. Error: {:?}",spill_path,e);
+            };
+
             content
         } else {
             "App results File Not Found".to_string()
         };
-
-        if let Err(e)=fs::remove_file(spill_path){
-            error!("Failed to remove spill file: {:?}. Error: {:?}",spill_path,e);
-        }
 
 
         return spilled_content;    
@@ -546,14 +698,14 @@ impl Memory {
                     Some(tgt) => {
                         match source {
                             Some(src) => {
-                                // println!("Filtering node with target: {:?} against source: {:?}", tgt, src);
+                                // info!("Filtering node with target: {:?} against source: {:?}", tgt, src);
                                 src.get_role()==source::Role::Runtime || tgt.get_id() == src.get_id()},
                             None => false
                         }
                     }
                     None =>  true
                 };
-                //  println!("Filtering node: {:?}-{}", node,filter_bool);
+                //  info!("Filtering node: {:?}-{}", node,filter_bool);
                 filter_bool
         }).map(|node| node.as_ref().clone()).collect::<Vec<_>>().into_iter()
     }

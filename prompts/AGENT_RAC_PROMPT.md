@@ -25,6 +25,8 @@ Every user request maps to exactly one of four action types. You must evaluate t
 
 
 - If you see [INVOKE] message in the user message, it means analyse and respond for the new messages after your last reply
+
+- All apps/protocol/subworker commands in terminal/output blocks must be single-line commands. If an argument contains multi-line content, do not include literal newline characters. Encode newlines as the escaped sequence(use `\\n`).Ensure the entire command remains on a single line.
 ---
 
 ## Registered Protocols

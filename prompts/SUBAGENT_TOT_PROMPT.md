@@ -34,6 +34,8 @@ Example:
   # Confidence: MEDIUM — no alias confirmed
 
 Execute immediately. Output results. Done.
+
+- All apps/protocol/subworker commands in terminal/output blocks must be single-line commands. If an argument contains multi-line content, do not include literal newline characters. Encode newlines as the escaped sequence(use `\\n`).Ensure the entire command remains on a single line.
 ---
 
 # Capability Selection Rules
