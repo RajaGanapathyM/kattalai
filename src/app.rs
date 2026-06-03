@@ -77,7 +77,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(
+    pub async fn new(
         app_toml_path:String,
         app_info: HashMap<String, String>,
     ) -> Self {
@@ -98,7 +98,7 @@ impl App {
             }
 
             Self {
-                app_card: Source::new(Role::App, appconfig.app_name, Some(app_info)),
+                app_card: Source::new(Role::App, appconfig.app_name, Some(app_info)).await,
                 app_path:appconfig.app_path,
                 app_start_command:appconfig.app_start_command,
                 app_start_args:appconfig.app_start_args,
@@ -150,12 +150,12 @@ impl App {
             
         }
         
-        fn parse_resp(app_card:&Source,resp:String,invocation_id:Option<String>)->Option<AgentPulse>{
+        async fn parse_resp(app_card:&Source,resp:String,invocation_id:Option<String>)->Option<AgentPulse>{
 
             match &AppResponseParser::parse(&resp){
                 Ok(parsed)=>{
                     // sleep(Duration::from_secs(5));
-                    let new_mem_node=MemoryNode::new(app_card, format!("> APP Returns : APP NAME:{}|App Status:{}|{}",app_card.get_name(),parsed.command.clone(),parsed.message.clone()), None, MemoryNodeType::AppResponse,invocation_id,None,parsed.spill_path.clone());
+                    let new_mem_node=MemoryNode::new(app_card, format!("> APP Returns : APP NAME:{}|App Status:{}|{}",app_card.get_name(),parsed.command.clone(),parsed.message.clone()), None, MemoryNodeType::AppResponse,invocation_id,None,parsed.spill_path.clone()).await;
 
                     info!("[App]{:?}",new_mem_node.get_content());
                     if parsed.command=="APP_EXECUTION_SUCCESS" || parsed.command=="APP_EXECUTION_ERROR" || parsed.command=="APP_INVOKE"{
@@ -204,7 +204,7 @@ impl App {
                                 let mut lines = reader.lines();
 
                                 while let Ok(Some(line)) = lines.next_line().await {
-                                    let parsed_resp=App::parse_resp(&app_card,line,None);
+                                    let parsed_resp=App::parse_resp(&app_card,line,None).await;
 
                                     if let Some(msg_node)=parsed_resp{
                                         // println!("sending message from app to agent: {:?}", msg_node);
@@ -248,7 +248,7 @@ impl App {
                         while let Ok(Some(line)) = lines.next_line().await {
                             match &mem_tx_clone{
                                 Some(mem_tx_channel) => {
-                                    let parsed_resp=App::parse_resp(&app_card,line,Some(invocation_id.clone()));
+                                    let parsed_resp=App::parse_resp(&app_card,line,Some(invocation_id.clone())).await;
 
                                     if let Some(msg_node)=parsed_resp{
                                         let _ = mem_tx_channel.send(msg_node);

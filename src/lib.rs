@@ -94,7 +94,7 @@ impl Runtime{
         let embedder=embedder::new("./model_assets/bge-small-en-v1.5".to_string()).await;
         let app_store=AppStore::new("./apps/".to_string(),embedder.clone()).await;
         let inference_store=InferenceStore::load_configs("./configs/inference_config.toml");
-        let protocol_store=ProtocolStore::new("./protocols/".to_string(),app_store.clone(),inference_store.clone());
+        let protocol_store=ProtocolStore::new("./protocols/".to_string(),app_store.clone(),inference_store.clone()).await;
         let agent_store=AgentStore::load_agents("./configs/agents_config.toml","./configs/subagents_config.toml", inference_store.clone(), app_store.clone(),protocol_store.clone());
         
         let sharedruntime= Arc::new(RwLock::new(Self{
@@ -106,7 +106,7 @@ impl Runtime{
             inference_store,
             agent_store:Arc::new(agent_store),
             protocols_store:protocol_store,
-            runtime_card:Source::new(source::Role::Runtime, "Runtime".to_string(), None),
+            runtime_card:Source::new(source::Role::Runtime, "Runtime".to_string(), None).await,
         }));
 
         if let Some(addr)=bind{
@@ -211,8 +211,8 @@ impl Runtime{
                         Agent::ping(&cogitare_agent,AgentPulse::NewEpisode(format!("Cogitare Episode:{}",focus_branch_id.clone()),Some(readonly_agent_episode_mem),true,None)).await;
                         tokio::time::sleep(Duration::from_secs(5)).await;
 
-                        let cogitare_user=Source::new(source::Role::User, "CogitareUser".to_string(), None);
-                        let invk_msg=MemoryNode::new(&cogitare_user, "COGITARE:REFLECT".to_string(), None, MemoryNodeType::Message,None, None,None);
+                        let cogitare_user=Source::new(source::Role::User, "CogitareUser".to_string(), None).await;
+                        let invk_msg=MemoryNode::new(&cogitare_user, "COGITARE:REFLECT".to_string(), None, MemoryNodeType::Message,None, None,None).await;
 
                         info!("Cogitare Agent pinged on agent episode {} with new episode",focus_branch_id);
                         Agent::ping(&cogitare_agent,AgentPulse::AddMemoryAndInvoke(invk_msg, Some(focus_branch_id.clone()))).await;
@@ -241,7 +241,7 @@ impl Runtime{
         memory_id_clone
     }
     pub async fn create_user(&mut self,user_name:String)->String{
-        let user_node=source::Source::new(source::Role::User, user_name, None  );
+        let user_node=source::Source::new(source::Role::User, user_name, None  ).await;
         let user_node_id=user_node.get_id();
         self.users.insert(user_node_id.clone(), user_node);
         user_node_id
@@ -303,7 +303,7 @@ impl Runtime{
                     None,
                     None,
                     None
-                )).await;
+                ).await).await;
 
                 Ok("Message Inserted")
             }

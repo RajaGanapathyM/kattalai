@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use sqlx::{Sqlite, QueryBuilder};
 use serde_json::Value;
+use log::{info, warn, error, debug, trace};
 use futures::executor::block_on;
 // use sqlx::Execute;
 /// Database connection wrapper using SQLx with SQLite
@@ -112,6 +113,32 @@ impl DBTable{
     }
 
 
+    pub async fn fetch_all(&self) -> Result<Vec<Value>, sqlx::Error> {
+        let query = format!("SELECT * FROM {}", self.name);
+        let rows = match sqlx::query(&query).fetch_all(self.pool.as_ref()).await{
+            Ok(r)=>r,
+            Err(e)=>{
+                error!("Failed to fetch records from {}: {:?}", self.name, e);
+                Vec::new()
+            }
+        };
+        let mut results = Vec::new();
+        for row in rows {
+            let mut record = serde_json::Map::new();
+            for (col, col_type) in self.schema.as_object().unwrap().iter() {
+                let value: Value = match col_type.as_str().unwrap_or("TEXT") {
+                    "INTEGER" => row.try_get::<i64, _>(col.as_str()).map(Value::from).unwrap_or(Value::Null),
+                    "REAL" => row.try_get::<f64, _>(col.as_str()).map(Value::from).unwrap_or(Value::Null),
+                    "TEXT" => row.try_get::<String, _>(col.as_str()).map(Value::from).unwrap_or(Value::Null),
+                    "BLOB" => row.try_get::<Vec<u8>, _>(col.as_str()).map(Value::from).unwrap_or(Value::Null),
+                    _ => Value::Null,
+                };
+                record.insert(col.clone(), value);
+            }
+            results.push(Value::Object(record));
+        }
+        Ok(results)
+    }
 
     /// Execute a raw SQL query that doesn't return rows
     pub async fn execute(&self, query: &str) -> Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
@@ -145,17 +172,6 @@ impl DBTable{
             .await?;
         Ok(row)
     }
-
-    /// Fetch all rows from the database
-    pub async fn fetch_all(
-        &self,
-        query: &str,
-    ) -> Result<Vec<sqlx::sqlite::SqliteRow>, sqlx::Error> {
-        sqlx::query(query)
-            .fetch_all(self.pool.as_ref())
-            .await
-    }
-
 
 
     /// Update records in a table with a WHERE clause

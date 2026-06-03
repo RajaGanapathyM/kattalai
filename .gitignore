@@ -30,3 +30,6 @@ apps/other_apps/webpage_reader_app/_se_spill/se_spill_ep019e2ff3-2045-7931-b288-
 /apps/other_apps/rss_app/data
 /apps/core_apps/codex_app/_se_spill
 /apps/other_apps/wikipedia_app/_se_spill
+data/memories
+data/memorynodes
+data/sources

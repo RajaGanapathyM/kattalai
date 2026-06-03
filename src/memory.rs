@@ -36,7 +36,8 @@ use tokio::time::{sleep, Duration};
 use cron::Schedule;
 use std::str::FromStr;
 use pyo3::prelude::*;
-pub static GLOBAL_MEMORY_DB: OnceCell<Arc<DB>> = OnceCell::const_new();
+pub static GLOBAL_MEMORYNODE_DB: OnceCell<Arc<DB>> = OnceCell::const_new();
+pub static GLOBAL_MEMORY_DB: OnceCell<Arc<DBTable>> = OnceCell::const_new();
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum IOPhase {
@@ -133,40 +134,40 @@ pub struct MemoryNode {
     spill_path:Option<String>
 }
 impl MemoryNode {
-    pub fn import_from_json(json_node: &Value) -> Self {
-        let node_id = json_node["node_id"].as_str().unwrap_or("").to_string();
-        let source_role_str = json_node["source_role"].as_str().unwrap_or("system");
-        let source_name = json_node["source_name"].as_str().unwrap_or("unknown").to_string();
-        let source_id = json_node["source_id"].as_str().unwrap_or("").to_string();
-        let timestamp_str = json_node["timestamp"].as_str().unwrap_or("");
-        let content = json_node["content"].as_str().unwrap_or("").to_string();
-        let prompt_info_str = json_node["prompt_info"].as_str().unwrap_or("");
-        let node_type_str = json_node["node_type"].as_str().unwrap_or("Message");
-        let branch_id = json_node["branch_id"].as_str().map(|s| s.to_string());
-        let tags_str = json_node["tags"].as_str().unwrap_or("");
-        let intents_str = json_node["intents"].as_str().unwrap_or("");
-        let invocation_id = json_node["invocation_id"].as_str().map(|s| s.to_string());
-        let target_id = json_node["target"].as_str().map(|s| s.to_string());
-        let spill_path = json_node["spill_path"].as_str().map(|s| s.to_string());
+    // pub async fn import_from_json(json_node: &Value) -> Self {
+    //     let node_id = json_node["node_id"].as_str().unwrap_or("").to_string();
+    //     let source_role_str = json_node["source_role"].as_str().unwrap_or("system");
+    //     let source_name = json_node["source_name"].as_str().unwrap_or("unknown").to_string();
+    //     let source_id = json_node["source_id"].as_str().unwrap_or("").to_string();
+    //     let timestamp_str = json_node["timestamp"].as_str().unwrap_or("");
+    //     let content = json_node["content"].as_str().unwrap_or("").to_string();
+    //     let prompt_info_str = json_node["prompt_info"].as_str().unwrap_or("");
+    //     let node_type_str = json_node["node_type"].as_str().unwrap_or("Message");
+    //     let branch_id = json_node["branch_id"].as_str().map(|s| s.to_string());
+    //     let tags_str = json_node["tags"].as_str().unwrap_or("");
+    //     let intents_str = json_node["intents"].as_str().unwrap_or("");
+    //     let invocation_id = json_node["invocation_id"].as_str().map(|s| s.to_string());
+    //     let target_id = json_node["target"].as_str().map(|s| s.to_string());
+    //     let spill_path = json_node["spill_path"].as_str().map(|s| s.to_string());
 
-        let source_role = source_role_str.parse::<Role>().unwrap_or(Role::System);
+    //     let source_role = source_role_str.parse::<Role>().unwrap_or(Role::System);
         
 
-        MemoryNode {
-            node_id,
-            source: Source::new(source_role, source_name,None),
-            timestamp: timestamp_str.parse::<DateTime<Utc>>().unwrap_or_else(|_| Utc::now()),
-            content,
-            prompt_info: prompt_info_str.parse::<PromptStyle>().ok(),
-            node_type: node_type_str.parse::<MemoryNodeType>().unwrap_or(MemoryNodeType::Message),
-            branch_id,
-            tags: tags_str.split(", ").map(|s| s.to_string()).collect(),
-            intents: intents_str.split(", ").map(|s| s.to_string()).collect(),
-            invocation_id,
-            target: target_id.map(|id| Source::new(Role::System, "target".to_string(), None)),
-            spill_path
-        }
-    }
+    //     MemoryNode {
+    //         node_id,
+    //         source: Source::new(source_role, source_name,None).await,
+    //         timestamp: timestamp_str.parse::<DateTime<Utc>>().unwrap_or_else(|_| Utc::now()),
+    //         content,
+    //         prompt_info: prompt_info_str.parse::<PromptStyle>().ok(),
+    //         node_type: node_type_str.parse::<MemoryNodeType>().unwrap_or(MemoryNodeType::Message),
+    //         branch_id,
+    //         tags: tags_str.split(", ").map(|s| s.to_string()).collect(),
+    //         intents: intents_str.split(", ").map(|s| s.to_string()).collect(),
+    //         invocation_id,
+    //         target: target_id.map(|id|Source::new(Role::System, "target".to_string(), None).await}),
+    //         spill_path
+    //     }
+    // }
 
     pub fn export_to_json(&self) -> serde_json::Value {
         serde_json::json!({
@@ -204,7 +205,7 @@ impl MemoryNode {
             "spill_path":"string"
         })
     }
-    pub fn new(
+    pub async fn new(
         source: &Source,
         mut content: String,
         prompt_info: Option<PromptStyle>,
@@ -214,14 +215,13 @@ impl MemoryNode {
         spill_path:Option<String>
     ) -> Self {
 
-        let current_tokio_handle=tokio::runtime::Handle::current();
 
         let mut tags: HashSet<String>    =HashSet::new();
         let mut actions:HashSet<String>=HashSet::new();
 
         let embedder=GLOBAL_EMBEDDER.get();
         if let Some(emb)=embedder{
-            let pos_model=current_tokio_handle.block_on(emb.get_pos_tags(&vec![content.clone()]));
+            let pos_model=emb.get_pos_tags(&vec![content.clone()]).await;
             let pos_tags=&pos_model[0];
             let (tag,action)=pos_model[0].clone();
             tags.extend(tag.clone().iter().cloned());
@@ -262,6 +262,9 @@ impl MemoryNode {
     }
     pub fn append_content(&mut self,new_cont:String){
         self.content=format!("{}\n{}",self.content,new_cont);
+    }
+    pub fn remove_spillpath(&mut self){
+        self.spill_path=None;
     }
     pub fn get_source_name(&self)->String{
         self.source.get_name().clone()
@@ -321,19 +324,19 @@ struct MemoryStore {
     mem_table:Arc<DBTable>
 }
 impl MemoryStore {
-    pub async fn init_memory_db()->Arc<DB>{
-        Arc::new(DB::new("memory".into(), 20).await.unwrap())
+    pub async fn init_memorynode_db()->Arc<DB>{
+        Arc::new(DB::new("memorynodes".into(), 20).await.unwrap())
     }
     pub async fn new(mem_id:String) -> Arc<Self> {
-        let memory_db=GLOBAL_MEMORY_DB.get_or_init(||MemoryStore::init_memory_db()).await;
-        let memory_table = DBTable::new(format!("M_{}", mem_id.clone()), MemoryNode::get_schema(), memory_db.pool.clone()).await;
+        let memorynode_db=GLOBAL_MEMORYNODE_DB.get_or_init(||MemoryStore::init_memorynode_db()).await;
+        let memorynode_table = DBTable::new(format!("MN_{}", mem_id.clone()), MemoryNode::get_schema(), memorynode_db.pool.clone()).await;
         
         Arc::new(MemoryStore {
             mem_id:mem_id.clone(),
             mem_vec: ArcSwap::from_pointee(Vec::new()),
             mem_indx: Arc::new(RwLock::new(HashMap::new())),
             tags_indx: Arc::new(RwLock::new(HashMap::new())),
-            mem_table:memory_table.clone()
+            mem_table:memorynode_table.clone()
         })
     }
 
@@ -374,7 +377,21 @@ pub enum MemoryType{
     Topic,
     AgentEpisode
 }
-
+impl MemoryType {
+    fn from_str(input: &str) -> Option<MemoryType> {
+        match input {
+            "Topic" => Some(MemoryType::Topic),
+            "AgentEpisode" => Some(MemoryType::AgentEpisode),
+            _ => None,
+        }
+    }
+    fn as_str(&self) -> &'static str {
+        match self {
+            MemoryType::Topic => "Topic",
+            MemoryType::AgentEpisode => "AgentEpisode",
+        }
+    }
+}
 pub struct Memory {
     pub _memory_id: String,
     _memory_store: Arc<MemoryStore>,
@@ -382,15 +399,37 @@ pub struct Memory {
     _memory_tx: channel::Sender<AgentPulse>,
     pub _kill_switch:Arc<AtomicBool>,
     pub _memory_type:MemoryType,
-    pub _read_only:bool
+    pub _read_only:bool,
+    _memories_tbl:Arc<DBTable>,
+    invoker_card:Arc<Source>
 }
 
 impl Memory {
-    pub fn append_user_last_node(&self,content:String){
+    pub fn get_schema()->Value{
+        serde_json::json!({
+            "_memory_id":"string",
+            "_branch_id":"string",
+            "_read_only":"bool",
+            "_kill_switch":"bool",
+            "_memory_type":"string",
+            
+        })
+    }
+
+    pub fn export_to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "_memory_id":self._memory_id.clone(),
+            "_branch_id":self._branch_id.clone(),
+            "_read_only":self._read_only.clone(),
+            "_kill_switch":self._kill_switch.load(Ordering::Relaxed).clone(),
+            "_memory_type":self._memory_type.as_str().to_string(),
+        })
+    }
+    pub async fn append_user_last_node(&self,content:String){
         if self.check_if_last_message_is_user(){
             // pass
         } else {
-            let mut last_node=MemoryNode::new(&Source::new(Role::User,"RG".to_string(),None), content, None, MemoryNodeType::Message,None,None,None);
+            let mut last_node=MemoryNode::new(&self.invoker_card, content, None, MemoryNodeType::Message,None,None,None).await;
             last_node.branch_id=Some(self._branch_id.clone());
             if let Err(e) = self._memory_tx.send(AgentPulse::AddMemory(last_node,None)) {
                 error!("Failed to send last user memory pulse: {:?}", e);
@@ -404,11 +443,20 @@ impl Memory {
         }
         false
     }
+    pub async fn init_memory_db()->Arc<DB>{
+        Arc::new(DB::new("memories".into(), 20).await.unwrap())
+    }
     /// construct a new Memory container
     pub async fn new(protocol_store: Option<Arc<ProtocolStore>>,memory_type:MemoryType) -> Arc<Self> {
         
         let (tx, rx) = channel::unbounded();
         let my_memory_id=Uuid::now_v7().simple().to_string();
+        let memory_table=GLOBAL_MEMORY_DB.get_or_init(||async  {
+            let memory_db=Memory::init_memory_db().await;
+            DBTable::new("memories".to_string(), Memory::get_schema(), memory_db.pool.clone()).await
+        }).await;
+        // let memory_table = DBTable::new(format!("M_{}", mem_id.clone()), MemoryNode::get_schema(), memory_db.pool.clone()).await;
+        
         let arc_memory = Arc::new(Memory {
             _memory_id: my_memory_id.clone(),
             _memory_store: MemoryStore::new(my_memory_id.clone()).await,
@@ -417,7 +465,14 @@ impl Memory {
             _kill_switch:Arc::new(AtomicBool::new(false)),
             _memory_type:memory_type,
             _read_only:false,
+            _memories_tbl:memory_table.clone(),
+            invoker_card:Arc::new(Source::new(Role::User,"INVOKER".to_string(),None).await)
         });
+
+        let json_node=arc_memory.export_to_json();
+        if let Err(e)=memory_table.insert(vec![json_node]).await{
+            error!("Failed to insert memory metadata into DB: {:?}", e);
+        }
         let rx_clone = rx.clone();
         let arc_memory_clone = arc_memory.clone();
         let thread_protocol_store = protocol_store.clone();
@@ -444,6 +499,7 @@ impl Memory {
                     let spill_content=Memory::read_spill(&spill_path);
                     info!("SPILL CONTENT{:?}",spill_content);
                     new_node.append_content(spill_content);
+                    new_node.remove_spillpath();
                 }
                 let new_node_content=new_node.get_content();
                 // info!("Inserting Memory Node: {:?}", new_node);
@@ -465,7 +521,7 @@ impl Memory {
                 
                 // let arc_memory_clone_new=arc_memory_clone.clone();
                 // let json_node=new_node.export_to_json();
-                // tokio_rt_handle.spawn(async move{arc_memory_clone_new._memory_table.insert( vec![json_node]).await});
+                // tokio_rt_handle.spawn(async move{arc_memory_clone_new._memorynode_table.insert( vec![json_node]).await});
                 // writable_mem_vec.push(Arc::new(new_node));
                 // let mem_len=writable_mem_vec.len();
                 // arc_memory_clone._memory_store.mem_vec.store(Arc::new(writable_mem_vec));
@@ -631,7 +687,9 @@ impl Memory {
             _memory_tx: self._memory_tx.clone(),
             _kill_switch:Arc::new(AtomicBool::new(false)),
             _memory_type:self._memory_type.clone(),
-            _read_only:false
+            _read_only:false,
+            _memories_tbl:self._memories_tbl.clone(),
+            invoker_card:self.invoker_card.clone()
         })
     }
     pub fn get_ready_only_copy(&self) -> Arc<Self> {
@@ -642,7 +700,9 @@ impl Memory {
             _memory_tx: self._memory_tx.clone(),
             _kill_switch:self._kill_switch.clone(),
             _memory_type:self._memory_type.clone(),
-            _read_only:true
+            _read_only:true,
+            _memories_tbl:self._memories_tbl.clone(),
+            invoker_card:self.invoker_card.clone()
         })
     }
 

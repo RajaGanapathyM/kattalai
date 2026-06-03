@@ -10,8 +10,8 @@ use petgraph::{Graph, Direction};
 use petgraph::graph::NodeIndex;
 use petgraph::dot::{Dot, Config};
 use std::process::Stdio;
-use std::sync::{Arc, RwLock};
-
+use std::sync::{Arc};
+use tokio::sync::RwLock;
 use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 // use std::thread::sleep;
@@ -99,7 +99,7 @@ impl AppStore{
         Arc::new(app_store)
     }
 
-    pub fn add_app(
+    pub async fn add_app(
         &self,
         app_toml_path:String
     ){
@@ -113,10 +113,10 @@ impl AppStore{
             app_info:HashMap::new(),
             app_config
         };
-        self.apps.write().unwrap().insert(handle_name,app);
+        self.apps.write().await.insert(handle_name,app);
     }
-    pub fn is_app_exist(&self,app_handle_name:String)->bool{
-        let readable_apps=self.apps.read().unwrap();
+    pub async fn is_app_exist(&self,app_handle_name:String)->bool{
+        let readable_apps=self.apps.read().await;
         let app_handle_name_corrected=if app_handle_name.starts_with("&"){
             app_handle_name[1..].to_string()
         }
@@ -127,9 +127,9 @@ impl AppStore{
         readable_apps.contains_key(&app_handle_name_corrected)
     }
 
-    pub fn clone_app(&self,app_handle_name:String)->Option<App>{
+    pub async fn clone_app(&self,app_handle_name:String)->Option<App>{
         info!("Cloning app:{}",app_handle_name);
-        let readable_apps=self.apps.read().unwrap();
+        let readable_apps=self.apps.read().await;
         let app_handle_name_corrected=if app_handle_name.starts_with("&"){
             app_handle_name[1..].to_string()
         }
@@ -138,7 +138,7 @@ impl AppStore{
         };
         if readable_apps.contains_key(&app_handle_name_corrected){
             let app_inits=readable_apps.get(&app_handle_name_corrected).unwrap();
-            Some(App::new(app_inits.app_toml_path.clone(), app_inits.app_info.clone()))
+            Some(App::new(app_inits.app_toml_path.clone(), app_inits.app_info.clone()).await)
         } else {
             error!("App not found: {}", app_handle_name_corrected);
             None
@@ -153,7 +153,7 @@ impl AppStore{
         let mut consumptions: Vec<String> = Vec::new();
         let mut blocked_path:HashSet<(String,String)>=HashSet::new();
         let apps_list:Vec<(String,AppInit)>={
-            let readable_apps=self.apps.read().unwrap();
+            let readable_apps=self.apps.read().await;
         // let mut self.tool_chain_node_map=HashMap::new();
             let mut apps_list_local=Vec::new();
 
@@ -712,7 +712,7 @@ impl AppStore{
         find_matching_toml_dirs(apps_dir.as_str(),&mut matches);
         for app_path in matches{
             println!("Loading app: {}",app_path);
-            self.add_app(app_path);
+            self.add_app(app_path).await;
         }
         
         println!("Infering appchain...");

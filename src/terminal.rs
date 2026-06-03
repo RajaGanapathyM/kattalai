@@ -94,8 +94,8 @@ impl Terminal{
             if app_handle_name.starts_with("&"){
                 if !self.app_hooks.read().await.contains_key(&app_handle_name) {
                     if self.app_store.is_some(){
-                        if self.app_store.as_ref().unwrap().is_app_exist(app_handle_name.clone()){
-                            let app=self.app_store.as_ref().unwrap().clone_app(app_handle_name.clone());
+                        if self.app_store.as_ref().unwrap().is_app_exist(app_handle_name.clone()).await{
+                            let app=self.app_store.as_ref().unwrap().clone_app(app_handle_name.clone()).await;
                             if app.is_none(){
                                 error_ls.push(format!("App:{} not found in app store",app_handle_name));
                                 error!("App:{} not found in app store",app_handle_name);

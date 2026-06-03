@@ -416,7 +416,7 @@ impl AgentStore{
 
             for dapp in &aconfig.default_apps{
                 info!("Attaching default app:{} to agent:{}",dapp,agent_name);
-                let identified_app=self.app_store.clone_app(dapp.clone());
+                let identified_app=self.app_store.clone_app(dapp.clone()).await;
                 if identified_app.is_none(){
                     error!("Default app:{} for agent:{} not found in app store",dapp,agent_name);
                     continue;
@@ -460,6 +460,7 @@ pub struct Agent{
     episodes:Arc<RwLock<HashMap<String,Arc<episode>>>>,
     invoke_post_fn:Option<fn(String,&mut Agent)->MemoryNode>,
     validator_card:Source,
+    reflector_card:Source,
     _agent_tx: channel::Sender<AgentPulse>,
     _agent_rx: channel::Receiver<AgentPulse>,
     app_store:Arc<AppStore>,
@@ -482,8 +483,9 @@ impl Agent{
         allow_self_selected_apps:bool,
         agent_store:Option<Arc<AgentStore>>
     )->Arc<RwLock<Arc<Self>>>{
+        
         let (tx, rx) = channel::unbounded();
-        let agent_card=Source::new(Role::Agent, agent_name.clone(), Some(agent_info));
+        let agent_card      =Source::resolve_source_async(Source::new(Role::Agent, agent_name.clone(), Some(agent_info)));
         
         let episodes=Arc::new(RwLock::new(HashMap::new()));
         let new_agent=Arc::new(RwLock::new(Arc::new(Self{
@@ -496,7 +498,8 @@ impl Agent{
             terminal:Arc::new(Terminal::new(Some(app_store.clone()), Some(tx.clone()),agent_store.clone())),
             latest_episode_id:RwLock::new(None),
             invoke_post_fn,
-            validator_card:Source::new(Role::User,format!("{}ResponseValidator",agent_name.clone()),None),
+            validator_card:Source::resolve_source_async(Source::new(Role::User,format!("{}ResponseValidator",agent_name.clone()),None)),
+            reflector_card:Source::resolve_source_async(Source::new(Role::User,format!("{}Reflector",agent_name.clone()),None)),
             _agent_tx:tx.clone(),
             _agent_rx:rx.clone(),
             app_store,
@@ -876,6 +879,7 @@ impl Agent{
         let agent_card=agent_lock.agent_card.clone();
         let episode_id=epid.clone();
         let validator_card=agent_lock.validator_card.clone();
+        let reflector_card=agent_lock.reflector_card.clone();
         let agent_tx_clone=agent_lock._agent_tx.clone();
         let allow_self_selected_apps=agent_lock.allow_self_selected_apps;
         
@@ -904,7 +908,7 @@ impl Agent{
 
                             for app_handle_name in tools_select.iter(){
                                 info!("Launching New App:{} | Agent:{}",app_handle_name,agent_card.get_name());
-                                let new_app=agent_lock.app_store.clone_app(app_handle_name.clone());
+                                let new_app=agent_lock.app_store.clone_app(app_handle_name.clone()).await;
                                 if new_app.is_none(){
                                     error!("App:{} not found in app store",app_handle_name);
                                     continue;
@@ -968,6 +972,7 @@ impl Agent{
                             terminal,
                             interface_memory,
                             validator_card.clone(),
+                            reflector_card.clone(),
                             agent_tx_clone,  
                             is_meta_cog ,
                             agent_store,
@@ -1060,7 +1065,7 @@ impl Agent{
     
         
         info!("New Task Episode Launched:{}",episode_id);
-        episode_memory.insert(MemoryNode::new(&agent_self.agent_card, task_desc, None, MemoryNodeType::Message, None, None, None)).await;
+        episode_memory.insert(MemoryNode::new(&agent_self.agent_card, task_desc, None, MemoryNodeType::Message, None, None, None).await).await;
 
         agent_self._agent_tx.send(AgentPulse::Invoke(Some(episode_id.clone()))).unwrap();
     }
@@ -1339,7 +1344,7 @@ impl Agent{
             combined_error=format!("Errors:\n{}",erro_v.join("\n"));
 
             info!("Error Identified:\n{}",combined_error);
-            current_episode_memory.insert(MemoryNode::new(validator_card,combined_error.clone() , prompt_style, MemoryNodeType::ModelError,Some(invoc_id),None,None)).await;
+            current_episode_memory.insert(MemoryNode::new(validator_card,combined_error.clone() , prompt_style, MemoryNodeType::ModelError,Some(invoc_id),None,None).await).await;
         }
         combined_error
 
@@ -1378,6 +1383,7 @@ impl Agent{
         terminal:Arc<Terminal>,
         interface_memory:Option<Arc<Memory>>,
         validator_card:Source,
+        reflector_card:Source,
         agent_tx:channel::Sender<AgentPulse>,
         is_metacog_run:bool,
         agent_store:Option<Arc<AgentStore>>,
@@ -1412,7 +1418,7 @@ impl Agent{
         let mut meta_cog_msg_sent=false;
         let mut preflight_response=String::new();
         if !is_metacog_run{
-            current_episode_memory.append_user_last_node("[INVOKE]".to_string());
+            current_episode_memory.append_user_last_node("[INVOKE]".to_string()).await;
         }
         while need_rerun && run_count<MAX_RUN_ALLOWED {
             
@@ -1442,7 +1448,7 @@ impl Agent{
                         
                         agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, preflight_response.clone(),
                                                     Some(PromptStyle::PREFLIGHT),
-                                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None),
+                                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None).await,
                                 Some(invoke_epid.clone()))).unwrap();
                         info!("PREFLIGHT MODEL RESP Agent :{} for episode:{} | MetaCog:{} |\n{}",agent_card.get_name(),invoke_epid,is_metacog_run,preflight_response);
                         let parsed_preflight=AgentResponseParser::parse_preflight_response(&preflight_response);
@@ -1506,12 +1512,11 @@ impl Agent{
                     }
                 };
                 if is_metacog_run && !meta_cog_msg_sent{
-                    let reflectorcard=Source::new(Role::User,format!("{}reflector",agent_card.get_name()),None);
 
                     meta_cog_msg_sent=true;
-                    agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&reflectorcard, "[REFLECT]".to_string(),
+                    agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&reflector_card, "[REFLECT]".to_string(),
                                                 None, 
-                                                MemoryNodeType::ReflectionPrompt,Some(invoc_id.clone()),None,None),
+                                                MemoryNodeType::ReflectionPrompt,Some(invoc_id.clone()),None,None).await,
                             Some(invoke_epid.clone()))).unwrap();
                     info!("Waiting for Reflector Init Message");
                     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -1521,7 +1526,7 @@ impl Agent{
                     info!("Last response was empty, sending reminder message to model");
                     agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&validator_card, "You are required to respond with a valid response.Check for new informations or updates and continue your task".to_string(),
                                         None, 
-                                        MemoryNodeType::ModelError,Some(invoc_id.clone()),None,None),
+                                        MemoryNodeType::ModelError,Some(invoc_id.clone()),None,None).await,
                     Some(invoke_epid.clone()))).unwrap();
                     info!("Waiting for Empty Response Init Message");
                     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -1537,7 +1542,7 @@ impl Agent{
 
                 agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, resp.clone(),
                                     choosen_prompt.clone(), 
-                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None),
+                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None).await,
                  Some(invoke_epid.clone()))).unwrap();
                 
                 let mut error_ls:Vec<ParseError>=Vec::new();
@@ -1621,10 +1626,10 @@ impl Agent{
                     
                     agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, resp.clone(),
                                         choosen_prompt.clone(), 
-                                        MemoryNodeType::Message,Some(invoc_id.clone()),None,None),
+                                        MemoryNodeType::Message,Some(invoc_id.clone()),None,None).await,
                     Some(invoke_epid.clone()))).unwrap();
                     if is_subtask{
-                        let output_memory_node=MemoryNode::new(&agent_card, resp.clone(), choosen_prompt.clone(), MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None);
+                        let output_memory_node=MemoryNode::new(&agent_card, resp.clone(), choosen_prompt.clone(), MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None).await;
                         match &interface_memory{
                             Some(imemory)=>{
                                 if imemory._read_only{
@@ -1654,7 +1659,7 @@ impl Agent{
                             else{
                                 outputs.join("\n")
                             };
-                            let output_memory_node=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Message,Some(invoc_id.clone()),None,None);
+                            let output_memory_node=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Message,Some(invoc_id.clone()),None,None).await;
                             match &interface_memory{
                                 Some(imemory)=>{
                                     if imemory._read_only{
@@ -1692,7 +1697,7 @@ impl Agent{
                                         trimmed_cmds.to_string().clone()
                                     };
 
-                                    let output_memory_node=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Message,Some(invoc_id.clone()),None,None);
+                                    let output_memory_node=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Message,Some(invoc_id.clone()),None,None).await;
                                     match &interface_memory{
                                         Some(imemory)=>{
                                             if imemory._read_only{
@@ -1792,7 +1797,7 @@ impl Agent{
                 else{
                     "Error Processing Last Message.Please try again".to_string()
                 };
-                let error_message=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Error,Some(invoc_id.clone()),None,None);
+                let error_message=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Error,Some(invoc_id.clone()),None,None).await;
                 match &interface_memory{
                     Some(imemory)=>{
                         if imemory._read_only{
@@ -1816,7 +1821,7 @@ impl Agent{
                         let inovke_mem=MemoryNode::new(&validator_card,
                              format!("Subworker {} completed task and sent response. Analyze and continue task or show output as required.", agent_card.get_name()),
                              None,
-                             MemoryNodeType::Message,Some(invoc_id.clone()),None,None);
+                             MemoryNodeType::Message,Some(invoc_id.clone()),None,None).await;
                         if let Err(e)=mtx.send(AgentPulse::AddMemoryAndInvoke(inovke_mem,Some(ma_epid.clone()))){
                             error!("Error occurred while invoking main agent: {}", e);
                         }
