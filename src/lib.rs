@@ -98,7 +98,7 @@ impl Runtime{
         let agent_store=AgentStore::load_agents("./configs/agents_config.toml","./configs/subagents_config.toml", inference_store.clone(), app_store.clone(),protocol_store.clone());
         
         let sharedruntime= Arc::new(RwLock::new(Self{
-            topics:HashMap::new(),
+            topics:Memory::restore_topic_memories(Some(protocol_store.clone())).await,
             users:HashMap::new(),
             agents:HashMap::new(),
             embedder,
@@ -235,10 +235,14 @@ impl Runtime{
     }
 
     pub async fn create_topic_thread(&mut self)->String{
-        let memory = Memory::new(Some(self.protocols_store.clone()),MemoryType::Topic).await;
+        let memory = Memory::new(None,Some(self.protocols_store.clone()),MemoryType::Topic).await;
         let memory_id_clone=memory._memory_id.clone();
         self.topics.insert(memory_id_clone.clone(), memory);
         memory_id_clone
+    }
+    pub async fn list_all_topics(&self)->Vec<String>{
+        let topic_keys=self.topics.keys().cloned().collect();
+        topic_keys
     }
     pub async fn create_user(&mut self,user_name:String)->String{
         let user_node=source::Source::new(source::Role::User, user_name, None  ).await;
@@ -589,6 +593,20 @@ impl PyRuntime {
 
             let runtime = rt.read().await;
             Ok(runtime.get_agents_list().await)
+
+        })
+    }
+    fn list_all_topics<'py>(
+        &self,
+        py: Python<'py>
+    ) -> PyResult<&'py PyAny> {
+
+        let rt = self.inner.clone();
+
+        pyo3_asyncio::tokio::future_into_py(py, async move {
+
+            let runtime = rt.read().await;
+            Ok(runtime.list_all_topics().await)
 
         })
     }

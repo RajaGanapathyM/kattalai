@@ -57,7 +57,7 @@ impl DBTable{
         let create_table_query=format!("CREATE TABLE IF NOT EXISTS {} (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             {})", table_name, schema_str);
-        println!("Create query:{}",create_table_query);
+        // info!("Create query:{}",create_table_query);
         sqlx::query(&create_table_query).execute(pool.as_ref()).await.unwrap();
         Arc::new(Self{
             name:table_name,
@@ -94,17 +94,30 @@ impl DBTable{
             for col in &columns {
                 // Using .remove() transfers ownership so we don't need `T: Clone`
                 let value = record.get(*col).expect("Record is missing a schema column!").clone();
-                b.push_bind(value);
+                match value {
+                    Value::Null => { b.push_bind(None::<String>); }
+                    Value::Bool(b_val) => { b.push_bind(if b_val { 1 } else { 0 }); }
+                    Value::Number(num) => {
+                        if let Some(i) = num.as_i64() {
+                            b.push_bind(i);
+                        } else if let Some(f) = num.as_f64() {
+                            b.push_bind(f);
+                        }
+                    }
+                    Value::String(s) => { b.push_bind(s); } 
+                    Value::Array(arr) => { b.push_bind(serde_json::to_string(&arr).unwrap_or_default()); }
+                    Value::Object(obj) => { b.push_bind(serde_json::to_string(&obj).unwrap_or_default()); }
+                }
             }
         });
 
         // 4. Build and execute
         let query = query_builder.build();
-        println!("Executing query: {}", query.sql());
+        // info!("Executing query: {}", query.sql());
         let result = query.execute(self.pool.as_ref()).await;
 
         if let Ok(res)=result{
-            println!("Inserted {:?} rows", res);
+            // info!("Inserted {:?} rows", res);
             Ok(res.last_insert_rowid())
         }
         else{
@@ -126,11 +139,12 @@ impl DBTable{
         for row in rows {
             let mut record = serde_json::Map::new();
             for (col, col_type) in self.schema.as_object().unwrap().iter() {
+                // info!("Fetching column: {}, Type: {}", col, col_type);
                 let value: Value = match col_type.as_str().unwrap_or("TEXT") {
                     "INTEGER" => row.try_get::<i64, _>(col.as_str()).map(Value::from).unwrap_or(Value::Null),
                     "REAL" => row.try_get::<f64, _>(col.as_str()).map(Value::from).unwrap_or(Value::Null),
                     "TEXT" => row.try_get::<String, _>(col.as_str()).map(Value::from).unwrap_or(Value::Null),
-                    "BLOB" => row.try_get::<Vec<u8>, _>(col.as_str()).map(Value::from).unwrap_or(Value::Null),
+                    "BLOB" => row.try_get::<Vec<u8>, _>(col.as_str()).map(|bytes| Value::from(String::from_utf8_lossy(&bytes).into_owned())).unwrap_or(Value::Null),
                     _ => Value::Null,
                 };
                 record.insert(col.clone(), value);

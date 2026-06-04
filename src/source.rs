@@ -11,6 +11,7 @@ use std::sync::{Arc,RwLock,OnceLock};
 use tokio::sync::OnceCell;
 pub static GLOBAL_SOURCE_DB: OnceCell<Arc<DBTable>> = OnceCell::const_new();
 
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Role {
     Agent,
@@ -60,6 +61,14 @@ pub struct Source {
 }
 
 impl Source {
+    pub async fn restore(id:String,role: Role, name: String, info: Option<HashMap<String, String>>)->Self{
+        Self{
+            id,
+            role,
+            name,
+            info
+        }
+    }
     pub fn resolve_source_async(source:impl std::future::Future<Output = Source>)->Source{
         tokio::task::block_in_place(|| {
              let tokio_crt=tokio::runtime::Handle::current();

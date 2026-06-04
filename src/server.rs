@@ -85,6 +85,7 @@ impl RuntimeServer {
             .route("/topic/add-agent",          post(handle_add_agent_to_topic))
             .route("/topic/remove-agent",       post(handle_remove_agent_from_topic))
             .route("/topic/iter",               post(handle_iter_topic))
+            .route("/topic/list",               post(handle_get_topic_list))
             // users
             .route("/user/create",              post(handle_create_user))
             // messages
@@ -238,6 +239,16 @@ async fn handle_iter_topic(
         }
         Err(e) => ApiResponse::<()>::err(e).into_response(),
     }
+}
+
+
+// POST: /topic/list --------
+
+async fn handle_get_topic_list(
+    State(rt): State<SharedRuntime>,
+) -> impl IntoResponse {
+    let topics = rt.read().await.list_all_topics().await;
+    ApiResponse::ok(topics)
 }
 //############### AGENTS API ########################
 

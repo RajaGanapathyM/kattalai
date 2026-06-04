@@ -1023,7 +1023,7 @@ impl Agent{
         } else {
             Uuid::now_v7().to_string()
         };
-        let episode_memory=Memory::new(None,MemoryType::AgentEpisode).await;
+        let episode_memory=Memory::new(None,None,MemoryType::AgentEpisode).await;
         
         let latest_fetched_id=match &episode_interface_memory{
             Some(mem)=>{
@@ -1054,7 +1054,7 @@ impl Agent{
         let agent_self=agent_lock.write().await;
         let mut episode_id=task_id;
         
-        let episode_memory=Memory::new(None,MemoryType::AgentEpisode).await;
+        let episode_memory=Memory::new(None,None,MemoryType::AgentEpisode).await;
         
         let latest_fetched_id=None;
         let mut writable_episode=agent_self.latest_episode_id.write().await;
