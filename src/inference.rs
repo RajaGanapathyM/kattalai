@@ -1170,7 +1170,7 @@ impl inference_api_trait for ClaudeAI {
     // Override invoke to inject Anthropic-specific headers
     async fn invoke(&self, api_url: &str, payload: Value, invoke_type: invoke_type) -> String {
         let client = Client::new();
-        info!("PAYLOAD: {}", payload);
+        // info!("PAYLOAD: {}", payload);
 
         let response = client
             .post(api_url)

@@ -234,15 +234,19 @@ impl Runtime{
         self.agent_store.list_agents()
     }
 
-    pub async fn create_topic_thread(&mut self)->String{
-        let memory = Memory::new(None,Some(self.protocols_store.clone()),MemoryType::Topic).await;
+    pub async fn create_topic_thread(&mut self,topic_title:String)->String{
+        let memory = Memory::new(None,Some(self.protocols_store.clone()),topic_title,MemoryType::Topic).await;
         let memory_id_clone=memory._memory_id.clone();
         self.topics.insert(memory_id_clone.clone(), memory);
         memory_id_clone
     }
-    pub async fn list_all_topics(&self)->Vec<String>{
-        let topic_keys=self.topics.keys().cloned().collect();
-        topic_keys
+    pub async fn list_all_topics(&self)->Vec<(String,String)>{
+        let mut topic_resp:Vec<(String,String)>=Vec::new();
+        for (topic_id,topic) in &self.topics{
+            topic_resp.push((topic_id.to_string().clone(),topic._memory_title.clone()));
+
+        }
+        topic_resp
     }
     pub async fn create_user(&mut self,user_name:String)->String{
         let user_node=source::Source::new(source::Role::User, user_name, None  ).await;
@@ -428,12 +432,12 @@ impl PyRuntime {
         })
     }
 
-    fn create_topic_thread<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
+    fn create_topic_thread<'py>(&self,title:String, py: Python<'py>) -> PyResult<&'py PyAny> {
         let runtime = self.inner.clone();
 
         future_into_py(py, async move {
             let mut rt = runtime.write().await;
-            let topic_id =rt.create_topic_thread().await;
+            let topic_id =rt.create_topic_thread(title).await;
             Ok(topic_id)
         })
     }

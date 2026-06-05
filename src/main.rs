@@ -95,7 +95,7 @@ async fn main() {
 
     let demo_user_id=se_write_runtime.create_user("Alice".to_string()).await;
     println!("Demo user created with ID: {}", demo_user_id);
-    let topic_id=topics_ls[0].clone();
+    let (topic_id,_)=topics_ls[0].clone();
     // let topic_id=se_write_runtime.create_topic_thread().await;
     println!("TOPIC CREATED WITH ID:{}",topic_id);
     let agent_id=se_write_runtime.deploy_agent("DIA".to_string()).await;

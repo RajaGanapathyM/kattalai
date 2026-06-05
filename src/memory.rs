@@ -180,7 +180,7 @@ impl MemoryNode {
             srole
         }
         else{
-            info!("ROLE NOT FOUND:{}",source_role);
+            // info!("ROLE NOT FOUND:{}",source_role);
             Role::User
         };
         if source_id=="NULL" || source_id==""{
@@ -467,9 +467,10 @@ impl MemoryStore {
             let mut node_vec=Vec::new();
             let mut mem_indx=HashMap::new();
             let mut tags_indx:HashMap<String, Vec<String>>=HashMap::new();
-            let ix=0;
+            let mut ix=0;
             for mnode in mem_nodes{
                 mem_indx.insert( mnode.get_node_id(),ix);
+                ix+=1;
                 for tag in &mnode.tags {
                     tags_indx
                         .entry(tag.clone())
@@ -547,6 +548,7 @@ pub struct MemoryConfig {
     pub _kill_switch:Arc<AtomicBool>,
     pub _memory_type:MemoryType,
     pub _read_only:bool,
+    pub _memory_title:String,
 }
 pub struct Memory {
     pub _memory_id: String,
@@ -554,6 +556,7 @@ pub struct Memory {
     pub _kill_switch:Arc<AtomicBool>,
     pub _memory_type:MemoryType,
     pub _read_only:bool,
+    pub _memory_title:String,
 
     _memory_store: Arc<MemoryStore>,
     _memory_tx: channel::Sender<AgentPulse>,
@@ -570,6 +573,7 @@ impl Memory {
             "_read_only":"INTEGER",
             "_kill_switch":"INTEGER",
             "_memory_type":"TEXT",
+            "_memory_title":"TEXT",
             
         })
     }
@@ -581,6 +585,7 @@ impl Memory {
             "_read_only":self._read_only.clone() as u8,
             "_kill_switch":self._kill_switch.load(Ordering::Relaxed).clone() as u8,
             "_memory_type":self._memory_type.as_str().to_string(),
+            "_memory_title":self._memory_title.clone(),
         })
     }
     pub async fn append_user_last_node(&self,content:String){
@@ -628,6 +633,7 @@ impl Memory {
                     continue;
                 }
                 let branch_id=v.get("_branch_id").and_then(|val| val.as_str()).unwrap_or("").to_string();
+                let memory_title=v.get("_memory_title").and_then(|val| val.as_str()).unwrap_or("").to_string();
                 info!("Restoring Memory - ID: {}, Branch ID: {}, Type: {}", mem_id, branch_id, mem_type.as_str());
                 if mem_id==branch_id{
                     let original_mem_config=MemoryConfig{
@@ -635,9 +641,10 @@ impl Memory {
                         _branch_id: branch_id.clone(),
                         _read_only: v.get("_read_only").and_then(|val| val.as_i64()).map(|num| num == 1).unwrap_or(false),
                         _kill_switch: Arc::new(AtomicBool::new(v.get("_kill_switch").and_then(|val| val.as_i64()).map(|num| num == 1).unwrap_or(false))),
-                        _memory_type:mem_type.clone()
+                        _memory_type:mem_type.clone(),
+                        _memory_title:memory_title.clone()
                     };
-                    memory_dict.insert(mem_id.clone(), Memory::new(Some(original_mem_config), protocol_store.clone(), mem_type).await);
+                    memory_dict.insert(mem_id.clone(), Memory::new(Some(original_mem_config), protocol_store.clone(),memory_title, mem_type).await);
                 }
             }
         }
@@ -662,6 +669,7 @@ impl Memory {
             _memory_type: mem_config._memory_type,
             _read_only: mem_config._read_only,
             _kill_switch: mem_config._kill_switch,
+            _memory_title: mem_config._memory_title,
 
             _memory_store: MemoryStore::new(mem_config._memory_id).await,
             _memory_tx: tx,
@@ -681,7 +689,7 @@ impl Memory {
         arc_memory
     }
 
-    pub async fn new(memory_config:Option<MemoryConfig>,protocol_store: Option<Arc<ProtocolStore>>,memory_type:MemoryType) -> Arc<Self> {
+    pub async fn new(memory_config:Option<MemoryConfig>,protocol_store: Option<Arc<ProtocolStore>>,memory_title:String,memory_type:MemoryType) -> Arc<Self> {
         
         
         let arc_memory=match memory_config  {
@@ -693,6 +701,7 @@ impl Memory {
                     _branch_id: mem_id.clone(),    
                     _kill_switch:Arc::new(AtomicBool::new(false)),
                     _memory_type:memory_type,
+                    _memory_title:memory_title,
                     _read_only:false
                 };
                 Memory::create_new(new_mem_config,true).await
@@ -720,10 +729,10 @@ impl Memory {
                         new_node.branch_id=Some(arc_memory_clone._branch_id.clone());
                     }
                 }
-                info!("SPILL_PATH:{:?}",new_node.spill_path);
+                // info!("SPILL_PATH:{:?}",new_node.spill_path);
                 if let Some(spill_path)=new_node.spill_path.clone(){
                     let spill_content=Memory::read_spill(&spill_path);
-                    info!("SPILL CONTENT{:?}",spill_content);
+                    // info!("SPILL CONTENT{:?}",spill_content);
                     new_node.append_content(spill_content);
                     new_node.remove_spillpath();
                 }
@@ -905,7 +914,7 @@ impl Memory {
         }
 
     }
-    pub fn branch(&self) -> Arc<Self> {
+    pub fn branch(&self,new_title:String) -> Arc<Self> {
         Arc::new(Memory {
             _memory_id: self._memory_id.clone(),
             _memory_store: self._memory_store.clone(),
@@ -916,7 +925,8 @@ impl Memory {
             _memory_type:self._memory_type.clone(),
             _read_only:false,
             _memories_tbl:self._memories_tbl.clone(),
-            invoker_card:self.invoker_card.clone()
+            invoker_card:self.invoker_card.clone(),
+            _memory_title:new_title
         })
     }
     pub fn get_ready_only_copy(&self) -> Arc<Self> {
@@ -930,7 +940,8 @@ impl Memory {
             _memory_type:self._memory_type.clone(),
             _read_only:true,
             _memories_tbl:self._memories_tbl.clone(),
-            invoker_card:self.invoker_card.clone()
+            invoker_card:self.invoker_card.clone(),
+            _memory_title:self._memory_title.clone()
         })
     }
 

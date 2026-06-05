@@ -137,10 +137,16 @@ async fn handle_insert_message(
 
 /// POST /topic/create
 
+#[derive(Deserialize)]
+pub struct TopicDetails {
+    pub title: String,
+}
+
 async fn handle_create_topic(
     State(rt): State<SharedRuntime>,
+    Json(req): Json<TopicDetails>,
 ) -> impl IntoResponse {
-    let topic_id = rt.write().await.create_topic_thread().await;
+    let topic_id = rt.write().await.create_topic_thread(req.title).await;
     ApiResponse::ok(topic_id)
 }
 
