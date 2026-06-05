@@ -1,18 +1,23 @@
 use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use crossbeam::channel;
-use crate::app;
+use crate::{app, memory};
 use crate::source::Source;
 use crate::agent::{Agent, AgentPulse};
 use crate::protocol::ProtocolStore;
 use env_logger::filter;
 use crate::appstore::AppStore;
 use crate::config::InferenceStore;
+use crate::database::{DB,DBTable};
+use serde_json::Value;
 
+use serde::{Deserialize, Serialize};
 use regex::Regex;
 use std::fmt::format;
+use std::hash::Hash;
 use std::ptr::read;
-use std::sync::{Arc,RwLock};
+use std::sync::{Arc,RwLock,OnceLock};
+use tokio::sync::OnceCell;
 use std::{
     clone,
     collections::{HashMap, HashSet},
@@ -32,6 +37,8 @@ use tokio::time::{sleep, Duration};
 use cron::Schedule;
 use std::str::FromStr;
 use pyo3::prelude::*;
+pub static GLOBAL_MEMORYNODE_DB: OnceCell<Arc<DB>> = OnceCell::const_new();
+pub static GLOBAL_MEMORY_DB: OnceCell<Arc<DBTable>> = OnceCell::const_new();
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum IOPhase {
@@ -39,7 +46,7 @@ pub enum IOPhase {
     Out,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash,Serialize, Deserialize)]
 pub enum MemoryNodeType {
     Perception,
     Thought,
@@ -85,7 +92,33 @@ impl MemoryNodeType {
         }
     }
 }
+impl FromStr for MemoryNodeType {
+    type Err = ();
 
+    fn from_str(input: &str) -> Result<MemoryNodeType, Self::Err> {
+        match input {
+            "Perception" => Ok(MemoryNodeType::Perception),
+            "Thought" => Ok(MemoryNodeType::Thought),
+            "Decision" => Ok(MemoryNodeType::Decision),
+            "Action" => Ok(MemoryNodeType::Action),
+            "Protocol" => Ok(MemoryNodeType::Protocol),
+            "ProtocolPrompt" => Ok(MemoryNodeType::ProtocolPrompt),
+            "TerminalCommands" => Ok(MemoryNodeType::TerminalCommands),
+            "ModelResponse" => Ok(MemoryNodeType::ModelResponse),
+            "AppResponse" => Ok(MemoryNodeType::AppResponse),
+            "ProtocolLog" => Ok(MemoryNodeType::ProtocolLog),
+            "Error" => Ok(MemoryNodeType::Error),
+            "ModelError" => Ok(MemoryNodeType::ModelError),
+            "Message" => Ok(MemoryNodeType::Message),
+            "Signal" => Ok(MemoryNodeType::Signal),
+            "Applog" => Ok(MemoryNodeType::Applog),
+            "FollowupContext" => Ok(MemoryNodeType::FollowupContext),
+            "ValidationBlock" => Ok(MemoryNodeType::ValidationBlock),
+            "ReflectionPrompt"=>Ok(MemoryNodeType::ReflectionPrompt),
+            _ => Err(()),
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub struct MemoryNode {
     pub node_id: String,
@@ -102,9 +135,190 @@ pub struct MemoryNode {
     spill_path:Option<String>
 }
 impl MemoryNode {
-    pub fn new(
+    // pub async fn import_from_json(json_node: &Value) -> Self {
+    //     let node_id = json_node["node_id"].as_str().unwrap_or("").to_string();
+    //     let source_role_str = json_node["source_role"].as_str().unwrap_or("system");
+    //     let source_name = json_node["source_name"].as_str().unwrap_or("unknown").to_string();
+    //     let source_id = json_node["source_id"].as_str().unwrap_or("").to_string();
+    //     let timestamp_str = json_node["timestamp"].as_str().unwrap_or("");
+    //     let content = json_node["content"].as_str().unwrap_or("").to_string();
+    //     let prompt_info_str = json_node["prompt_info"].as_str().unwrap_or("");
+    //     let node_type_str = json_node["node_type"].as_str().unwrap_or("Message");
+    //     let branch_id = json_node["branch_id"].as_str().map(|s| s.to_string());
+    //     let tags_str = json_node["tags"].as_str().unwrap_or("");
+    //     let intents_str = json_node["intents"].as_str().unwrap_or("");
+    //     let invocation_id = json_node["invocation_id"].as_str().map(|s| s.to_string());
+    //     let target_id = json_node["target"].as_str().map(|s| s.to_string());
+    //     let spill_path = json_node["spill_path"].as_str().map(|s| s.to_string());
+
+    //     let source_role = source_role_str.parse::<Role>().unwrap_or(Role::System);
+        
+
+    //     MemoryNode {
+    //         node_id,
+    //         source: Source::new(source_role, source_name,None).await,
+    //         timestamp: timestamp_str.parse::<DateTime<Utc>>().unwrap_or_else(|_| Utc::now()),
+    //         content,
+    //         prompt_info: prompt_info_str.parse::<PromptStyle>().ok(),
+    //         node_type: node_type_str.parse::<MemoryNodeType>().unwrap_or(MemoryNodeType::Message),
+    //         branch_id,
+    //         tags: tags_str.split(", ").map(|s| s.to_string()).collect(),
+    //         intents: intents_str.split(", ").map(|s| s.to_string()).collect(),
+    //         invocation_id,
+    //         target: target_id.map(|id|Source::new(Role::System, "target".to_string(), None).await}),
+    //         spill_path
+    //     }
+    // }
+    pub async fn fetch_source(v:&Value,key_name:&str)->Option<Source>{
+        
+        let source_role = v.get(format!("{}_role",key_name)).and_then(|val| val.as_str()).unwrap_or("").to_string();
+        let source_name = v.get(format!("{}_name",key_name)).and_then(|val| val.as_str()).unwrap_or("").to_string();
+        let source_id = v.get(format!("{}_id",key_name)).and_then(|val| val.as_str()).unwrap_or("").to_string();
+        let parsed_source_role=source_role.parse::<Role>();
+
+        let parsed_source_role=if let Ok(srole)=parsed_source_role{
+            srole
+        }
+        else{
+            // info!("ROLE NOT FOUND:{}",source_role);
+            Role::User
+        };
+        if source_id=="NULL" || source_id==""{
+            if key_name=="source"{
+                return Some(Source::new(Role::User, "DEFAULTSOURCE".to_string(), None).await);
+            }
+            return None;
+        }
+        let source = Source::restore(source_id,parsed_source_role, source_name,None).await;
+        info!("Source Restored {:?}",source);
+        Some(source)
+    }
+    pub async fn import_from_json(json_payload: Value) -> MemoryNode {
+        let v = json_payload;
+
+        // 1. Parse fields wrapped as Option strings (Checking for "NULL" stored as TEXT)
+        let parse_option_string = |key: &str| -> Option<String> {
+            v.get(key)
+                .and_then(|val| val.as_str())
+                .filter(|&s| s != "NULL")
+                .map(|s| s.to_string())
+        };
+
+        // 2. Parse comma-separated list values back into Collections
+        let parse_csv_to_collection = |key: &str| -> HashSet<String> {
+            v.get(key)
+                .and_then(|val| val.as_str())
+                .unwrap_or("")
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty() && s != "NULL")
+                .collect()
+        };
+
+        // 3. Reconstruct your Source entity from its plain text parameters 
+        
+        let timestamp_str = v.get("timestamp").and_then(|val| val.as_str()).unwrap_or("");
+        let timestamp = DateTime::parse_from_rfc3339(timestamp_str)
+            .map(|dt| dt.with_timezone(&Utc)) // Convert from FixedOffset to Utc
+            .unwrap_or_else(|_| Utc::now());
+            
+        // 5. Handle the boolean state safely from your underlying storage type
+        // This evaluates both raw JSON bool literals and standard SQLite 0/1 integers smoothly
+        let read_only = v.get("_read_only")
+            .and_then(|val| {
+                val.as_bool().or_else(|| val.as_i64().map(|num| num != 0))
+            })
+            .unwrap_or(false);
+        let content = v.get("content").and_then(|val| val.as_str()).unwrap_or("").to_string();
+        
+        let parsed_prompt_info=match parse_option_string("prompt_info"){
+            Some(pinfo)=>{
+                if let Ok(p)=pinfo.parse::<PromptStyle>(){
+                    Some(p)
+                }
+                else{
+                    None
+                }
+            },
+            None=>None
+        };
+        let parsed_node_type=match parse_option_string("node_type"){
+            Some(pinfo)=>{
+                if let Ok(p)=pinfo.parse::<MemoryNodeType>(){
+                    p
+                }
+                else{
+                    info!("UNKNOWN MEMORY NODE TYPE");
+                    MemoryNodeType::Message
+                }
+            },
+            None=>{
+                info!("NULL MEMORY NODE TYPE");
+                MemoryNodeType::Message
+            }
+        };
+
+        let source=MemoryNode::fetch_source(&v,"source").await.unwrap();
+        let target=MemoryNode::fetch_source(&v,"target").await;
+        
+        MemoryNode {
+            node_id: v.get("node_id").and_then(|val| val.as_str()).unwrap_or("").to_string(),
+            source,
+            timestamp,
+            content,
+            prompt_info:parsed_prompt_info ,
+            node_type: parsed_node_type,
+            branch_id: parse_option_string("branch_id"),
+            tags: parse_csv_to_collection("tags"),
+            intents: parse_csv_to_collection("intents"),
+            invocation_id: parse_option_string("invocation_id"),
+            target,
+            spill_path: parse_option_string("spill_path"),
+        }
+    }
+    pub fn export_to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "node_id":self.node_id,
+            "source_role":self.source.get_role().as_str(),
+            "source_name":self.source.get_name(),
+            "source_id":self.source.get_id(),
+            "timestamp":self.timestamp.to_rfc3339(),
+            "content":self.content,
+            "prompt_info":self.prompt_info.as_ref().map(|p| p.as_str().to_string()).unwrap_or("NULL".to_string()),
+            "node_type":self.node_type,
+            "branch_id":self.branch_id.clone().unwrap_or("NULL".to_string()),
+            "tags":self.tags.iter().cloned().collect::<Vec<_>>().join(", "),
+            "intents":self.intents.iter().cloned().collect::<Vec<_>>().join(", "),
+            "invocation_id":self.invocation_id.clone().unwrap_or("NULL".to_string()),
+            "target_id":self.target.as_ref().map(|t| t.get_id()).unwrap_or("NULL".to_string()),
+            "target_name":self.target.as_ref().map(|t| t.get_name()).unwrap_or("NULL".to_string()),
+            "target_role":self.target.as_ref().map(|t| t.get_role().as_str().to_string()).unwrap_or("NULL".to_string()),
+            "spill_path":self.spill_path.clone().unwrap_or("NULL".to_string())
+        })
+    }
+    pub fn get_schema()->Value{
+        serde_json::json!({
+            "node_id":"TEXT",
+            "source_role":"TEXT",
+            "source_name":"TEXT",
+            "source_id":"TEXT",
+            "timestamp":"TEXT",
+            "content":"TEXT",
+            "prompt_info":"TEXT",
+            "node_type":"TEXT",
+            "branch_id":"TEXT",
+            "tags":"TEXT",
+            "intents":"TEXT",
+            "invocation_id":"TEXT",
+            "target_role":"TEXT",
+            "target_name":"TEXT",
+            "target_id":"TEXT",
+            "spill_path":"TEXT"
+        })
+    }
+    pub async fn new(
         source: &Source,
-        mut content: String,
+        content: String,
         prompt_info: Option<PromptStyle>,
         node_type: MemoryNodeType,
         invocation_id:Option<String>,
@@ -112,12 +326,13 @@ impl MemoryNode {
         spill_path:Option<String>
     ) -> Self {
 
+
         let mut tags: HashSet<String>    =HashSet::new();
         let mut actions:HashSet<String>=HashSet::new();
 
         let embedder=GLOBAL_EMBEDDER.get();
         if let Some(emb)=embedder{
-            let pos_model=block_on(emb.get_pos_tags(&vec![content.clone()]));
+            let pos_model=emb.get_pos_tags(&vec![content.clone()]).await;
             let pos_tags=&pos_model[0];
             let (tag,action)=pos_model[0].clone();
             tags.extend(tag.clone().iter().cloned());
@@ -158,6 +373,9 @@ impl MemoryNode {
     }
     pub fn append_content(&mut self,new_cont:String){
         self.content=format!("{}\n{}",self.content,new_cont);
+    }
+    pub fn remove_spillpath(&mut self){
+        self.spill_path=None;
     }
     pub fn get_source_name(&self)->String{
         self.source.get_name().clone()
@@ -209,19 +427,98 @@ impl MemoryNode {
     }
 }
 
-#[derive(Debug)]
 struct MemoryStore {
+    mem_id:String,
     mem_vec: ArcSwap<Vec<Arc<MemoryNode>>>,
     mem_indx: Arc<RwLock<HashMap<String, usize>>>,
     tags_indx: Arc<RwLock<HashMap<String, Vec<String>>>>,
+    mem_table:Arc<DBTable>
 }
 impl MemoryStore {
-    pub fn new() -> Arc<Self> {
-        Arc::new(MemoryStore {
-            mem_vec: ArcSwap::from_pointee(Vec::new()),
-            mem_indx: Arc::new(RwLock::new(HashMap::new())),
-            tags_indx: Arc::new(RwLock::new(HashMap::new())),
-        })
+    pub async fn init_memorynode_db()->Arc<DB>{
+        Arc::new(DB::new("memorynodes".into(), 20).await.unwrap())
+    }
+    pub async fn new(mem_id:String) -> Arc<Self> {
+        let memorynode_db=GLOBAL_MEMORYNODE_DB.get_or_init(||MemoryStore::init_memorynode_db()).await;
+        let memorynode_table = DBTable::new(format!("MN_{}", mem_id.clone()), MemoryNode::get_schema(), memorynode_db.pool.clone()).await;
+        
+        
+        let all_memory_nodes=memorynode_table.fetch_all().await;
+        let mut mem_nodes=Vec::new();
+        if let Ok(all_nodes)=all_memory_nodes{
+
+            for nd in all_nodes{
+                let mnode=MemoryNode::import_from_json(nd).await;
+                mem_nodes.push(mnode);
+            }
+        }
+
+        if mem_nodes.len()==0{
+            Arc::new(MemoryStore {
+                mem_id:mem_id.clone(),
+                mem_vec: ArcSwap::from_pointee(Vec::new()),
+                mem_indx: Arc::new(RwLock::new(HashMap::new())),
+                tags_indx: Arc::new(RwLock::new(HashMap::new())),
+                mem_table:memorynode_table.clone()
+            })
+        }
+        else{
+            info!("Loading Memory nodes for {}|{}",mem_id,mem_nodes.len());
+            let mut node_vec=Vec::new();
+            let mut mem_indx=HashMap::new();
+            let mut tags_indx:HashMap<String, Vec<String>>=HashMap::new();
+            let mut ix=0;
+            for mnode in mem_nodes{
+                mem_indx.insert( mnode.get_node_id(),ix);
+                ix+=1;
+                for tag in &mnode.tags {
+                    tags_indx
+                        .entry(tag.clone())
+                        .or_default()
+                        .push(mnode.get_node_id());
+                }
+                node_vec.push(Arc::new(mnode));
+                
+            }
+            Arc::new(MemoryStore {
+                mem_id:mem_id.clone(),
+                mem_vec: ArcSwap::from_pointee(node_vec),
+                mem_indx: Arc::new(RwLock::new(mem_indx)),
+                tags_indx: Arc::new(RwLock::new(tags_indx)),
+                mem_table:memorynode_table.clone()
+            })
+        }
+    }
+
+    pub async fn insert(&self,new_node: MemoryNode){
+        let loaded_mem_vec = self.mem_vec.load_full();
+        let mut writable_mem_vec = (*loaded_mem_vec).clone();
+        let new_node_id=new_node.node_id.clone();
+        let new_node_tags=new_node.tags.clone();
+        
+        let json_node=new_node.export_to_json();
+        self.mem_table.insert( vec![json_node]).await;
+        writable_mem_vec.push(Arc::new(new_node));
+        let mem_len=writable_mem_vec.len();
+        self.mem_vec.store(Arc::new(writable_mem_vec));
+
+        let mut writable_mem_index=self.mem_indx.write().unwrap();
+        writable_mem_index.insert(
+            new_node_id.clone(),
+            mem_len-1,
+        );
+
+        drop(writable_mem_index);
+
+        let mut writable_tags_indx = self.tags_indx.write().unwrap();
+
+        for tag in &new_node_tags {
+            writable_tags_indx
+                .entry(tag.clone())
+                .or_default()
+                .push(new_node_id.clone());
+        }
+        drop(writable_tags_indx);
     }
 }
 
@@ -230,24 +527,72 @@ pub enum MemoryType{
     Topic,
     AgentEpisode
 }
-
-#[derive(Debug)]
-pub struct Memory {
+impl MemoryType {
+    fn from_str(input: &str) -> Option<MemoryType> {
+        match input {
+            "Topic" => Some(MemoryType::Topic),
+            "AgentEpisode" => Some(MemoryType::AgentEpisode),
+            _ => None,
+        }
+    }
+    fn as_str(&self) -> &'static str {
+        match self {
+            MemoryType::Topic => "Topic",
+            MemoryType::AgentEpisode => "AgentEpisode",
+        }
+    }
+}
+pub struct MemoryConfig {
     pub _memory_id: String,
-    _memory_store: Arc<MemoryStore>,
-    _branch_id: String,
-    _memory_tx: channel::Sender<AgentPulse>,
+    pub _branch_id: String,
     pub _kill_switch:Arc<AtomicBool>,
     pub _memory_type:MemoryType,
-    pub _read_only:bool
+    pub _read_only:bool,
+    pub _memory_title:String,
+}
+pub struct Memory {
+    pub _memory_id: String,
+    pub _branch_id: String,
+    pub _kill_switch:Arc<AtomicBool>,
+    pub _memory_type:MemoryType,
+    pub _read_only:bool,
+    pub _memory_title:String,
+
+    _memory_store: Arc<MemoryStore>,
+    _memory_tx: channel::Sender<AgentPulse>,
+    _memory_rx: channel::Receiver<AgentPulse>,
+    _memories_tbl:Arc<DBTable>,
+    invoker_card:Arc<Source>
 }
 
 impl Memory {
-    pub fn append_user_last_node(&self,content:String){
+    pub fn get_schema()->Value{
+        serde_json::json!({
+            "_memory_id":"TEXT",
+            "_branch_id":"TEXT",
+            "_read_only":"INTEGER",
+            "_kill_switch":"INTEGER",
+            "_memory_type":"TEXT",
+            "_memory_title":"TEXT",
+            
+        })
+    }
+
+    pub fn export_to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "_memory_id":self._memory_id.clone(),
+            "_branch_id":self._branch_id.clone(),
+            "_read_only":self._read_only.clone() as u8,
+            "_kill_switch":self._kill_switch.load(Ordering::Relaxed).clone() as u8,
+            "_memory_type":self._memory_type.as_str().to_string(),
+            "_memory_title":self._memory_title.clone(),
+        })
+    }
+    pub async fn append_user_last_node(&self,content:String){
         if self.check_if_last_message_is_user(){
             // pass
         } else {
-            let mut last_node=MemoryNode::new(&Source::new(Role::User,"RG".to_string(),None), content, None, MemoryNodeType::Message,None,None,None);
+            let mut last_node=MemoryNode::new(&self.invoker_card, content, None, MemoryNodeType::Message,None,None,None).await;
             last_node.branch_id=Some(self._branch_id.clone());
             if let Err(e) = self._memory_tx.send(AgentPulse::AddMemory(last_node,None)) {
                 error!("Failed to send last user memory pulse: {:?}", e);
@@ -261,21 +606,109 @@ impl Memory {
         }
         false
     }
-    /// construct a new Memory container
-    pub fn new(protocol_store: Option<Arc<ProtocolStore>>,memory_type:MemoryType) -> Arc<Self> {
+    pub async fn init_memory_db()->Arc<DB>{
+        Arc::new(DB::new("memories".into(), 20).await.unwrap())
+    }
+    pub async fn restore_topic_memories(protocol_store: Option<Arc<ProtocolStore>>)->HashMap<String,Arc<Memory>>{
+        let memory_table=GLOBAL_MEMORY_DB.get_or_init(||async  {
+            let memory_db=Memory::init_memory_db().await;
+            DBTable::new("memories".to_string(), Memory::get_schema(), memory_db.pool.clone()).await
+        }).await;
+
+        let memories=memory_table.fetch_all().await;
+
+        let mut memory_dict=HashMap::new();
+
+        if let Ok(memories_row) = memories  {
+            for v in memories_row{
+                println!("Restoring memory from DB: {:?}", v);
+                let memory_type_str=v.get("_memory_type").and_then(|val| val.as_str()).unwrap_or("Topic").to_string();
+                let mem_type= MemoryType::from_str(&memory_type_str.as_str()).unwrap_or(MemoryType::Topic);
+                
+                if mem_type!=MemoryType::Topic{
+                    continue;
+                }
+                let mem_id=v.get("_memory_id").and_then(|val| val.as_str()).unwrap_or("").to_string();
+                if mem_id.is_empty(){
+                    continue;
+                }
+                let branch_id=v.get("_branch_id").and_then(|val| val.as_str()).unwrap_or("").to_string();
+                let memory_title=v.get("_memory_title").and_then(|val| val.as_str()).unwrap_or("").to_string();
+                info!("Restoring Memory - ID: {}, Branch ID: {}, Type: {}", mem_id, branch_id, mem_type.as_str());
+                if mem_id==branch_id{
+                    let original_mem_config=MemoryConfig{
+                        _memory_id: mem_id.clone(),
+                        _branch_id: branch_id.clone(),
+                        _read_only: v.get("_read_only").and_then(|val| val.as_i64()).map(|num| num == 1).unwrap_or(false),
+                        _kill_switch: Arc::new(AtomicBool::new(v.get("_kill_switch").and_then(|val| val.as_i64()).map(|num| num == 1).unwrap_or(false))),
+                        _memory_type:mem_type.clone(),
+                        _memory_title:memory_title.clone()
+                    };
+                    memory_dict.insert(mem_id.clone(), Memory::new(Some(original_mem_config), protocol_store.clone(),memory_title, mem_type).await);
+                }
+            }
+        }
+
+
+        memory_dict
+
+    }    /// construct a new Memory container
+
+    pub async fn create_new(mem_config:MemoryConfig,new_flag:bool)->Arc<Self>{
+        let memory_table=GLOBAL_MEMORY_DB.get_or_init(||async  {
+            let memory_db=Memory::init_memory_db().await;
+            DBTable::new("memories".to_string(), Memory::get_schema(), memory_db.pool.clone()).await
+        }).await;
+        // let memory_table = DBTable::new(format!("M_{}", mem_id.clone()), MemoryNode::get_schema(), memory_db.pool.clone()).await;
+        
         let (tx, rx) = channel::unbounded();
-        let my_memory_id=Uuid::now_v7().to_string();
+       
         let arc_memory = Arc::new(Memory {
-            _memory_id: my_memory_id.clone(),
-            _memory_store: MemoryStore::new(),
-            _branch_id: my_memory_id,
+            _memory_id: mem_config._memory_id.clone(),
+            _branch_id: mem_config._branch_id.clone(),
+            _memory_type: mem_config._memory_type,
+            _read_only: mem_config._read_only,
+            _kill_switch: mem_config._kill_switch,
+            _memory_title: mem_config._memory_title,
+
+            _memory_store: MemoryStore::new(mem_config._memory_id).await,
             _memory_tx: tx,
-            _kill_switch:Arc::new(AtomicBool::new(false)),
-            _memory_type:memory_type,
-            _read_only:false
+            _memory_rx: rx,
+            _memories_tbl:memory_table.clone(),
+            invoker_card:Arc::new(Source::new(Role::User,"INVOKER".to_string(),None).await)
         });
 
-        let rx_clone = rx.clone();
+        
+        if new_flag{
+            let json_node=arc_memory.export_to_json();
+            if let Err(e)=memory_table.insert(vec![json_node]).await{
+                error!("Failed to insert memory metadata into DB: {:?}", e);
+            }
+        }
+
+        arc_memory
+    }
+
+    pub async fn new(memory_config:Option<MemoryConfig>,protocol_store: Option<Arc<ProtocolStore>>,memory_title:String,memory_type:MemoryType) -> Arc<Self> {
+        
+        
+        let arc_memory=match memory_config  {
+            Some(memconfig)=>Memory::create_new(memconfig,false).await,
+            None=>{
+                let mem_id=Uuid::now_v7().simple().to_string();
+                let new_mem_config=MemoryConfig{
+                    _memory_id: mem_id.clone(),
+                    _branch_id: mem_id.clone(),    
+                    _kill_switch:Arc::new(AtomicBool::new(false)),
+                    _memory_type:memory_type,
+                    _memory_title:memory_title,
+                    _read_only:false
+                };
+                Memory::create_new(new_mem_config,true).await
+            }
+        };
+
+        let rx_clone = arc_memory._memory_rx.clone();
         let arc_memory_clone = arc_memory.clone();
         let thread_protocol_store = protocol_store.clone();
 
@@ -296,47 +729,55 @@ impl Memory {
                         new_node.branch_id=Some(arc_memory_clone._branch_id.clone());
                     }
                 }
-                info!("SPILL_PATH:{:?}",new_node.spill_path);
+                // info!("SPILL_PATH:{:?}",new_node.spill_path);
                 if let Some(spill_path)=new_node.spill_path.clone(){
                     let spill_content=Memory::read_spill(&spill_path);
-                    info!("SPILL CONTENT{:?}",spill_content);
+                    // info!("SPILL CONTENT{:?}",spill_content);
                     new_node.append_content(spill_content);
+                    new_node.remove_spillpath();
                 }
                 let new_node_content=new_node.get_content();
-                // println!("Inserting Memory Node: {:?}", new_node);
+                // info!("Inserting Memory Node: {:?}", new_node);
                 let kill_switch = arc_memory_clone._kill_switch.load(Ordering::Relaxed);
-                // println!("kill{:?}",kill_switch);
+                // info!("kill{:?}",kill_switch);
                 if kill_switch{
                     info!("Killing Memory ID:{}", arc_memory_clone._memory_id);
                     break
                 }
 
-                let loaded_mem_vec = arc_memory_clone._memory_store.mem_vec.load_full();
-                let mut writable_mem_vec = (*loaded_mem_vec).clone();
-                let new_node_id=new_node.node_id.clone();
-                let new_node_tags=new_node.tags.clone();
+                tokio_rt_handle.block_on(arc_memory_clone._memory_store.insert(new_node));
 
-                writable_mem_vec.push(Arc::new(new_node));
-                let mem_len=writable_mem_vec.len();
-                arc_memory_clone._memory_store.mem_vec.store(Arc::new(writable_mem_vec));
 
-                let mut writable_mem_index=arc_memory_clone._memory_store.mem_indx.write().unwrap();
-                writable_mem_index.insert(
-                    new_node_id.clone(),
-                    mem_len-1,
-                );
 
-                drop(writable_mem_index);
+                // let loaded_mem_vec = arc_memory_clone._memory_store.mem_vec.load_full();
+                // let mut writable_mem_vec = (*loaded_mem_vec).clone();
+                // let new_node_id=new_node.node_id.clone();
+                // let new_node_tags=new_node.tags.clone();
+                
+                // let arc_memory_clone_new=arc_memory_clone.clone();
+                // let json_node=new_node.export_to_json();
+                // tokio_rt_handle.spawn(async move{arc_memory_clone_new._memorynode_table.insert( vec![json_node]).await});
+                // writable_mem_vec.push(Arc::new(new_node));
+                // let mem_len=writable_mem_vec.len();
+                // arc_memory_clone._memory_store.mem_vec.store(Arc::new(writable_mem_vec));
 
-                let mut writable_tags_indx = arc_memory_clone._memory_store.tags_indx.write().unwrap();
+                // let mut writable_mem_index=arc_memory_clone._memory_store.mem_indx.write().unwrap();
+                // writable_mem_index.insert(
+                //     new_node_id.clone(),
+                //     mem_len-1,
+                // );
 
-                for tag in &new_node_tags {
-                    writable_tags_indx
-                        .entry(tag.clone())
-                        .or_default()
-                        .push(new_node_id.clone());
-                }
-                drop(writable_tags_indx);
+                // drop(writable_mem_index);
+
+                // let mut writable_tags_indx = arc_memory_clone._memory_store.tags_indx.write().unwrap();
+
+                // for tag in &new_node_tags {
+                //     writable_tags_indx
+                //         .entry(tag.clone())
+                //         .or_default()
+                //         .push(new_node_id.clone());
+                // }
+                // drop(writable_tags_indx);
 
                 if let Some(protocol_store_clone) = thread_protocol_store.clone(){
                  
@@ -350,10 +791,10 @@ impl Memory {
                             let context_str = caps.get(5).map_or("", |m| m.as_str());
 
                             if action == "run" {
-                                println!("Triggering protocol for node content: {}", new_node_content);
+                                info!("Triggering protocol for node content: {}", new_node_content);
                                 tokio_rt_handle.block_on(protocol_store_clone.trigger_protocol(command.to_string(), Some(format!("{}\n{}", arg, context_str)), arc_memory_clone.clone() ));
                             } else if action == "schedule" {
-                                println!("Scheduling protocol for node content: {}-{}", command,arg);
+                                info!("Scheduling protocol for node content: {}-{}", command,arg);
                                 tokio_rt_handle.block_on(protocol_store_clone.schedule_protocol(&command,&arg,Some(context_str.to_string()),arc_memory_clone.clone()));
                             }
                             else{
@@ -361,7 +802,7 @@ impl Memory {
                             }
                         }
                         else{
-                            println!("No regex match for protocol command in node content: {}", new_node_content);
+                            info!("No regex match for protocol command in node content: {}", new_node_content);
                         }                        
                     }
                 }
@@ -378,10 +819,10 @@ impl Memory {
                 let new_protocol_store=new_protocol_store_clone;
                 let my_memory_id=memory_id_clone;
                 let my_arc_memory=new_arc_memory_clone;
-                println!("Started protocol schedule checker for Memory ID: {}", my_memory_id);
+                info!("Started protocol schedule checker for Memory ID: {}", my_memory_id);
 
                 loop {
-                    // println!("Checking scheduled protocols for Memory ID: {}", my_memory_id);
+                    // info!("Checking scheduled protocols for Memory ID: {}", my_memory_id);
                     if let Ok(file) = fs::File::open(file_path) {
                         let reader = BufReader::new(file);
                         
@@ -394,7 +835,7 @@ impl Memory {
                                         if let Some(schedule_string) = parts.get(1) {
                                             if let Some(handle_name)=parts.get(2){
                                                 if should_trigger(schedule_string) {
-                                                    println!("Triggering scheduled protocol: {} for memory_id: {}", schedule_string, my_memory_id);
+                                                    info!("Triggering scheduled protocol: {} for memory_id: {}", schedule_string, my_memory_id);
                                                     new_protocol_store.trigger_protocol(handle_name.to_string(), Some(parts.get(3).map_or("".to_string(), |s| s.to_string())), my_arc_memory.clone()).await;                                                        
                                                 }
                                             }                                                
@@ -409,7 +850,7 @@ impl Memory {
                 }
             });
         }
-
+        // info!
         arc_memory
     }
     pub fn get_memory_tx(&self) -> Option<channel::Sender<AgentPulse>> {
@@ -423,14 +864,16 @@ impl Memory {
     fn read_spill(spill_path:&String)->String{
         
         let spilled_content=if let Ok(content)=fs::read_to_string(spill_path).map_err(|e| format!("{:?}",e)){
+            
+
+            if let Err(e)=fs::remove_file(spill_path){
+                error!("Failed to remove spill file: {:?}. Error: {:?}",spill_path,e);
+            };
+
             content
         } else {
             "App results File Not Found".to_string()
         };
-
-        if let Err(e)=fs::remove_file(spill_path){
-            error!("Failed to remove spill file: {:?}. Error: {:?}",spill_path,e);
-        }
 
 
         return spilled_content;    
@@ -471,15 +914,19 @@ impl Memory {
         }
 
     }
-    pub fn branch(&self) -> Arc<Self> {
+    pub fn branch(&self,new_title:String) -> Arc<Self> {
         Arc::new(Memory {
             _memory_id: self._memory_id.clone(),
             _memory_store: self._memory_store.clone(),
             _branch_id: Uuid::now_v7().to_string(),
             _memory_tx: self._memory_tx.clone(),
+            _memory_rx: self._memory_rx.clone(),
             _kill_switch:Arc::new(AtomicBool::new(false)),
             _memory_type:self._memory_type.clone(),
-            _read_only:false
+            _read_only:false,
+            _memories_tbl:self._memories_tbl.clone(),
+            invoker_card:self.invoker_card.clone(),
+            _memory_title:new_title
         })
     }
     pub fn get_ready_only_copy(&self) -> Arc<Self> {
@@ -488,9 +935,13 @@ impl Memory {
             _memory_store: self._memory_store.clone(),
             _branch_id: self._branch_id.clone(),
             _memory_tx: self._memory_tx.clone(),
+            _memory_rx: self._memory_rx.clone(),
             _kill_switch:self._kill_switch.clone(),
             _memory_type:self._memory_type.clone(),
-            _read_only:true
+            _read_only:true,
+            _memories_tbl:self._memories_tbl.clone(),
+            invoker_card:self.invoker_card.clone(),
+            _memory_title:self._memory_title.clone()
         })
     }
 
@@ -546,14 +997,14 @@ impl Memory {
                     Some(tgt) => {
                         match source {
                             Some(src) => {
-                                // println!("Filtering node with target: {:?} against source: {:?}", tgt, src);
+                                // info!("Filtering node with target: {:?} against source: {:?}", tgt, src);
                                 src.get_role()==source::Role::Runtime || tgt.get_id() == src.get_id()},
                             None => false
                         }
                     }
                     None =>  true
                 };
-                //  println!("Filtering node: {:?}-{}", node,filter_bool);
+                //  info!("Filtering node: {:?}-{}", node,filter_bool);
                 filter_bool
         }).map(|node| node.as_ref().clone()).collect::<Vec<_>>().into_iter()
     }

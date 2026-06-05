@@ -22,6 +22,7 @@ Before acting on any request, you have **four** tools available. Know all four:
 > If a section is empty or says "None", you have zero capabilities of that type.
 
 - If you see [INVOKE] message in the user message, it means analyse and respond for the new messages after your last reply
+- All apps/protocol/subworker commands in terminal/output blocks must be single-line commands. If an argument contains multi-line content, do not include literal newline characters. Encode newlines as the escaped sequence(use `\\n`).Ensure the entire command remains on a single line.
 ---
 
 # Capability Selection Rules

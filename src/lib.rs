@@ -10,7 +10,8 @@ mod model;
 mod config;
 mod server;
 mod protocol;
-
+mod database;
+use database::DB;
 use anyhow::Error;
 use chrono::Local;
 use itertools::Itertools;
@@ -83,7 +84,7 @@ pub struct Runtime{
     inference_store:Arc<InferenceStore>,
     agent_store:Arc<AgentStore>,
     protocols_store:Arc<ProtocolStore>,
-    runtime_card:Source
+    runtime_card:Source,
 }
 
 impl Runtime{
@@ -93,11 +94,11 @@ impl Runtime{
         let embedder=embedder::new("./model_assets/bge-small-en-v1.5".to_string()).await;
         let app_store=AppStore::new("./apps/".to_string(),embedder.clone()).await;
         let inference_store=InferenceStore::load_configs("./configs/inference_config.toml");
-        let protocol_store=ProtocolStore::new("./protocols/".to_string(),app_store.clone(),inference_store.clone());
+        let protocol_store=ProtocolStore::new("./protocols/".to_string(),app_store.clone(),inference_store.clone()).await;
         let agent_store=AgentStore::load_agents("./configs/agents_config.toml","./configs/subagents_config.toml", inference_store.clone(), app_store.clone(),protocol_store.clone());
-
+        
         let sharedruntime= Arc::new(RwLock::new(Self{
-            topics:HashMap::new(),
+            topics:Memory::restore_topic_memories(Some(protocol_store.clone())).await,
             users:HashMap::new(),
             agents:HashMap::new(),
             embedder,
@@ -105,7 +106,7 @@ impl Runtime{
             inference_store,
             agent_store:Arc::new(agent_store),
             protocols_store:protocol_store,
-            runtime_card:Source::new(source::Role::Runtime, "Runtime".to_string(), None)
+            runtime_card:Source::new(source::Role::Runtime, "Runtime".to_string(), None).await,
         }));
 
         if let Some(addr)=bind{
@@ -210,8 +211,8 @@ impl Runtime{
                         Agent::ping(&cogitare_agent,AgentPulse::NewEpisode(format!("Cogitare Episode:{}",focus_branch_id.clone()),Some(readonly_agent_episode_mem),true,None)).await;
                         tokio::time::sleep(Duration::from_secs(5)).await;
 
-                        let cogitare_user=Source::new(source::Role::User, "CogitareUser".to_string(), None);
-                        let invk_msg=MemoryNode::new(&cogitare_user, "COGITARE:REFLECT".to_string(), None, MemoryNodeType::Message,None, None,None);
+                        let cogitare_user=Source::new(source::Role::User, "CogitareUser".to_string(), None).await;
+                        let invk_msg=MemoryNode::new(&cogitare_user, "COGITARE:REFLECT".to_string(), None, MemoryNodeType::Message,None, None,None).await;
 
                         info!("Cogitare Agent pinged on agent episode {} with new episode",focus_branch_id);
                         Agent::ping(&cogitare_agent,AgentPulse::AddMemoryAndInvoke(invk_msg, Some(focus_branch_id.clone()))).await;
@@ -233,14 +234,22 @@ impl Runtime{
         self.agent_store.list_agents()
     }
 
-    pub async fn create_topic_thread(&mut self)->String{
-        let memory = Memory::new(Some(self.protocols_store.clone()),MemoryType::Topic);
+    pub async fn create_topic_thread(&mut self,topic_title:String)->String{
+        let memory = Memory::new(None,Some(self.protocols_store.clone()),topic_title,MemoryType::Topic).await;
         let memory_id_clone=memory._memory_id.clone();
         self.topics.insert(memory_id_clone.clone(), memory);
         memory_id_clone
     }
+    pub async fn list_all_topics(&self)->Vec<(String,String)>{
+        let mut topic_resp:Vec<(String,String)>=Vec::new();
+        for (topic_id,topic) in &self.topics{
+            topic_resp.push((topic_id.to_string().clone(),topic._memory_title.clone()));
+
+        }
+        topic_resp
+    }
     pub async fn create_user(&mut self,user_name:String)->String{
-        let user_node=source::Source::new(source::Role::User, user_name, None  );
+        let user_node=source::Source::new(source::Role::User, user_name, None  ).await;
         let user_node_id=user_node.get_id();
         self.users.insert(user_node_id.clone(), user_node);
         user_node_id
@@ -249,7 +258,9 @@ impl Runtime{
     }
     pub async fn deploy_agent(&mut self,agent_name:String)->String{
         let agent=self.agent_store.get_agent(agent_name,self.agent_store.clone()).await.unwrap();
+        // println!("Agent obtained from Agent Store.");
         let agent_id=agent.read().await.get_agent_id();
+        // println!("Agent ID {} obtained.", agent_id);
         self.agents.insert(agent_id.clone(), agent.clone());
         agent_id
     }
@@ -300,7 +311,7 @@ impl Runtime{
                     None,
                     None,
                     None
-                )).await;
+                ).await).await;
 
                 Ok("Message Inserted")
             }
@@ -421,12 +432,12 @@ impl PyRuntime {
         })
     }
 
-    fn create_topic_thread<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
+    fn create_topic_thread<'py>(&self,title:String, py: Python<'py>) -> PyResult<&'py PyAny> {
         let runtime = self.inner.clone();
 
         future_into_py(py, async move {
             let mut rt = runtime.write().await;
-            let topic_id =rt.create_topic_thread().await;
+            let topic_id =rt.create_topic_thread(title).await;
             Ok(topic_id)
         })
     }
@@ -586,6 +597,20 @@ impl PyRuntime {
 
             let runtime = rt.read().await;
             Ok(runtime.get_agents_list().await)
+
+        })
+    }
+    fn list_all_topics<'py>(
+        &self,
+        py: Python<'py>
+    ) -> PyResult<&'py PyAny> {
+
+        let rt = self.inner.clone();
+
+        pyo3_asyncio::tokio::future_into_py(py, async move {
+
+            let runtime = rt.read().await;
+            Ok(runtime.list_all_topics().await)
 
         })
     }

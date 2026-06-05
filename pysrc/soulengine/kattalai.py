@@ -22,15 +22,11 @@ logging.basicConfig(filename="newdebug.log", level=logging.INFO)
 SE_AVAILABLE = False
 GLOBAL_SE_RUNTIME = None
 try:
-    # import torch
-    # _torch_lib = os.path.join(os.path.dirname(torch.__file__), "lib")
-    # if os.path.exists(_torch_lib):
-    #     os.add_dll_directory(_torch_lib)
     from soulengine import PyRuntime
     SE_AVAILABLE = True
 except Exception as e:
     print(f"SE import error: {e}")
-    pass  # SE unavailability is shown in badge
+    pass
 
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -551,7 +547,6 @@ class TopicSession:
         self.msg_cursor = 0
 
         # Per-topic message widget snapshots
-        # We store (role, data) tuples: role="user" -> text str, role="agent" -> (agent_name, blocks)
         self.message_log: list[tuple[str, object]] = []
 
         # Per-topic mind history
@@ -890,6 +885,7 @@ class KattalaiApp(App):
     # ── Topic management ──────────────────────────────────────
 
     async def _create_topic(self, name: str) -> TopicSession:
+        """Create a brand-new topic: allocates SE memory, user, and adds a TopicRow."""
         topic = TopicSession(name)
         self._topics.append(topic)
         self._topic_map[topic.local_id] = topic
@@ -897,7 +893,8 @@ class KattalaiApp(App):
         if self.se_ready and self._se_runtime:
             try:
                 topic.se_user_id = await self._se_runtime.create_user(f"kattalaiUser_{topic.local_id}")
-                topic.se_topic_id = await self._se_runtime.create_topic_thread()
+                # FIX: pass the topic name as the title to the Rust create_topic_thread
+                topic.se_topic_id = await self._se_runtime.create_topic_thread(name)
                 self._log_term(f"[#4ade80]episode '{name}' -> se_topic={topic.se_topic_id}[/#4ade80]")
             except Exception as e:
                 self._log_term(f"[#f87171]SE topic init error: {e}[/#f87171]")
@@ -906,6 +903,70 @@ class KattalaiApp(App):
         await topic_list.mount(TopicRow(topic))
 
         self.switch_topic(topic.local_id)
+        return topic
+
+    async def _restore_persisted_topic(self, se_topic_id: str, title: str) -> TopicSession:
+        """Re-attach a topic that already exists inside SoulEngine's persistent memory.
+
+        This mirrors _create_topic but skips create_topic_thread (the memory
+        already exists in Rust) and instead wires up the Python-side
+        TopicSession to the pre-existing se_topic_id.
+
+        After registration the default agent is deployed and a monitor is
+        started exactly like a freshly created topic.
+        """
+        topic = TopicSession(title)
+        topic.se_topic_id = se_topic_id          # wire to the persisted SE memory
+        self._topics.append(topic)
+        self._topic_map[topic.local_id] = topic
+
+        try:
+            topic.se_user_id = await self._se_runtime.create_user(
+                f"kattalaiUser_{topic.local_id}"
+            )
+        except Exception as e:
+            self._log_term(f"[#f87171]SE restore user error ({title}): {e}[/#f87171]")
+
+        # Add TopicRow to the left panel (after the new-episode button)
+        try:
+            topic_list = self.query_one("#topic-list", ScrollableContainer)
+            await topic_list.mount(TopicRow(topic))
+        except NoMatches:
+            pass
+
+        # Load existing history into message_log so the chat pane renders it
+        # when the user opens this topic, then advance msg_cursor to the end
+        # so the background monitor does not double-mount those same messages.
+        try:
+            existing_len = await self._se_runtime.topic_history_len(se_topic_id)
+            if existing_len > 0:
+                raw = await self._se_runtime.iter_topic(se_topic_id, 0)
+                for mem in json.loads(raw):
+                    if mem['role'] == 'user':
+                        topic.message_log.append(("user", mem['content']))
+                    else:
+                        blocks = parse_se_content(mem['content'])
+                        topic.message_log.append(("agent", (mem['name'], blocks)))
+                        topic.last_preview = mem['content'][:40]
+            topic.msg_cursor = existing_len-1
+        except Exception as e:
+            self._log_term(f"[#f87171]SE history load error ({title}): {e}[/#f87171]")
+
+        # Deploy the default agent and re-attach it to the persisted topic.
+        # We pass backstory=None so the Rust NewEpisode pulse reconnects to
+        # the existing episode memory without overwriting the agent's context.
+        default_agent = AGENTS[0] if AGENTS else None
+        if default_agent:
+            await self._add_agent_to_topic_session(topic, default_agent, backstory=None)
+
+        # Kick off the background poll monitor
+        if topic.se_topic_id and not topic._monitor_started:
+            topic._monitor_started = True
+            self.chat_monitor_topic(topic)
+
+        self._log_term(
+            f"[dim]restored persisted episode '{title}' -> se_topic={se_topic_id}[/dim]"
+        )
         return topic
 
     def switch_topic(self, local_id: int) -> None:
@@ -966,17 +1027,11 @@ class KattalaiApp(App):
             pass
 
     async def _restore_topic_messages(self, topic: TopicSession) -> None:
-        """Clear the shared #messages container and repopulate with this topic's history.
-        
-        FIX: Sets _restoring=True so the background monitor does not double-mount
-        messages that arrive while we are rebuilding the DOM. Also restores the
-        placeholder Static so the container is never completely empty.
-        """
+        """Clear the shared #messages container and repopulate with this topic's history."""
         topic._restoring = True
         try:
             msgs = self.query_one("#messages", ScrollableContainer)
             await msgs.query("*").remove()
-            # FIX: restore placeholder so container layout never collapses
             await msgs.mount(Static(""))
             for role, data in topic.message_log:
                 if role == "user":
@@ -984,12 +1039,11 @@ class KattalaiApp(App):
                 elif role == "agent":
                     agent_name, blocks = data
                     await msgs.mount(AgentMsg(agent_name, blocks))
-            await asyncio.sleep(0)  # yield so layout completes before scrolling
+            await asyncio.sleep(0)
             msgs.scroll_end(animate=False)
         except NoMatches:
             pass
         finally:
-            # FIX: always clear the flag, even if an exception occurred
             topic._restoring = False
 
     async def _restore_mind_messages(self, topic: TopicSession) -> None:
@@ -1097,6 +1151,21 @@ class KattalaiApp(App):
                     sel.value = AGENTS[0]
                 except NoMatches:
                     pass
+
+            # ── Restore persisted topics from SoulEngine ──────────────────
+            # list_all_topics() returns [(se_topic_id, title), ...]
+            try:
+                persisted = await self._se_runtime.list_all_topics()
+                if persisted:
+                    log(f"[dim]restoring {len(persisted)} persisted episode(s)…[/dim]")
+                    for se_topic_id, title in persisted:
+                        await self._restore_persisted_topic(se_topic_id, title)
+                    log(f"[#4ade80]restored {len(persisted)} episode(s)[/#4ade80]")
+                else:
+                    log("[dim]no persisted episodes found[/dim]")
+            except Exception as e:
+                log(f"[#f87171]restore persisted topics error: {e}[/#f87171]")
+
         except Exception as e:
             self._set_badge("SE: error", "err")
             log(f"[bold #f87171]SE init error: {e}[/bold #f87171]")
@@ -1105,34 +1174,25 @@ class KattalaiApp(App):
 
     @work()
     async def chat_monitor_topic(self, topic: TopicSession) -> None:
-        """Background monitor scoped to a single TopicSession.
-
-        FIX 1: cursor arithmetic uses cursor_before + len(new_entries) — the
-               old `+ 1` offset caused one message to be skipped every poll cycle.
-
-        FIX 2: checks topic._restoring before mounting to DOM so we never
-               double-mount messages that _restore_topic_messages is already
-               rebuilding from topic.message_log.
-        """
+        """Background monitor scoped to a single TopicSession."""
         if not topic.se_topic_id:
             return
         try:
-            # FIX 1: initialise local cursor from topic state (correct baseline)
+            # Read msg_cursor here, after any restore has already set it,
+            # so we never replay history that was loaded at restore time.
             cursor_before = topic.msg_cursor
             while True:
                 await asyncio.sleep(1)
                 await self._agent_monitor_topic(topic)
 
                 new_len = await self._se_runtime.topic_history_len(topic.se_topic_id)
-                if new_len <= cursor_before:
+                if new_len-1 <= cursor_before:
                     continue
 
-                mem_iter = await self._se_runtime.iter_topic(topic.se_topic_id, cursor_before)
+                mem_iter = await self._se_runtime.iter_topic(topic.se_topic_id, cursor_before+1)
                 mem_iter = json.loads(mem_iter)
                 new_entries = list(mem_iter)
 
-                # FIX 1: removed the erroneous `+ 1` — advance by exactly the
-                # number of entries we received, nothing more.
                 topic.msg_cursor = cursor_before + len(new_entries)
                 cursor_before = topic.msg_cursor
 
@@ -1144,21 +1204,16 @@ class KattalaiApp(App):
                         content = mem['content']
                         blocks = parse_se_content(content)
 
-                        # Always store in topic log regardless of active view
                         topic.message_log.append(("agent", (src, blocks)))
 
                         topic.last_preview = content[:40]
                         topic.last_msg_time = datetime.now()
 
-                        # FIX 2: only touch the DOM when this topic is active AND
-                        # _restore_topic_messages is not currently rebuilding it.
-                        # If _restoring is True the message is already in
-                        # topic.message_log and will be rendered by the restore.
                         if self.active_topic_id == topic.local_id and not topic._restoring:
                             try:
                                 msgs = self.query_one("#messages", ScrollableContainer)
                                 await msgs.mount(AgentMsg(src, blocks))
-                                await asyncio.sleep(0)  # yield so layout settles
+                                await asyncio.sleep(0)
                                 msgs.scroll_end(animate=False)
                             except NoMatches:
                                 pass
@@ -1189,12 +1244,16 @@ class KattalaiApp(App):
             if new_len <= topic.se_active_agent_cursor_before and new_len > 0:
                 return
 
+            # Always fetch from 0 and slice off already-seen entries by count.
+            # This is immune to any off-by-one in Rust's start_index semantics:
+            # whatever iter_agent_episode(id, agent, 0) returns, we skip the
+            # first se_active_agent_cursor_before entries we have already shown.
             mem_iter = await self._se_runtime.iter_agent_episode(
-                topic.se_topic_id, topic.se_active_agent_id,
-                max(0, topic.se_active_agent_cursor_before)
+                topic.se_topic_id, topic.se_active_agent_id, 0
             )
             mem_iter = json.loads(mem_iter)
-            new_entries = list(mem_iter)
+            already_seen = max(0, topic.se_active_agent_cursor_before)
+            new_entries = list(mem_iter)[already_seen:]
             if new_entries:
                 for mem in new_entries:
                     blocks = parse_se_content(mem['content'])
@@ -1210,17 +1269,29 @@ class KattalaiApp(App):
         except Exception as e:
             logging.error(f"Agent Monitor Error: {e}")
 
-    async def _add_agent_to_topic_session(self, topic: TopicSession, name: str) -> None:
-        if not self.se_ready or name in topic.se_added:
+    async def _add_agent_to_topic_session(
+        self,
+        topic: TopicSession,
+        name: str,
+        backstory: Optional[str] = "Answer always Politely and Concisely.",
+    ) -> None:
+        if not self.se_ready:
+            return
+        # se_added guards against re-adding an already live agent, but we only
+        # set it after add_agent_to_topic succeeds below, so a failed previous
+        # attempt will naturally retry.
+        if name in topic.se_added:
             return
         if name not in topic.se_agent_ids or topic.se_agent_ids.get(name) is None:
             try:
                 topic.se_agent_ids[name] = await self._se_runtime.deploy_agent(name)
+                self._log_term(f"[dim]deployed agent {name} -> {topic.se_agent_ids[name]}[/dim]")
             except Exception as e:
-                self._log_term(f"[#f87171]Deploy agent error: {e}[/#f87171]")
+                self._log_term(f"[#f87171]Deploy agent error ({name}): {e}[/#f87171]")
 
         agent_id = topic.se_agent_ids.get(name)
         if not agent_id:
+            self._log_term(f"[#f87171]agent_id is None for {name}, skipping add[/#f87171]")
             return
         try:
             if topic.se_active_agent_id:
@@ -1229,7 +1300,7 @@ class KattalaiApp(App):
                 )
                 topic.se_active_agent_cursor_before = -1
 
-            await self._se_runtime.add_agent_to_topic(topic.se_topic_id, agent_id,"Answer always Politely and Concisely.")
+            await self._se_runtime.add_agent_to_topic(topic.se_topic_id, agent_id, backstory)
             topic.se_active_agent_id = agent_id
             topic.se_active_agent_name = name
             topic.se_added.add(name)
@@ -1310,6 +1381,7 @@ class KattalaiApp(App):
                 await self._add_agent_to_topic_session(topic, agent_name)
         try:
             await self._se_runtime.insert_message(topic.se_topic_id, topic.se_user_id, text)
+            
         except Exception as e:
             self._log_term(f"[#f87171]SE send error: {e}[/#f87171]")
             blocks = [("output", f"Error: {e}")]
@@ -1496,7 +1568,7 @@ def open_folder():
 def setup():
     os.chdir(Path(__file__).parent)
     base = Path(__file__).parent
-    folders = ["apps", "configs", "model_assets", "knowledge_base","protocols"]
+    folders = ["apps", "configs", "model_assets", "knowledge_base", "protocols","data"]
     if all((base / f).exists() for f in folders):
         print("Already set up.")
         return
@@ -1526,7 +1598,7 @@ def setup():
 def upgrade():
     os.chdir(Path(__file__).parent)
     base = Path(__file__).parent
-    folders = ["apps", "configs", "model_assets", "knowledge_base","protocols"]
+    folders = ["apps", "configs", "model_assets", "knowledge_base", "protocols","data"]
     print("Upgrading kattalai package…")
     subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "kattalai"], check=True)
     print("  ✓ Package upgraded")

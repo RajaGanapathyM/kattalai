@@ -2,6 +2,8 @@ use crate::appstore::AppStore;
 use futures::executor::block_on;
 use futures::task;
 use crate::{agent, memory, source};
+use std::str::FromStr;
+use serde::{Serialize,Deserialize};
 use crate::memory::{Memory,MemoryNode,MemoryNodeType,IOPhase};
 use crate::source::{Source,Role};
 use crate::terminal::Terminal;
@@ -25,7 +27,6 @@ use reqwest::header::AGE;
 use std::fmt::{self, format};
 
 use std::result::Result;
-use serde::Deserialize;
 use std::fs;
 use crate::InferenceStore;
 use crossbeam::channel;
@@ -78,7 +79,7 @@ pub fn get_sys_info() -> String {
     )
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PromptStyle{
     REASONING,
     RAC,
@@ -88,11 +89,40 @@ pub enum PromptStyle{
     PREFLIGHT,
     
 }
+impl PromptStyle{
+    pub fn as_str(&self)->&str{
+        match self {
+            PromptStyle::REASONING => "reasoning",
+            PromptStyle::RAC => "rac",
+            PromptStyle::TOF => "tof",
+            PromptStyle::PROTOCOL => "protocol",
+            PromptStyle::REPAIR => "repair",
+            PromptStyle::PREFLIGHT => "preflight",
+        }
+
+    }
+}
+impl FromStr for PromptStyle{
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "reasoning" => Ok(PromptStyle::REASONING),
+            "rac" => Ok(PromptStyle::RAC),
+            "tof" => Ok(PromptStyle::TOF),
+            "protocol" => Ok(PromptStyle::PROTOCOL),
+            "repair" => Ok(PromptStyle::REPAIR),
+            "preflight" => Ok(PromptStyle::PREFLIGHT),
+            _ => Err(()),
+        }
+    }
+}
 pub struct episode{
     episode_id:String,
     episode_memory:Arc<Memory>,
     episode_desc:String,
     interface_memory:Option<Arc<Memory>>,
+    init_imemory_id:Arc<Option<String>>,
     last_fetched_imemory_id:Mutex<Option<String>>,
     agent_lock:Mutex<bool>,
     followup_planned:Mutex<bool>,
@@ -103,6 +133,14 @@ pub struct episode{
     episode_backstory: Mutex<Option<String>>
 }
 impl  episode {
+    pub fn check_history_invoke(&self, latest_mem_id:String) ->bool{
+        if let Some(init_id)=(*self.init_imemory_id).clone(){
+            init_id!=latest_mem_id
+        }
+        else{
+            true
+        }
+    }
 
     pub async fn update_episode_backstory(&self, new_backstory: String) {
         // Since episode_backstory is an Option<String>, we can simply replace it with the new backstory wrapped in Some()
@@ -135,8 +173,8 @@ impl  episode {
     pub fn get_episode_memory_branch_id(&self)->String{
         self.episode_memory.get_branch_id()
     }
-    pub fn branch_episode_memory(&self)->Arc<Memory>{
-        self.episode_memory.branch()
+    pub fn branch_episode_memory(&self,title:String)->Arc<Memory>{
+        self.episode_memory.branch(title)
     }
     pub fn get_read_only_episode_memory(&self)->Arc<Memory>{
         self.episode_memory.get_ready_only_copy()
@@ -189,7 +227,6 @@ impl  episode {
     
 }
 
-#[derive(Debug)]
 pub enum AgentPulse{
     Invoke(Option<String>),
     Generate,
@@ -209,7 +246,106 @@ pub enum AgentPulse{
     SetMetaCogSkip(String,bool),
 }
 
-#[derive(Debug)]
+impl fmt::Debug for AgentPulse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AgentPulse::Invoke(episode_id) => {
+                f.debug_tuple("Invoke")
+                    .field(episode_id)
+                    .finish()
+            }
+            AgentPulse::Generate => {
+                f.debug_struct("Generate").finish()
+            }
+            AgentPulse::ResolveTask(task_id, task_desc, _interface_memory, _tx, episode_backstory) => {
+                f.debug_tuple("ResolveTask")
+                    .field(task_id)
+                    .field(task_desc)
+                    .field(&"<Arc<Memory>>")
+                    .field(&"<channel::Sender<AgentPulse>>")
+                    .field(episode_backstory)
+                    .finish()
+            }
+            AgentPulse::NewEpisode(episode_desc, _interface_memory, react_for_history, episode_backstory) => {
+                f.debug_tuple("NewEpisode")
+                    .field(episode_desc)
+                    .field(&"<Arc<Memory>>")
+                    .field(react_for_history)
+                    .field(episode_backstory)
+                    .finish()
+            }
+            AgentPulse::AttachApp(_app) => {
+                f.debug_tuple("AttachApp")
+                    .field(&"<App>")
+                    .finish()
+            }
+            AgentPulse::AddMemory(_memory_node, episode_id) => {
+                f.debug_tuple("AddMemory")
+                    .field(&"<MemoryNode>")
+                    .field(episode_id)
+                    .finish()
+            }
+            AgentPulse::AddMultipleMemories(memory_nodes, episode_id) => {
+                f.debug_tuple("AddMultipleMemories")
+                    .field(&format!("<Vec<MemoryNode> with {} items>", memory_nodes.len()))
+                    .field(episode_id)
+                    .finish()
+            }
+            AgentPulse::AddMultipleMemoriesAndInvoke(memory_nodes, episode_id) => {
+                f.debug_tuple("AddMultipleMemoriesAndInvoke")
+                    .field(&format!("<Vec<MemoryNode> with {} items>", memory_nodes.len()))
+                    .field(episode_id)
+                    .finish()
+            }
+            AgentPulse::AddMemoryAndInvoke(_memory_node, episode_id) => {
+                f.debug_tuple("AddMemoryAndInvoke")
+                    .field(&"<MemoryNode>")
+                    .field(episode_id)
+                    .finish()
+            }
+            AgentPulse::UpdateEpisode(last_node_id, episode_id) => {
+                f.debug_tuple("UpdateEpisode")
+                    .field(last_node_id)
+                    .field(episode_id)
+                    .finish()
+            }
+            AgentPulse::unlockAgentForEpisode(episode_id) => {
+                f.debug_tuple("unlockAgentForEpisode")
+                    .field(episode_id)
+                    .finish()
+            }
+            AgentPulse::UpdateEpisodeContext(episode_id, context) => {
+                f.debug_tuple("UpdateEpisodeContext")
+                    .field(episode_id)
+                    .field(context)
+                    .finish()
+            }
+            AgentPulse::lockAgentForEpisode(episode_id) => {
+                f.debug_tuple("lockAgentForEpisode")
+                    .field(episode_id)
+                    .finish()
+            }
+            AgentPulse::SetAgentFollowupStatus(episode_id, planned) => {
+                f.debug_tuple("SetAgentFollowupStatus")
+                    .field(episode_id)
+                    .field(planned)
+                    .finish()
+            }
+            AgentPulse::InvokeMetaCog(episode_id) => {
+                f.debug_tuple("InvokeMetaCog")
+                    .field(episode_id)
+                    .finish()
+            }
+            AgentPulse::SetMetaCogSkip(episode_id, flag) => {
+                f.debug_tuple("SetMetaCogSkip")
+                    .field(episode_id)
+                    .field(flag)
+                    .finish()
+            }
+        }
+    }
+}
+
 pub enum EpisodePulse{
     AttachListener(String,Arc<Memory>,Arc<Memory>),
 }
@@ -363,6 +499,7 @@ impl AgentStore{
             return Ok(readble_activated_agents.get(&agent_name.to_lowercase()).unwrap().clone());
         }
         drop(readble_activated_agents);
+        info!("Activating agent:{}",agent_name);
         if self.agents_config.contains_key(&agent_name.to_lowercase()){
 
             let aconfig=self.agents_config.get(&agent_name.to_lowercase()).unwrap();
@@ -388,22 +525,25 @@ impl AgentStore{
 
             for dapp in &aconfig.default_apps{
                 info!("Attaching default app:{} to agent:{}",dapp,agent_name);
-                let identified_app=self.app_store.clone_app(dapp.clone());
+                let identified_app=self.app_store.clone_app(dapp.clone()).await;
                 if identified_app.is_none(){
                     error!("Default app:{} for agent:{} not found in app store",dapp,agent_name);
                     continue;
                 }
-                block_on(Agent::ping(&first_agent,AgentPulse::AttachApp(identified_app.unwrap())));
+                Agent::ping(&first_agent,AgentPulse::AttachApp(identified_app.unwrap())).await;
             }
             let mut writeble_activated_agents=self.activated_agents.write().await;
 
             writeble_activated_agents.insert(agent_name.clone().to_lowercase(), first_agent.clone());
-            
+            info!("Returning get agent");
             Ok(first_agent)
         }
         else{
+            info!("Returning ERROR get agent");
             Err(format!("No agent named:{} found",agent_name))
         }
+        
+        
 
 
     }
@@ -429,6 +569,7 @@ pub struct Agent{
     episodes:Arc<RwLock<HashMap<String,Arc<episode>>>>,
     invoke_post_fn:Option<fn(String,&mut Agent)->MemoryNode>,
     validator_card:Source,
+    reflector_card:Source,
     _agent_tx: channel::Sender<AgentPulse>,
     _agent_rx: channel::Receiver<AgentPulse>,
     app_store:Arc<AppStore>,
@@ -451,8 +592,9 @@ impl Agent{
         allow_self_selected_apps:bool,
         agent_store:Option<Arc<AgentStore>>
     )->Arc<RwLock<Arc<Self>>>{
+        
         let (tx, rx) = channel::unbounded();
-        let agent_card=Source::new(Role::Agent, agent_name.clone(), Some(agent_info));
+        let agent_card      =Source::resolve_source_async(Source::new(Role::Agent, agent_name.clone(), Some(agent_info)));
         
         let episodes=Arc::new(RwLock::new(HashMap::new()));
         let new_agent=Arc::new(RwLock::new(Arc::new(Self{
@@ -465,7 +607,8 @@ impl Agent{
             terminal:Arc::new(Terminal::new(Some(app_store.clone()), Some(tx.clone()),agent_store.clone())),
             latest_episode_id:RwLock::new(None),
             invoke_post_fn,
-            validator_card:Source::new(Role::User,format!("{}ResponseValidator",agent_name.clone()),None),
+            validator_card:Source::resolve_source_async(Source::new(Role::User,format!("{}ResponseValidator",agent_name.clone()),None)),
+            reflector_card:Source::resolve_source_async(Source::new(Role::User,format!("{}Reflector",agent_name.clone()),None)),
             _agent_tx:tx.clone(),
             _agent_rx:rx.clone(),
             app_store,
@@ -488,9 +631,10 @@ impl Agent{
                 
 
                 while let Ok(new_pulse) = agent_rx_clone.recv() {
+
                         let aclone=new_agent_clone.clone();                 
                         
-                        // info!("Agent message receive:");
+                        info!("Agent message received:{:?}",new_pulse);
                         match new_pulse{
                             AgentPulse::UpdateEpisodeContext(epid,contxt )=>{
                                 let agent_name_clone=agent_name.clone();
@@ -504,7 +648,7 @@ impl Agent{
                                             repisode.update_episode_backstory(contxt).await;
                                         },
                                         None=>{error!("Episode with ID {} not found for context update.", epid);}
-                                    }
+                                    }                                    
                                 });
                             }
                             AgentPulse::Invoke(epid)=>{
@@ -618,7 +762,7 @@ impl Agent{
                                 });
 
                             }
-                            _=>{info!("Unknown pulse:{:?}",new_pulse);}
+                            _=>{info!("Unknown pulse");}
                         }
                     }
         });   
@@ -664,15 +808,20 @@ impl Agent{
                                     need_invoke=false;
                                 }
 
+                                let mut first_invoke_check=true;
+                                
+
                                 info!("Need incoke:{} - {}",need_invoke,incremental_memories.len());
                                 info!("Last me : {:?}",last_mem);
                                 
                                 if let Some(lastmem)=last_mem{
                                     info!("Sending Update event");
                                     let last_nodeid=lastmem.get_node_id();
+                                    first_invoke_check=episode.check_history_invoke(last_nodeid.clone());
+                                    info!("INVOKE OVERRIDE:{}",first_invoke_check);
                                     agent_tx_clone.send(AgentPulse::UpdateEpisode(last_nodeid.clone(),episode_id.clone())).unwrap();
                                 }
-                                if need_invoke{
+                                if need_invoke && first_invoke_check{
                                     agent_tx_clone.send(AgentPulse::AddMultipleMemoriesAndInvoke(incremental_memories.clone(),Some(episode.episode_id.clone()))).unwrap();
                                 }
                                 else{
@@ -835,16 +984,20 @@ impl Agent{
 
     }
     async fn _invoke(new_agent_clone: Arc<RwLock<Arc<Agent>>>,epid: Option<String>,is_meta_cog_org:bool){
+        info!("ENTERING INVOKE :{:?}",epid);
         let mut is_meta_cog=is_meta_cog_org.clone();
+        info!("Fetching agent lock :{:?}",epid);
         let agent_lock = new_agent_clone.read().await;
-
+        info!("Fetching episode :{:?}",epid);
         let latest_episode_id=agent_lock.latest_episode_id.read().await.clone();
+        info!("Starting _invoke :{:?}",epid);
         let agent_store=agent_lock.agent_store.clone();
         let reasoning_model_clone=agent_lock.reasoning_model.clone();
         let nlp_model_clone=agent_lock.nlp_model.clone();
         let agent_card=agent_lock.agent_card.clone();
         let episode_id=epid.clone();
         let validator_card=agent_lock.validator_card.clone();
+        let reflector_card=agent_lock.reflector_card.clone();
         let agent_tx_clone=agent_lock._agent_tx.clone();
         let allow_self_selected_apps=agent_lock.allow_self_selected_apps;
         
@@ -852,9 +1005,16 @@ impl Agent{
         
         match &epid{
             Some(eid)=>{
-                // agent_tx_clone.send(AgentPulse::lockAgentForEpisode(eid.clone())).unwrap();
-                match agent_lock.episodes.read().await.get(eid).cloned(){
+                info!("Acquiring Readble episode:{}",eid);
+                let readable_episode=agent_lock.episodes.read().await;
+                info!("Cloning episode:{}",eid);
+                let cloned_episode=readable_episode.get(eid).cloned();
+                info!("Entering invoke loop:{}",eid);
+                drop(readable_episode);
+                info!("Dropped readble episode:{}",eid);
+                match cloned_episode{
                     Some(current_episode)=>{
+                        agent_tx_clone.send(AgentPulse::lockAgentForEpisode(eid.clone())).unwrap();
                         let is_subtask= current_episode.is_subtask();
                         let episode_context= current_episode.get_episode_context().await;
                         let main_agent_tx=current_episode.main_agent_tx.clone();
@@ -873,7 +1033,7 @@ impl Agent{
 
                             for app_handle_name in tools_select.iter(){
                                 info!("Launching New App:{} | Agent:{}",app_handle_name,agent_card.get_name());
-                                let new_app=agent_lock.app_store.clone_app(app_handle_name.clone());
+                                let new_app=agent_lock.app_store.clone_app(app_handle_name.clone()).await;
                                 if new_app.is_none(){
                                     error!("App:{} not found in app store",app_handle_name);
                                     continue;
@@ -900,21 +1060,21 @@ impl Agent{
                             metacog_prompt.clone()
                         }
                         else{
-                            agent_lock.get_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask,&episode_context)                            
+                            agent_lock.get_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask,&episode_context).await                      
                         };
                         // info!("Model Prompt :\n{}",agent_prompt);
                         let agent_tof_prompt=if is_meta_cog{
                             metacog_prompt.clone()
                         }
                         else{
-                            agent_lock.get_tof_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask,&episode_context)                            
+                            agent_lock.get_tof_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask,&episode_context).await                           
                         };
                         
                         let agent_rac_prompt=if is_meta_cog{
                             metacog_prompt.clone()
                         }
                         else{
-                            agent_lock.get_rac_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask,&episode_context)                            
+                            agent_lock.get_rac_sys_prompt(&current_sys_info,&app_chain_str,&subworker_book,&is_subtask,&episode_context).await                           
                         };      
                         
                         let terminal=agent_lock.terminal.clone();
@@ -924,6 +1084,7 @@ impl Agent{
                         let mlen=current_episode.episode_memory.get_memory_len().await;
                         info!("Episode Mem len2:{}",mlen);
                         let current_episode_memory=current_episode.episode_memory.clone();
+                        drop(agent_lock);
                         Agent::invoke(
                             latest_episode_id,
                             current_episode_memory,
@@ -937,13 +1098,16 @@ impl Agent{
                             terminal,
                             interface_memory,
                             validator_card.clone(),
-                            agent_tx_clone,  
+                            reflector_card.clone(),
+                            agent_tx_clone.clone(),  
                             is_meta_cog ,
                             agent_store,
                             is_subtask,
                             main_agent_tx,
                             main_epid
                         ).await;
+                        agent_tx_clone.send(AgentPulse::unlockAgentForEpisode(eid.clone())).unwrap();
+
 
                     },
                     None=>{}
@@ -951,6 +1115,8 @@ impl Agent{
             }
             None=>{}
         };
+    
+    
     }
     pub async fn attach_app(agent_self:Arc<RwLock<Arc<Agent>>>,app:App){
         let agent_locked=agent_self.read().await.clone();
@@ -987,7 +1153,7 @@ impl Agent{
         } else {
             Uuid::now_v7().to_string()
         };
-        let episode_memory=Memory::new(None,MemoryType::AgentEpisode);
+        let episode_memory=Memory::new(None,None,episode_desc.clone(),MemoryType::AgentEpisode).await;
         
         let latest_fetched_id=match &episode_interface_memory{
             Some(mem)=>{
@@ -1004,7 +1170,8 @@ impl Agent{
         *writable_episode=Some(episode_id.clone());
 
         let mut writable_episodes=agent_self.episodes.write().await;    
-        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc,interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false),metacog_skip:Mutex::new(false),is_subtask:false,main_agent_tx:None,main_agent_epid:None ,episode_backstory:Mutex::new(episode_backstory)}));
+
+        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc,interface_memory:episode_interface_memory,init_imemory_id:Arc::new(latest_fetched_id),last_fetched_imemory_id:Mutex::new(None) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false),metacog_skip:Mutex::new(false),is_subtask:false,main_agent_tx:None,main_agent_epid:None ,episode_backstory:Mutex::new(episode_backstory)}));
     
         
         info!("New Episode Launched:{}",episode_id);
@@ -1018,18 +1185,18 @@ impl Agent{
         let agent_self=agent_lock.write().await;
         let mut episode_id=task_id;
         
-        let episode_memory=Memory::new(None,MemoryType::AgentEpisode);
+        let episode_memory=Memory::new(None,None,format!("TASK:{}",episode_id),MemoryType::AgentEpisode).await;
         
-        let latest_fetched_id=None;
+        // let latest_fetched_id=None;
         let mut writable_episode=agent_self.latest_episode_id.write().await;
         *writable_episode=Some(episode_id.clone());
 
         let mut writable_episodes=agent_self.episodes.write().await;    
-        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc:task_desc.clone(),interface_memory:episode_interface_memory,last_fetched_imemory_id:Mutex::new(latest_fetched_id) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false),metacog_skip:Mutex::new(false),is_subtask:true,main_agent_tx:ma_tx,main_agent_epid:ma_epid,episode_backstory:Mutex::new(episode_backstory)}));
+        writable_episodes.insert(episode_id.clone(), Arc::new(episode { episode_id:episode_id.clone(), episode_memory:episode_memory.clone(),episode_desc:task_desc.clone(),interface_memory:episode_interface_memory,init_imemory_id:Arc::new(None),last_fetched_imemory_id:Mutex::new(None) ,agent_lock:Mutex::new(false),followup_planned:Mutex::new(false),metacog_skip:Mutex::new(false),is_subtask:true,main_agent_tx:ma_tx,main_agent_epid:ma_epid,episode_backstory:Mutex::new(episode_backstory)}));
     
         
         info!("New Task Episode Launched:{}",episode_id);
-        episode_memory.insert(MemoryNode::new(&agent_self.agent_card, task_desc, None, MemoryNodeType::Message, None, None, None)).await;
+        episode_memory.insert(MemoryNode::new(&agent_self.agent_card, task_desc, None, MemoryNodeType::Message, None, None, None).await).await;
 
         agent_self._agent_tx.send(AgentPulse::Invoke(Some(episode_id.clone()))).unwrap();
     }
@@ -1140,7 +1307,7 @@ impl Agent{
         
         let episodes=self.episodes.read().await;
         if episodes.contains_key(&episode_id){
-            episodes.get(&episode_id).unwrap().get_agent_lock_status().await
+            episodes.get(&episode_id).unwrap().is_episode_active().await
 
         }
         else{
@@ -1178,7 +1345,7 @@ impl Agent{
     }
 
     
-    fn get_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool,episode_context:&String)->String{
+    async fn get_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool,episode_context:&String)->String{
         // info!("App Guidebook:\n{}",self.terminal.get_app_guidebook());
         // if self.agent_card.get_name()=="Cogitare"{
         //     info!("Using custom prompt for Cogitare : Reasoning Prompt");
@@ -1190,7 +1357,7 @@ impl Agent{
             agent_rules=include_str!("../prompts/SUBAGENT_OPERATING_RULES.md"),
             agent_goal=self.agent_goal,
             agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
-            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            app_guidelines=self.terminal.get_app_guidebook().await,
             current_os_info=current_sys_info,
             knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string())) 
         }
@@ -1201,7 +1368,7 @@ impl Agent{
             agent_goal=self.agent_goal,
             agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
             agent_episode_context=episode_context,
-            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            app_guidelines=self.terminal.get_app_guidebook().await,
             protocols_book=self.protocols_store.get_protocols_book(),
             current_os_info=current_sys_info,
             knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()),
@@ -1217,7 +1384,7 @@ impl Agent{
         
     }
 
-    fn get_tof_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool,episode_context:&String)->String{
+    async fn get_tof_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool,episode_context:&String)->String{
         // if self.agent_card.get_name()=="Cogitare"{
         //     info!("Using custom prompt for Cogitare : TOF Prompt");
         //     return fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.md").unwrap();
@@ -1230,7 +1397,7 @@ impl Agent{
             agent_rules=include_str!("../prompts/SUBAGENT_OPERATING_RULES.md"),
             agent_goal=self.agent_goal,
             agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
-            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            app_guidelines=self.terminal.get_app_guidebook().await,
             current_os_info=current_sys_info,
             knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()),)
         }
@@ -1241,7 +1408,7 @@ impl Agent{
             agent_goal=self.agent_goal,
             agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
             agent_episode_context=episode_context,
-            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            app_guidelines=self.terminal.get_app_guidebook().await,
             protocols_book=self.protocols_store.get_protocols_book(),
             current_os_info=current_sys_info,
             knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()),
@@ -1251,7 +1418,7 @@ impl Agent{
 
     
 
-    fn get_rac_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool,episode_context:&String)->String{
+    async fn get_rac_sys_prompt(&self,current_sys_info:&String,app_chain_str:&String,subworker_book:&String,is_subtask:&bool,episode_context:&String)->String{
         // if self.agent_card.get_name()=="Cogitare"{
         //     info!("Using custom prompt for Cogitare : RAC Prompt");
         //     return fs::read_to_string("./prompts/AGENT_COGITARE_PROMPT.md").unwrap();
@@ -1264,7 +1431,7 @@ impl Agent{
             agent_rules=include_str!("../prompts/SUBAGENT_OPERATING_RULES.md"),
             agent_goal=self.agent_goal,
             agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
-            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            app_guidelines=self.terminal.get_app_guidebook().await,
             current_os_info=current_sys_info,
             knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()))
         }
@@ -1275,7 +1442,7 @@ impl Agent{
             agent_goal=self.agent_goal,
             agent_backstory=self.backstory.clone(),// app_chain_str=app_chain_str,
             agent_episode_context=episode_context,
-            app_guidelines=block_on(self.terminal.get_app_guidebook()),
+            app_guidelines=self.terminal.get_app_guidebook().await,
             protocols_book=self.protocols_store.get_protocols_book(),
             current_os_info=current_sys_info,
             knowledge_base_index=fs::read_to_string("./knowledge_base/index.md").unwrap_or_else(|_| "".to_string()),
@@ -1308,7 +1475,7 @@ impl Agent{
             combined_error=format!("Errors:\n{}",erro_v.join("\n"));
 
             info!("Error Identified:\n{}",combined_error);
-            current_episode_memory.insert(MemoryNode::new(validator_card,combined_error.clone() , prompt_style, MemoryNodeType::ModelError,Some(invoc_id),None,None)).await;
+            current_episode_memory.insert(MemoryNode::new(validator_card,combined_error.clone() , prompt_style, MemoryNodeType::ModelError,Some(invoc_id),None,None).await).await;
         }
         combined_error
 
@@ -1347,6 +1514,7 @@ impl Agent{
         terminal:Arc<Terminal>,
         interface_memory:Option<Arc<Memory>>,
         validator_card:Source,
+        reflector_card:Source,
         agent_tx:channel::Sender<AgentPulse>,
         is_metacog_run:bool,
         agent_store:Option<Arc<AgentStore>>,
@@ -1381,7 +1549,7 @@ impl Agent{
         let mut meta_cog_msg_sent=false;
         let mut preflight_response=String::new();
         if !is_metacog_run{
-            current_episode_memory.append_user_last_node("[INVOKE]".to_string());
+            current_episode_memory.append_user_last_node("[INVOKE]".to_string()).await;
         }
         while need_rerun && run_count<MAX_RUN_ALLOWED {
             
@@ -1411,7 +1579,7 @@ impl Agent{
                         
                         agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, preflight_response.clone(),
                                                     Some(PromptStyle::PREFLIGHT),
-                                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None),
+                                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None).await,
                                 Some(invoke_epid.clone()))).unwrap();
                         info!("PREFLIGHT MODEL RESP Agent :{} for episode:{} | MetaCog:{} |\n{}",agent_card.get_name(),invoke_epid,is_metacog_run,preflight_response);
                         let parsed_preflight=AgentResponseParser::parse_preflight_response(&preflight_response);
@@ -1475,12 +1643,11 @@ impl Agent{
                     }
                 };
                 if is_metacog_run && !meta_cog_msg_sent{
-                    let reflectorcard=Source::new(Role::User,format!("{}reflector",agent_card.get_name()),None);
 
                     meta_cog_msg_sent=true;
-                    agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&reflectorcard, "[REFLECT]".to_string(),
+                    agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&reflector_card, "[REFLECT]".to_string(),
                                                 None, 
-                                                MemoryNodeType::ReflectionPrompt,Some(invoc_id.clone()),None,None),
+                                                MemoryNodeType::ReflectionPrompt,Some(invoc_id.clone()),None,None).await,
                             Some(invoke_epid.clone()))).unwrap();
                     info!("Waiting for Reflector Init Message");
                     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -1490,7 +1657,7 @@ impl Agent{
                     info!("Last response was empty, sending reminder message to model");
                     agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&validator_card, "You are required to respond with a valid response.Check for new informations or updates and continue your task".to_string(),
                                         None, 
-                                        MemoryNodeType::ModelError,Some(invoc_id.clone()),None,None),
+                                        MemoryNodeType::ModelError,Some(invoc_id.clone()),None,None).await,
                     Some(invoke_epid.clone()))).unwrap();
                     info!("Waiting for Empty Response Init Message");
                     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -1506,7 +1673,7 @@ impl Agent{
 
                 agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, resp.clone(),
                                     choosen_prompt.clone(), 
-                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None),
+                                    MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None).await,
                  Some(invoke_epid.clone()))).unwrap();
                 
                 let mut error_ls:Vec<ParseError>=Vec::new();
@@ -1590,10 +1757,10 @@ impl Agent{
                     
                     agent_tx.send(AgentPulse::AddMemory(MemoryNode::new(&agent_card, resp.clone(),
                                         choosen_prompt.clone(), 
-                                        MemoryNodeType::Message,Some(invoc_id.clone()),None,None),
+                                        MemoryNodeType::Message,Some(invoc_id.clone()),None,None).await,
                     Some(invoke_epid.clone()))).unwrap();
                     if is_subtask{
-                        let output_memory_node=MemoryNode::new(&agent_card, resp.clone(), choosen_prompt.clone(), MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None);
+                        let output_memory_node=MemoryNode::new(&agent_card, resp.clone(), choosen_prompt.clone(), MemoryNodeType::ModelResponse,Some(invoc_id.clone()),None,None).await;
                         match &interface_memory{
                             Some(imemory)=>{
                                 if imemory._read_only{
@@ -1623,7 +1790,7 @@ impl Agent{
                             else{
                                 outputs.join("\n")
                             };
-                            let output_memory_node=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Message,Some(invoc_id.clone()),None,None);
+                            let output_memory_node=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Message,Some(invoc_id.clone()),None,None).await;
                             match &interface_memory{
                                 Some(imemory)=>{
                                     if imemory._read_only{
@@ -1661,7 +1828,7 @@ impl Agent{
                                         trimmed_cmds.to_string().clone()
                                     };
 
-                                    let output_memory_node=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Message,Some(invoc_id.clone()),None,None);
+                                    let output_memory_node=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Message,Some(invoc_id.clone()),None,None).await;
                                     match &interface_memory{
                                         Some(imemory)=>{
                                             if imemory._read_only{
@@ -1761,7 +1928,7 @@ impl Agent{
                 else{
                     "Error Processing Last Message.Please try again".to_string()
                 };
-                let error_message=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Error,Some(invoc_id.clone()),None,None);
+                let error_message=MemoryNode::new(&agent_card, output_content, None, MemoryNodeType::Error,Some(invoc_id.clone()),None,None).await;
                 match &interface_memory{
                     Some(imemory)=>{
                         if imemory._read_only{
@@ -1785,7 +1952,7 @@ impl Agent{
                         let inovke_mem=MemoryNode::new(&validator_card,
                              format!("Subworker {} completed task and sent response. Analyze and continue task or show output as required.", agent_card.get_name()),
                              None,
-                             MemoryNodeType::Message,Some(invoc_id.clone()),None,None);
+                             MemoryNodeType::Message,Some(invoc_id.clone()),None,None).await;
                         if let Err(e)=mtx.send(AgentPulse::AddMemoryAndInvoke(inovke_mem,Some(ma_epid.clone()))){
                             error!("Error occurred while invoking main agent: {}", e);
                         }
