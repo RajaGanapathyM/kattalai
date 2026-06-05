@@ -2,7 +2,7 @@
 
 # கட்டளை · kattalai
 
-**An AI agent runtime that orchestrates Python apps to act as your coworker.**
+**An AI Harness that orchestrates Python apps to act as your coworker.**
 
 [![PyPI](https://img.shields.io/pypi/v/kattalai?color=0a0a0a&style=flat-square)](https://pypi.org/project/kattalai/)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square)](LICENSE)
